@@ -1,4 +1,4 @@
-#include <PriorityMutex.hpp>
+#include "PriorityMutex.hpp"
 #include "Scheduler.hpp"
 #include "Hooks.hpp"
 #include "CortexM.hpp"

@@ -14,7 +14,7 @@
  * 			to create a task is @c Task, which already contains a stack space
  *
  ******************************************************************************
- * @copyright Copyright 2019 EZNOV SAS under the MIT License
+ * @copyright Copyright 2019 Thomas Legrand under the MIT License
  *
  * The MIT License (MIT)
  *

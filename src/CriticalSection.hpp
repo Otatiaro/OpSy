@@ -19,7 +19,7 @@
  * 			This ensures the lock will be released when the object is discarded
  *
  ******************************************************************************
- * @copyright Copyright 2019 EZNOV SAS under the MIT License
+ * @copyright Copyright 2019 Thomas Legrand under the MIT License
  *
  * The MIT License (MIT)
  *

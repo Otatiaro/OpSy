@@ -69,7 +69,7 @@
 
 #pragma once
 
-#include <PriorityMutex.hpp>
+#include "PriorityMutex.hpp"
 #include <cstdint>
 #include <chrono>
 #include <ratio>

@@ -324,6 +324,8 @@ public:
 		case SystemIrq::Systick:
 			MemoryRegister<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
 			break;
+		case SystemIrq::InitialSp:
+		case SystemIrq::Reset:
 		default:
 			assert(false);
 			break;
@@ -347,6 +349,8 @@ public:
 		case SystemIrq::Systick:
 			return IsrPriority(MemoryRegister<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
 			break;
+		case SystemIrq::InitialSp:
+		case SystemIrq::Reset:
 		default:
 			assert(false);
 			return IsrPriority(0);
@@ -429,6 +433,7 @@ public:
 		{
 			return getVtor()[static_cast<std::size_t>(irq)];
 		}
+		case SystemIrq::InitialSp:
 		default:
 			assert(false);
 			return 0;

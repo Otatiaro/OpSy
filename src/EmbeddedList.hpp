@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    EmbeddedList.hpp
- * @author  EZNOV SAS
+ * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
  * @brief   A container that uses CRTP (Curiously Recurring Template Pattern)
@@ -43,8 +43,7 @@
  * SOFTWARE.
  *
  ******************************************************************************
- * @see https://www.opsy.tech
- * @see https://github.com/eznovsas/OpSy
+ * @see https://github.com/Otatiaro/OpSy
  ******************************************************************************
  */
 

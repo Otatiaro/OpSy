@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    CortexM.hpp
- * @author  EZNOV SAS
+ * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
  * @brief   Cortex-M (3-4-7) low level features and system peripherals access
@@ -36,8 +36,7 @@
  * SOFTWARE.
  *
  ******************************************************************************
- * @see https://www.opsy.tech
- * @see https://github.com/eznovsas/OpSy
+ * @see https://github.com/Otatiaro/OpSy
  ******************************************************************************
  */
 

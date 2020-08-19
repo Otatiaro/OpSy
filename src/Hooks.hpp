@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    Hooks.hpp
- * @author  EZNOV SAS
+ * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
  * @brief   Default (empty) hooks for OpSy
@@ -41,8 +41,7 @@
  * SOFTWARE.
  *
  ******************************************************************************
- * @see https://www.opsy.tech
- * @see https://github.com/eznovsas/OpSy
+ * @see https://github.com/Otatiaro/OpSy
  ******************************************************************************
  */
 

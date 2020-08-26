@@ -286,6 +286,8 @@ public:
 
 private:
 
+	static constexpr uint32_t Dummy = 0xDEADBEEF;
+
 	StackItem* const m_stackBase;
 	const std::size_t m_stackSize;
 	std::atomic_bool m_active { false };
@@ -327,17 +329,25 @@ class Task: public TaskControlBlock
 {
 public:
 
+#ifndef NDEBUG
+	static constexpr std::size_t stack_size = StackSize + 1;
+#else
+	static constexpr std::size_t stack_size = StackSize;
+#endif
+
+	static_assert(StackSize >= 2* (sizeof(StackFrame) + sizeof(Context)) / sizeof(TaskControlBlock::StackItem), "Stack too small");
+
+
 	/**
 	 * @brief Constructs a new @c Task
 	 */
 	constexpr Task() :
-			TaskControlBlock(m_stack.data(), StackSize)
+			TaskControlBlock(m_stack.data(), stack_size)
 	{
-		static_assert(StackSize >= 2* (sizeof(StackFrame) + sizeof(Context)) / sizeof(TaskControlBlock::StackItem), "Stack too small");
 	}
 
 private:
-	std::array<TaskControlBlock::StackItem, StackSize> m_stack;
+	std::array<TaskControlBlock::StackItem, stack_size> m_stack;
 
 };
 

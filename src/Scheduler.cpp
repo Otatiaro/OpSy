@@ -174,6 +174,8 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pe
 
 	if (s_previousTask != nullptr)
 	{
+		assert(psp >= s_previousTask->m_stackBase); // Process stack pointer below the task stack base, stack overflow !
+		assert(*s_previousTask->m_stackBase == TaskControlBlock::Dummy); // The lowest slot of the task stack has been modified, this shows a stack overflow
 		s_previousTask->m_stackPointer = psp;
 		Hooks::taskStopped(*s_previousTask);
 	}

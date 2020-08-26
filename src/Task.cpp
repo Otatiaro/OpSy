@@ -14,7 +14,7 @@ bool TaskControlBlock::start(Callback<void(void)> && entry, const char* name)
 	m_name = name;
 
 #ifndef NDEBUG
-	std::fill(m_stackBase, m_stackBase + m_stackSize, 0xDEADBEEF);
+	std::fill(m_stackBase, m_stackBase + m_stackSize, Dummy);
 #endif
 
 	m_stackPointer = &m_stackBase[m_stackSize - 1]; // this pointer is reserved to stop stack trace unwinding

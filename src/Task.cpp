@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "Task.hpp"
 #include "Scheduler.hpp"
 
@@ -12,8 +14,7 @@ bool TaskControlBlock::start(Callback<void(void)> && entry, const char* name)
 	m_name = name;
 
 #ifndef NDEBUG
-	for(auto i = 0u; i<m_stackSize; ++i)
-		m_stackBase[i] = 0xDEADBEEF;
+	std::fill(m_stackBase, m_stackBase + m_stackSize, 0xDEADBEEF);
 #endif
 
 	m_stackPointer = &m_stackBase[m_stackSize - 1]; // this pointer is reserved to stop stack trace unwinding

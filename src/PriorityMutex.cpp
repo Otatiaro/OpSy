@@ -41,6 +41,8 @@ void opsy::PriorityMutex::unlock()
 	if (!m_locked)
 		return;
 
+	m_locked = false;
+
 	if (m_priority.has_value())
 	{
 		if (m_priority.value().value() == 0)

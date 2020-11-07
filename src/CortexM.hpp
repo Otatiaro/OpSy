@@ -400,13 +400,12 @@ public:
 	 * @brief Moves the interrupt handler vector to a new location
 	 * @param vtor The new interrupt handler vector
 	 * @param copySize Number of handlers to copy from the previous to the new one
-	 * @warning Copy at least the first element, which is the reset value of main stack pointer
 	 * @remark It is most preferable to move interrupt handler vector at system startup before any interrupt is active
 	 */
-	static void moveVtor(IsrHandler* vtor, std::size_t copySize = 1)
+	static void moveVtor(IsrHandler* vtor, std::size_t copySize = 0)
 	{
 		assert((vtor != nullptr) && (reinterpret_cast<uint32_t>(vtor) % kVtorAlignment == 0)); // check vtor is not null and correctly aligned
-		assert((copySize != 0) && (copySize <= MaxIrq + kSystemIrqs)); // must copy at least MSP reset value
+		assert(copySize <= MaxIrq + kSystemIrqs);
 
 		for (auto i = 0u; i < copySize; ++i)
 			vtor[i] = getVtor()[i];

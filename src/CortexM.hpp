@@ -554,7 +554,7 @@ public:
 	 */
 	static void setMsp(uint32_t* msp) __attribute__((always_inline))
 	{
-		asm volatile("msr msp, %0" : : "r"(msp) : "sp");
+		asm volatile("msr msp, %0" : : "r"(msp));
 	}
 
 	/**
@@ -574,7 +574,7 @@ public:
 	 */
 	static void setPsp(uint32_t* psp) __attribute__((always_inline))
 	{
-		asm volatile("msr psp, %0" : : "r"(psp) : "sp");
+		asm volatile("msr psp, %0" : : "r"(psp));
 	}
 
 	/**

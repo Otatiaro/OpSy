@@ -78,6 +78,20 @@ public:
 
 	}
 
+	/**
+	 * @brief Constructs an @c IsrPriority based on another one.
+	 * @param other The other @c IsrPriority
+	 */
+	constexpr IsrPriority(const IsrPriority& other) :
+			m_value(other.m_value)
+	{
+	}
+
+	/**
+	 * @brief Copies the data from another @c IsrPriority.
+	 * @param other The other @c IsrPriority
+	 * @return A reference to this instance
+	 */
 	constexpr IsrPriority& operator=(const IsrPriority& other)
 	{
 		m_value = other.m_value;

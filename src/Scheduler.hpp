@@ -139,7 +139,8 @@ public:
 		else
 		{
 			Hooks::enterCriticalSection();
-			return CriticalSection(s_criticalSection = true);
+			s_criticalSection = true;
+			return CriticalSection(true);
 		}
 	}
 

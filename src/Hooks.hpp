@@ -276,6 +276,12 @@ namespace opsy
 		 */
 		static constexpr void boot([[maybe_unused]] uint32_t coreClock)
 		{}
+
+		template<void(*Routine)()>
+		constexpr auto decorateIsr()
+		{
+			Routine;
+		}
 	};
 }
 

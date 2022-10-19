@@ -52,6 +52,7 @@
 #include <utility>
 #include <new>
 #include <optional>
+#include <memory>
 
 namespace opsy
 {
@@ -134,7 +135,7 @@ public:
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
 		if (m_valid == ValidDestructor)
-			delete get();
+			std::destroy_at(get());
 
 		m_valid = from.m_valid;
 		if (m_valid != Invalid)
@@ -222,7 +223,7 @@ public:
 	~Callback()
 	{
 	if (m_valid == ValidDestructor)
-		delete get();
+		std::destroy_at(get());
 	}
 
 	private:

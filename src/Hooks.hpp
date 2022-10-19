@@ -278,9 +278,9 @@ namespace opsy
 		{}
 
 		template<void(*Routine)()>
-		constexpr auto decorateIsr()
+		static constexpr auto decorateIsr()
 		{
-			Routine;
+			return Routine;
 		}
 	};
 }

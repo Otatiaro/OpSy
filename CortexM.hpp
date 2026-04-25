@@ -154,6 +154,20 @@ public:
 	static constexpr IsrPriority kHighestPriority = IsrPriority(0);
 
 	/**
+	 * @brief Indicates whether the target architecture provides hardware stack-limit registers (MSPLIM / PSPLIM).
+	 *
+	 *        @c true on ARMv8-M (Cortex-M23, M33, M55, M85), @c false on ARMv7-M (Cortex-M3, M4, M7).
+	 *        Detected at compile time from the toolchain-predefined architecture macro so that
+	 *        callers can use @c if @c constexpr and pay no runtime cost on architectures without the registers.
+	 */
+	static constexpr bool kHasStackLimitRegs =
+#if defined(__ARM_ARCH_8M_MAIN__) || defined(__ARM_ARCH_8M_BASE__)
+		true;
+#else
+		false;
+#endif
+
+	/**
 	 * @brief Gets the current executing Cortex-M type
 	 * @return The Cortex-M type (only M4 and M7 implemented in the enumeration)
 	 */
@@ -559,6 +573,17 @@ public:
 	}
 
 	/**
+	 * @brief Sets the @c MSPLIM (Main Stack Pointer Limit) register.
+	 * @param limit The lower bound of the main stack — UsageFault fires if MSP goes below this address.
+	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
+	 */
+	static void setMsplim(uint32_t* limit) __attribute__((always_inline))
+	{
+		if constexpr (kHasStackLimitRegs)
+			asm volatile("msr msplim, %0" : : "r"(limit));
+	}
+
+	/**
 	 * @brief Gets the current @c PSP (Process Stack Pointer) value
 	 * @return The current @c PSP value
 	 */
@@ -576,6 +601,17 @@ public:
 	static void setPsp(uint32_t* psp) __attribute__((always_inline))
 	{
 		asm volatile("msr psp, %0" : : "r"(psp));
+	}
+
+	/**
+	 * @brief Sets the @c PSPLIM (Process Stack Pointer Limit) register.
+	 * @param limit The lower bound of the process stack — UsageFault fires if PSP goes below this address.
+	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
+	 */
+	static void setPsplim(uint32_t* limit) __attribute__((always_inline))
+	{
+		if constexpr (kHasStackLimitRegs)
+			asm volatile("msr psplim, %0" : : "r"(limit));
 	}
 
 	/**

@@ -260,14 +260,14 @@ public:
 	using value_type = Item;
 
 	/**
-	 * @brief A reference to a @c value_type
+	 * @brief A const reference to a @c value_type
 	 */
-	using reference = Item&;
+	using reference = const Item&;
 
 	/**
-	 * @brief A pointer to a @c value_type
+	 * @brief A const pointer to a @c value_type
 	 */
-	using pointer = Item*;
+	using pointer = const Item*;
 
 	/**
 	 * @brief The type of a @c EmbeddedConstIterator difference

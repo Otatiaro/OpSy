@@ -56,15 +56,20 @@ namespace std
 {
 
 /**
- * The result of a call to @c wait with timeout
- * @remark It is defined as 0 or 1 so it is equivalent to @c bool with better naming
+ * @brief Result of a timed wait operation on a @c ConditionVariable
+ * @remark Equivalent to @c std::cv_status from @c <condition_variable>,
+ *         redefined here because @c <condition_variable> is unavailable on
+ *         Cortex-M targets (no OS threading support in the C++ runtime).
+ *         Defined in @c namespace @c std to remain compatible with standard
+ *         call sites and @c std::lock_guard usage.
  */
 enum class cv_status
 {
-	no_timeout = 0, ///< No Timeout
-	timeout = 1 ///< Timeout
+	no_timeout = 0, ///< The condition variable was notified before the timeout
+	timeout    = 1  ///< The timeout elapsed before the condition variable was notified
 };
-}
+
+} // namespace std
 
 namespace opsy
 {

@@ -397,12 +397,6 @@ public:
 	using difference_type = typename EmbeddedIterator<Item, Interface>::difference_type;
 
 	/**
-	 * @brief A comparator type, used for @c insertWhen
-	 */
-	using comparator = bool(*)(const_reference, const_reference);
-
-
-	/**
 	 * @brief The type of the @c size
 	 */
 	using size_type = uint32_t;
@@ -683,11 +677,13 @@ public:
 
 	/**
 	 * @brief Inserts an @c Item when a @p predicate becomes @c false
-	 * @param predicate The @c comparator to use to compare the current node with the @c Item to insert
+	 * @tparam Comparator Any callable with signature @c bool(const_reference, const_reference)
+	 * @param predicate The predicate to use to compare the current node with the @c Item to insert
 	 * @param item The @c Item to insert in the @c EmbeddedList
 	 * @return An @c EmbeddedIterator pointing to the @c Item inserted
 	 */
-	iterator insertWhen(const comparator predicate, Item& item)
+	template<std::invocable<const_reference, const_reference> Comparator>
+	iterator insertWhen(Comparator&& predicate, Item& item)
 	{
 		if (empty() || predicate(item, *m_first))
 		{

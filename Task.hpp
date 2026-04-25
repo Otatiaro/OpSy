@@ -368,7 +368,7 @@ public:
 	 * @param entry The @c CodePointer to the idle code
 	 */
 	IdleTaskControlBlock(uint32_t* stackBase, std::size_t stackSize, const CodePointer entry) :
-			m_stackPointer(&stackBase[stackSize])
+			m_stackBase(stackBase), m_stackPointer(&stackBase[stackSize])
 	{
 		m_stackPointer -= sizeof(StackFrame) / sizeof(uint32_t);
 		const auto frame = reinterpret_cast<StackFrame*>(m_stackPointer);
@@ -386,6 +386,7 @@ public:
 
 private:
 
+	uint32_t* const m_stackBase;
 	uint32_t* m_stackPointer;
 
 	static void __attribute__((naked)) noReturn()

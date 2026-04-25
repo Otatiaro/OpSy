@@ -218,13 +218,13 @@ public:
 	 * @param name The new name of the @c TaskControlBlock (optional)
 	 * @return @c true if the @c TaskControlBlock successfully started, @c false otherwise (already started)
 	 */
-	bool start(Callback<void(void)> && entry, const char* name = nullptr);
+	[[nodiscard]] bool start(Callback<void(void)> && entry, const char* name = nullptr);
 
 	/**
 	 * @brief Stops the @c TaskControlBlock whatever its state
 	 * @return @c true is the @c TaskControlBlock has been stopped, @c false otherwise (not started)
 	 */
-	bool stop();
+	[[nodiscard]] bool stop();
 
 	/**
 	 * @brief Checks if the @c TaskControlBlock is started

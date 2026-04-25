@@ -139,6 +139,7 @@ public:
 		{
 			M4 = 0xc24, ///< Cortex-M4
 		M7 = 0xc27, ///< Cortex-M7
+		M33 = 0xd21, ///< Cortex-M33
 	};
 
 	/**

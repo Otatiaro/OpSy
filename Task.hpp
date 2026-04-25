@@ -321,33 +321,34 @@ private:
 };
 
 /**
+ * @brief Implementation detail: provides initialized stack storage as a base class,
+ *        ensuring the stack buffer is constructed before any TaskControlBlock that references it.
+ * @tparam N The number of stack items
+ */
+template<std::size_t N>
+struct StackStorage {
+	std::array<uint32_t, N> m_stack{};
+};
+
+/**
  * @brief A concrete implementation of @c TaskControlBlock with a dedicated stack memory
  * @tparam StackSize The stack size in @c StackItem increment
  */
 template<std::size_t StackSize>
-class Task: public TaskControlBlock
+class Task: private StackStorage<StackSize>, public TaskControlBlock
 {
 public:
 
-#ifndef NDEBUG
-	static constexpr std::size_t stack_size = StackSize + 1;
-#else
-	static constexpr std::size_t stack_size = StackSize;
-#endif
-
 	static_assert(StackSize >= 2* (sizeof(StackFrame) + sizeof(Context)) / sizeof(TaskControlBlock::StackItem), "Stack too small");
-
 
 	/**
 	 * @brief Constructs a new @c Task
 	 */
 	constexpr Task() :
-			TaskControlBlock(m_stack.data(), stack_size)
+			StackStorage<StackSize>{},
+			TaskControlBlock(StackStorage<StackSize>::m_stack.data(), StackSize)
 	{
 	}
-
-private:
-	std::array<TaskControlBlock::StackItem, stack_size> m_stack;
 
 };
 
@@ -400,7 +401,7 @@ private:
  * @tparam StackSize The stack size in @c StackItem increment
  */
 template<std::size_t StackSize>
-class IdleTask: public IdleTaskControlBlock
+class IdleTask: private StackStorage<StackSize>, public IdleTaskControlBlock
 {
 
 public:
@@ -410,14 +411,11 @@ public:
 	 * @param entry The code to execute when system is idle
 	 */
 	constexpr explicit IdleTask(const CodePointer entry) :
-			IdleTaskControlBlock(m_stack.data(), StackSize, entry)
+			StackStorage<StackSize>{},
+			IdleTaskControlBlock(StackStorage<StackSize>::m_stack.data(), StackSize, entry)
 	{
 		static_assert(StackSize >= 2* (sizeof(StackFrame) + sizeof(Context)) / sizeof(uint32_t), "Stack too small");
 	}
-
-private:
-
-	std::array<uint32_t, StackSize> m_stack;
 
 };
 

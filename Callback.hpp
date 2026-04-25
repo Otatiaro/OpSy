@@ -237,7 +237,7 @@ public:
 	};
 
 	static constexpr std::size_t FullSize = sizeof(ICallback) + StorageSize * sizeof(void*);
-	using Storage = typename std::aligned_storage<FullSize, std::alignment_of<ICallback>::value>::type;
+	using Storage = struct alignas(std::alignment_of_v<ICallback>) { std::byte data[FullSize]; };
 
 	template<typename Function>
 	class CallbackImpl: ICallback

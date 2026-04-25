@@ -336,7 +336,7 @@ public:
 	 */
 	constexpr bool operator==(EmbeddedConstIterator other) const
 	{
-		return m_ptr != other.m_ptr;
+		return m_ptr == other.m_ptr;
 	}
 
 	/**

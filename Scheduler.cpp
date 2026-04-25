@@ -220,7 +220,7 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pe
 }
 
 void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::serviceCallHandler(StackFrame* frame,
-		ServiceCallNumber parameter, [[maybe_unused]] bool isThread)
+		ServiceCallNumber parameter, [[maybe_unused]] bool isThread, uint32_t excReturn)
 {
 	Hooks::enterServiceCall();
 	bool taskSwitch = false;
@@ -324,6 +324,21 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::serviceCa
 
 		condition->addWaiting(*s_currentTask);
 		s_currentTask->m_waiting = condition;
+
+		// Pre-set m_stackPointer so setReturnValue() is safe if an ISR tail-chains
+		// before PendSV saves the context. PendSV will save Context (and FpContext
+		// when the FPU was active) below 'frame'; computing that address here lets
+		// wakeUp() → setReturnValue() navigate to StackFrame::r0 correctly regardless
+		// of whether PendSV has already run.
+		{
+			const bool fpuActive = !(excReturn & TaskControlBlock::kFpFlag);
+			auto* sp = reinterpret_cast<TaskControlBlock::StackItem*>(frame)
+					  - sizeof(Context) / sizeof(TaskControlBlock::StackItem)
+					  - (fpuActive ? sizeof(FpContext) / sizeof(TaskControlBlock::StackItem) : 0u);
+			reinterpret_cast<Context*>(sp)->lr = excReturn; // pre-populate lr for setReturnValue's FPU check
+			s_currentTask->m_stackPointer = sp;
+		}
+
 		s_currentTask = nullptr;
 		taskSwitch = doSwitch();
 		break;
@@ -385,6 +400,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_H
 			"ldr R1, [R0,#24] \n\t"
 			"ldrb R1, [R1,#-2] \n\t"
 			"push {LR} \n\t"
+			"mov R3, LR \n\t"        // pass EXC_RETURN as 4th argument
 			"bl %[handler] \n\t"
 			"isb \n\t"
 			"dsb \n\t"
@@ -392,6 +408,6 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_H
 			"bx LR"
 			:
 			:[handler] "g" (opsy::Scheduler::serviceCallHandler)
-			: "r0", "r1", "r2");
+			: "r0", "r1", "r2", "r3");
 }
 }

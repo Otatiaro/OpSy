@@ -231,7 +231,7 @@ private:
 	}
 
 	static uint64_t pendSvHandler(uint32_t* psp);
-	static void serviceCallHandler(StackFrame* frame, ServiceCallNumber parameter, bool isThread);
+	static void serviceCallHandler(StackFrame* frame, ServiceCallNumber parameter, bool isThread, uint32_t excReturn);
 	static void wakeUp(TaskControlBlock& task, ConditionVariable& initiator);
 	static void updatePriority(TaskControlBlock& task, Priority newPriority);
 

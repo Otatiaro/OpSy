@@ -147,7 +147,7 @@ public:
 	 */
 	inline self_type operator--()
 	{
-		return m_ptr = previous();
+		return self_type(m_ptr = previous());
 	}
 
 	/**
@@ -306,7 +306,7 @@ public:
 	inline self_type operator--()
 	{
 		assert(m_ptr != nullptr);
-		return m_ptr = m_ptr->Interface::m_previous;
+		return self_type(m_ptr = m_ptr->Interface::m_previous);
 	}
 
 	/**

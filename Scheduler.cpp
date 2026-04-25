@@ -16,7 +16,7 @@ __attribute__((section(".bss.opsy.scheduler.currenttask"))) TaskControlBlock* Sc
 __attribute__((section(".bss.opsy.scheduler.nexttask"))) TaskControlBlock* Scheduler::s_nextTask = nullptr;
 __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool Scheduler::s_criticalSection = false;
 
-bool __attribute__((section(".text.opsy.start"))) Scheduler::start(IdleTaskControlBlock& idle)
+[[noreturn]] bool __attribute__((section(".text.opsy.start"))) Scheduler::start(IdleTaskControlBlock& idle)
 {
 	assert((CortexM::getType() == CortexM::Type::M4) || (CortexM::getType() == CortexM::Type::M7) || (CortexM::getType() == CortexM::Type::M33)); // only Cortex-M4, M7 and M33 are officially supported
 	assert(!s_isStarted);
@@ -49,7 +49,9 @@ bool __attribute__((section(".text.opsy.start"))) Scheduler::start(IdleTaskContr
 	CortexM::setControl(0b10);
 	CortexM::setMsp(CortexM::mspAtReset());
 
-	return doSwitch();
+	if(!doSwitch())
+		__builtin_trap();
+	while(true) {} // can not reach
 }
 
 bool __attribute__((section(".text.opsy.doswitch"))) Scheduler::doSwitch()

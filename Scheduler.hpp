@@ -105,7 +105,7 @@ public:
 	 * @param idle The @c IdleTask to use when the system goes idle. If you don't provide one, the @c Scheduler will use a default one that uses @c WFI in a loop
 	 * @return @c true if the @c Scheduler started, @c false otherwise (already started)
 	 */
-	static bool start(IdleTaskControlBlock& idle = DefaultIdle<>);
+	[[noreturn]] static bool start(IdleTaskControlBlock& idle = DefaultIdle<>);
 
 	/**
 	 * @brief Gets a read only reference to the @c EmbeddedList of @c Task currently active

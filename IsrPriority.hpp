@@ -117,7 +117,7 @@ public:
 	template<std::size_t PreemptBits>
 	constexpr uint8_t sub() const
 	{
-		return m_value & (1 << ((kMaxPreemptionBits - PreemptBits)) - 1);
+		return m_value & ((1 << (kMaxPreemptionBits - PreemptBits)) - 1);
 	}
 
 	/**

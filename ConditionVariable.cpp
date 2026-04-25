@@ -56,12 +56,13 @@ void ConditionVariable::wait()
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
-			"mov r1, #-1 \n\t"
-			"mov r2, #0 \n\t"
+			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
+			"mov r2, #-1 \n\t"
+			"mov r3, #0 \n\t"   // no mutex
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait), [this_ptr] "r" (this)
-			: "r0", "r1", "r2");
+			: "r0", "r1", "r2", "r3");
 }
 
 void ConditionVariable::wait(Mutex& mutex)
@@ -71,12 +72,13 @@ void ConditionVariable::wait(Mutex& mutex)
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
-			"mov r1, #-1 \n\t"
-			"mov r2, %[mutex] \n\t"
+			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
+			"mov r2, #-1 \n\t"
+			"mov r3, %[mutex] \n\t"
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait), [this_ptr] "r" (this), [mutex] "r" (&mutex)
-			: "r0", "r1", "r2");
+			: "r0", "r1", "r2", "r3");
 }
 
 std::cv_status ConditionVariable::wait_for(duration timeout)
@@ -84,16 +86,21 @@ std::cv_status ConditionVariable::wait_for(duration timeout)
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
 	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
+	const auto count = timeout.count();
 	uint32_t result;
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
-			"mov r1, %[duration] \n\t"
-			"mov r2, #0 \n\t"
+			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
+			"mov r2, %[count_hi] \n\t"
+			"mov r3, #0 \n\t"           // no mutex
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
-			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait), [this_ptr] "r" (this), [duration] "r" (timeout.count())
-			: "r0", "r1", "r2");
+			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait),
+			  [this_ptr] "r" (this),
+			  [count_lo] "r" (static_cast<uint32_t>(count)),
+			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
+			: "r0", "r1", "r2", "r3");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
 	return static_cast<std::cv_status>(result);
@@ -104,20 +111,24 @@ std::cv_status ConditionVariable::wait_for(Mutex& mutex, duration timeout)
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
 	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
+	const auto count = timeout.count();
 	uint32_t result;
-
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
-			"mov r1, %[duration] \n\t"
-			"mov r2, %[mutex] \n\t"
+			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
+			"mov r2, %[count_hi] \n\t"
+			"mov r3, %[mutex] \n\t"
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
-			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait), [this_ptr] "r" (this), [duration] "r" (timeout.count()), [mutex] "r" (&mutex)
-			: "r0", "r1", "r2");
+			: [immediate] "I" (Scheduler::ServiceCallNumber::Wait),
+			  [this_ptr] "r" (this),
+			  [count_lo] "r" (static_cast<uint32_t>(count)),
+			  [count_hi] "r" (static_cast<uint32_t>(count >> 32)),
+			  [mutex] "r" (&mutex)
+			: "r0", "r1", "r2", "r3");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
-
 	return static_cast<std::cv_status>(result);
 }
 

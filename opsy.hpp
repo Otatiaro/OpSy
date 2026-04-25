@@ -55,12 +55,16 @@ namespace opsy
  */
 void inline sleep_for(duration t)
 {
+	const auto count = t.count();
 	asm volatile(
-			"mov r0, %[count] \n\t"
+			"mov r0, %[count_lo] \n\t"
+			"mov r1, %[count_hi] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (Scheduler::ServiceCallNumber::Sleep), [count] "r" (t.count())
-			: "r0");
+			: [immediate] "I" (Scheduler::ServiceCallNumber::Sleep),
+			  [count_lo] "r" (static_cast<uint32_t>(count)),
+			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
+			: "r0", "r1");
 }
 
 /**
@@ -74,6 +78,11 @@ void inline sleep_until(time_point tp)
 	const auto remaining = tp - Scheduler::now();
 	assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
 	sleep_for(remaining);
+}
+
+inline OpSyClock::time_point OpSyClock::now() noexcept
+{
+	return Scheduler::now();
 }
 
 }

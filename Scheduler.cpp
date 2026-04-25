@@ -263,7 +263,8 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::serviceCa
 		assert(!s_criticalSection); // should not be called in critical section
 		assert(s_currentTask != nullptr); // cannot be called if there is no current task running
 
-		auto delta = duration{static_cast<int32_t>(frame->r0) + 1}; // add one because we want to wait at least the required time
+		const int64_t raw = static_cast<int64_t>(frame->r0) | (static_cast<int64_t>(frame->r1) << 32);
+		auto delta = duration{raw + 1}; // add one because we want to wait at least the required time
 		assert(delta.count() >= 0);
 		s_currentTask->m_waitUntil = s_ticks + delta;
 		s_timeouts.insertWhen(wakeupAfter, *s_currentTask);
@@ -288,8 +289,9 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::serviceCa
 		assert(s_currentTask != nullptr); // cannot be called if there is no current task running
 
 		ConditionVariable* condition = reinterpret_cast<ConditionVariable*>(frame->r0);
-		duration timeout{frame->r1};
-		Mutex* mutex = reinterpret_cast<Mutex*>(frame->r2);
+		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
+		duration timeout{raw};
+		Mutex* mutex = reinterpret_cast<Mutex*>(frame->r3);
 
 		if(timeout.count() >= 0)
 		{

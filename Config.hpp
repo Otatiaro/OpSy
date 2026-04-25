@@ -113,7 +113,7 @@ constexpr uint32_t kPriorityBits = 4;
 /**
  * @brief The base clock for timeouts and @c sleep
  */
-using duration = std::chrono::duration<int32_t, std::milli>; // by default the timeout is based on milliseconds
+using duration = std::chrono::duration<int64_t, std::milli>; // by default the timeout is based on milliseconds
 
 /**
  * @brief The number of preemption bits OpSy will set in the system
@@ -134,9 +134,26 @@ using Mutex = PriorityMutex;
 #endif
 
 /**
+ * @brief A minimal clock type satisfying the C++ TrivialClock requirements,
+ *        used as a tag for @c time_point. The actual time source is
+ *        @c Scheduler::now(), which increments on each Systick interrupt.
+ * @remark @c now() is declared here and defined in @c opsy.hpp after
+ *         @c Scheduler is available, to avoid a circular dependency.
+ */
+struct OpSyClock
+{
+	using rep        = int64_t;
+	using period     = std::milli;
+	using duration   = opsy::duration;
+	using time_point = std::chrono::time_point<OpSyClock>;
+	static constexpr bool is_steady = true;
+	static time_point now() noexcept;
+};
+
+/**
  * @brief The type used to describe a time point
  */
-using time_point = std::chrono::time_point<int64_t, duration>;
+using time_point = OpSyClock::time_point;
 
 /**
  * @brief The @c time_point used as a reference when the @c Scheduler starts

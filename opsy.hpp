@@ -71,8 +71,9 @@ void inline sleep_for(duration t)
 void inline sleep_until(time_point tp)
 {
 	using namespace std::chrono_literals;
-	assert(tp-Scheduler::now() < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
-	sleep_for(tp - Scheduler::now());
+	const auto remaining = tp - Scheduler::now();
+	assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
+	sleep_for(remaining);
 }
 
 }

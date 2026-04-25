@@ -18,7 +18,7 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool Sc
 
 bool __attribute__((section(".text.opsy.start"))) Scheduler::start(IdleTaskControlBlock& idle)
 {
-	assert((CortexM::getType() == CortexM::Type::M4) ||(CortexM::getType() == CortexM::Type::M7)); // only Cortex-M4 and M7 are officially supported so far
+	assert((CortexM::getType() == CortexM::Type::M4) || (CortexM::getType() == CortexM::Type::M7) || (CortexM::getType() == CortexM::Type::M33)); // only Cortex-M4, M7 and M33 are officially supported
 	assert(!s_isStarted);
 	s_isStarted = true;
 
@@ -210,6 +210,10 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pe
 		assert(s_currentTask->isStarted());
 		Hooks::taskStarted(*s_currentTask);
 	}
+
+	if constexpr (CortexM::kHasStackLimitRegs)
+		CortexM::setPsplim(s_idling ? s_idle->m_stackBase : s_currentTask->m_stackBase);
+
 	return result;
 }
 

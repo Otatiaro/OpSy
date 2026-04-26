@@ -381,21 +381,27 @@ public:
 	/**
 	 * @brief Returns the inverse of this square matrix.
 	 *
-	 *        Computes @c adjugate(M) / @c determinant(M) using the closed
-	 *        form for sizes 1 through 4. The 4x4 path shares the six 2x2
-	 *        sub-determinants of every row pair across the 16 cofactors,
-	 *        which keeps the operation count near 140 mul / 70 add — about
-	 *        half what an unshared expansion would cost.
+	 *        Two implementations are dispatched on size:
+	 *         - For @c Rows @c <= @c 4 , a closed-form @c adjugate(M) /
+	 *           @c determinant(M) . The 4x4 path shares the six 2x2
+	 *           sub-determinants of every row pair across the 16
+	 *           cofactors, which keeps the operation count near 140 mul /
+	 *           70 add — about half what an unshared expansion would cost.
+	 *           Branchless and fully unrolled, so the compiler can
+	 *           pipeline aggressively.
+	 *         - For @c Rows @c >= @c 5 , Gauss-Jordan elimination with
+	 *           partial pivoting on a working copy. Closed-form would
+	 *           explode factorially (5! terms on 5x5) and lose to the
+	 *           N^3 generic algorithm well before that.
 	 *
 	 * @pre   The matrix must be invertible — @c determinant() must be
 	 *        non-zero. The result is undefined (NaN / Inf elements) on a
 	 *        singular matrix; callers that may face singular input should
-	 *        check @ref determinant first.
+	 *        check @ref determinant first (closed-form sizes) or guard
+	 *        the input some other way.
 	 */
 	[[gnu::always_inline]] constexpr matrix inverse() const requires (Rows == Cols)
 	{
-		static_assert(Rows < 5, "inverse only implemented for 1x1 through 4x4 matrices");
-
 		if constexpr (Rows == 1)
 		{
 			return matrix{ T{1} / values_[0][0] };
@@ -498,6 +504,60 @@ public:
 				adj20 * inv_det, adj21 * inv_det, adj22 * inv_det, adj23 * inv_det,
 				adj30 * inv_det, adj31 * inv_det, adj32 * inv_det, adj33 * inv_det
 			};
+		}
+		else
+		{
+			// Gauss-Jordan with partial pivoting. We keep two NxN working
+			// matrices side by side: @c work starts as a copy of @c *this and
+			// gets reduced to the identity by row operations; @c result starts
+			// as the identity and accumulates the inverse of the same row
+			// operations. When @c work has been reduced to I, @c result holds
+			// M⁻¹.
+			matrix work   = *this;
+			matrix result;  // built as identity below; @c identity_matrix free function isn't visible from inside the class body yet.
+			for (std::size_t k = 0; k < Rows; ++k)
+				result(k, k) = T{1};
+
+			for (std::size_t i = 0; i < Rows; ++i)
+			{
+				// Partial pivot: find the row in [i, Rows) with the largest
+				// |work(r, i)| and swap it into position i. Pivoting on a
+				// near-zero diagonal element would amplify rounding error
+				// (or trigger division by zero on a singular matrix).
+				std::size_t pivot_row = i;
+				T pivot_abs = work(i, i) < T{0} ? -work(i, i) : work(i, i);
+				for (std::size_t r = i + 1; r < Rows; ++r)
+				{
+					const T abs_val = work(r, i) < T{0} ? -work(r, i) : work(r, i);
+					if (abs_val > pivot_abs)
+					{
+						pivot_abs = abs_val;
+						pivot_row = r;
+					}
+				}
+				if (pivot_row != i)
+				{
+					work.swap_rows(i, pivot_row);
+					result.swap_rows(i, pivot_row);
+				}
+
+				// Normalise pivot row so the diagonal becomes 1.
+				const T inv_pivot = T{1} / work(i, i);
+				work.scale_row(i, inv_pivot);
+				result.scale_row(i, inv_pivot);
+
+				// Eliminate column i in every other row.
+				for (std::size_t r = 0; r < Rows; ++r)
+				{
+					if (r == i)
+						continue;
+					const T factor = -work(r, i);
+					work.add_scaled_row(i, r, factor);
+					result.add_scaled_row(i, r, factor);
+				}
+			}
+
+			return result;
 		}
 	}
 

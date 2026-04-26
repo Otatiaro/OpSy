@@ -48,7 +48,7 @@
 
 #pragma once
 
-#include <cassert>
+#include "opsy_assert.hpp"
 
 namespace opsy
 {

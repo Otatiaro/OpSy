@@ -43,7 +43,7 @@
 #pragma once
 
 #include <array>
-#include <cassert>
+#include "../opsy_assert.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>

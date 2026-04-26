@@ -53,7 +53,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
-#include <cassert>
+#include "opsy_assert.hpp"
 
 namespace opsy
 {

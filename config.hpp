@@ -183,3 +183,11 @@ static constexpr time_point startup = time_point{ duration{ 0 } };
 static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption bits is more than what is available in the system");
 static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
 
+// Pull in our assert override AFTER all OpSy and standard headers config.hpp
+// transitively brings in (priority_mutex.hpp etc., several of which include
+// <cassert>). opsy_assert.hpp wins because it does its own #undef just before
+// installing the trap-based macro, and OpSy headers replace their direct
+// #include <cassert> by an include of opsy_assert.hpp so nothing re-clobbers
+// it later in the include chain.
+#include "opsy_assert.hpp"
+

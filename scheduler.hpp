@@ -59,7 +59,7 @@
 
 #include <cstdint>
 #include <ratio>
-#include <cassert>
+#include "opsy_assert.hpp"
 #include <atomic>
 
 #include "config.hpp"

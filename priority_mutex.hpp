@@ -50,7 +50,7 @@
 
 #include <atomic>
 #include <mutex>
-#include <cassert>
+#include "opsy_assert.hpp"
 #include <optional>
 
 #include "isr_priority.hpp"

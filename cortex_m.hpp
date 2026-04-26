@@ -42,7 +42,7 @@
 
 #pragma once
 
-#include <cassert>
+#include "opsy_assert.hpp"
 #include <optional>
 
 #include "config.hpp"

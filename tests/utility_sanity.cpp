@@ -295,6 +295,71 @@ constexpr opsy::utility::matrix<4, 4> m_d4{
 static_assert(m_d4.determinant() == 1.0f);
 static_assert(m_d4.inverse() * m_d4 == opsy::utility::identity_matrix<4>());
 
+// Inverse for sizes >= 5 dispatches to Gauss-Jordan with partial pivoting.
+// Helper for tolerance-based equality (Gauss-Jordan accumulates rounding).
+template<std::size_t R, std::size_t C, typename T>
+constexpr bool matrix_approx_equal(
+	const opsy::utility::matrix<R, C, T>& a,
+	const opsy::utility::matrix<R, C, T>& b,
+	T tol)
+{
+	for (std::size_t i = 0; i < R; ++i)
+		for (std::size_t j = 0; j < C; ++j)
+		{
+			T d = a(i, j) - b(i, j);
+			if (d < T{0}) d = -d;
+			if (d > tol) return false;
+		}
+	return true;
+}
+
+// 5x5: identity inverse is exact.
+static_assert(opsy::utility::identity_matrix<5>().inverse() == opsy::utility::identity_matrix<5>());
+
+// 5x5: a permutation matrix forces partial pivoting (the initial diagonal
+// has zeros so the pivot search must swap rows). Permutations are
+// involutions, so the inverse equals the transpose, and M*M is exactly the
+// identity even in float arithmetic.
+constexpr opsy::utility::matrix<5, 5> m_p5{
+	0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+	1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+	0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+};
+static_assert(m_p5.inverse() == m_p5.transposed());
+static_assert(m_p5.inverse() * m_p5 == opsy::utility::identity_matrix<5>());
+
+// 5x5: a diagonal matrix with arbitrary scales — pivoting picks the largest
+// scale first. Inverse * original is identity within float tolerance.
+constexpr opsy::utility::matrix<5, 5> m_d5{
+	2.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, 3.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 5.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 0.0f, 7.0f, 0.0f,
+	0.0f, 0.0f, 0.0f, 0.0f, 11.0f
+};
+static_assert(matrix_approx_equal(m_d5.inverse() * m_d5, opsy::utility::identity_matrix<5>(), 1e-6f));
+
+// 9x9: identity round-trip. Exercises the dispatch on a size that ellipsoid
+// fitting will eventually need (DᵀD is 9x9 in that algorithm).
+static_assert(opsy::utility::identity_matrix<9>().inverse() == opsy::utility::identity_matrix<9>());
+
+// 9x9: a non-trivial well-conditioned matrix — diagonal with off-diagonal
+// perturbation small enough that the system stays diagonally dominant.
+constexpr auto m_9 = []{
+	opsy::utility::matrix<9, 9> m;
+	for (std::size_t i = 0; i < 9; ++i)
+	{
+		m(i, i) = static_cast<float>(i + 2);
+		if (i + 1 < 9)
+			m(i, i + 1) = 0.25f;
+	}
+	return m;
+}();
+static_assert(matrix_approx_equal(m_9.inverse() * m_9, opsy::utility::identity_matrix<9>(), 1e-5f));
+static_assert(matrix_approx_equal(m_9 * m_9.inverse(), opsy::utility::identity_matrix<9>(), 1e-5f));
+
 // ── Row operations (constexpr — exercise mutation in a constexpr lambda).
 constexpr auto m_swapped = []{
 	opsy::utility::matrix<3, 3> m{

@@ -244,11 +244,20 @@ private:
 	 * Computes the value to put in delay_ to get the specified filter output
 	 * @param value The expected filter output
 	 * @return The value to put in delay_ to get the expected filter output
+	 *
+	 * @warning The denominator @c (1 + a1 + a2) is the steady-state gain
+	 *          of the recursive part of the filter. For every standard
+	 *          parameterisation handled by @ref make (positive sampling and
+	 *          cut frequencies, q > 0, supported @ref filter_type) it is a
+	 *          strictly positive number. We therefore do not guard against
+	 *          a zero denominator: a degenerate set of coefficients would
+	 *          have produced an unusable filter long before this point.
+	 *          Floating-point equality with zero is too fragile to be a
+	 *          robust guard anyway.
 	 */
 	constexpr T init(const T& value)
 	{
-		auto denom = one + a_[0] + a_[1];
-		return denom == zero ? value : value / denom;
+		return value / (one + a_[0] + a_[1]);
 	}
 };
 

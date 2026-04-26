@@ -57,7 +57,6 @@ class vector
 {
 	static_assert(N != 0, "Cannot make a zero sized vector");
 	static_assert(N != 1, "A one sized vector is a value");
-	template<std::size_t S, typename U> friend class vector; // vectors of all sizes are friend between them
 
 public:
 

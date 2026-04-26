@@ -202,26 +202,22 @@ public:
 	using stack_item = uint32_t;
 
 	/**
-	 * @brief Constructs a @c task_control_block giving it a stack memory area through @p stack_base and @p stack_size
-	 * @param stack_base The pointer to the base of the stack
-	 * @param stack_size The size of the stack, in @c stack_item increment
+	 * @brief Constructs a zero-initialized @c task_control_block
+	 * @remark Every member defaults to zero (or @c nullptr / @c task_priority{0}),
+	 *         which lets the linker place a globally-declared @c task<StackSize>
+	 *         entirely in @c .bss instead of @c .data. The non-zero values
+	 *         (@c stack_base_, @c stack_size_, @c priority_ = @c lowest) are
+	 *         written by @c start_impl when the task is actually launched.
+	 *
+	 *         Putting them here (as constexpr defaults) would otherwise force
+	 *         the entire @c task<N> object — including its multi-KiB stack
+	 *         buffer — into @c .data, costing one byte of flash and one byte of
+	 *         RAM-init copy per byte of stack at startup, for no benefit
+	 *         (a task that has not been started has no business reading any of
+	 *         these fields, and the scheduler only ever touches them via tasks
+	 *         it has already accepted via @c start_impl).
 	 */
-	constexpr task_control_block(stack_item* stack_base, std::size_t stack_size) :
-			stack_base_(stack_base), stack_size_(stack_size)
-	{
-
-	}
-
-	/**
-	 * @brief Starts the @c task_control_block and make it call @p entry when it execute
-	 * @param entry The @c callback that will be execute by the @c task_control_block
-	 * @param name The new name of the @c task_control_block (optional)
-	 * @return @c true if the @c task_control_block successfully started, @c false otherwise (already started)
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c scheduler::add_task and references @c scheduler::terminate_task;
-	 *         see the cycle-breaking note in @c scheduler_inl.hpp).
-	 */
-	[[nodiscard]] bool start(callback<void(void)> && entry, const char* name = nullptr);
+	constexpr task_control_block() = default;
 
 	/**
 	 * @brief Stops the @c task_control_block whatever its state
@@ -290,16 +286,39 @@ public:
 		return left.last_started_ < right.last_started_;
 	}
 
+protected:
+
+	/**
+	 * @brief Configures the storage and priority, then launches the task
+	 * @param stack_base Pointer to the base of the task's stack
+	 * @param stack_size Size of the stack, in @c stack_item increments
+	 * @param entry The @c callback executed by the task
+	 * @param name Optional task name
+	 * @return @c true if the task has been launched, @c false if already started
+	 * @remark Called by @c task<StackSize>::start. Writes @c stack_base_,
+	 *         @c stack_size_ and @c priority_ on first launch so that the
+	 *         default-constructed @c task_control_block can stay in @c .bss
+	 *         until the user actually starts the task.
+	 *         Defined inline at the bottom of @c scheduler.hpp (calls
+	 *         @c scheduler::add_task and references @c scheduler::terminate_task;
+	 *         see the cycle-breaking note in @c scheduler_inl.hpp).
+	 */
+	[[nodiscard]] bool start_impl(stack_item* stack_base, std::size_t stack_size,
+	                              callback<void(void)>&& entry, const char* name);
+
 private:
 
 	static constexpr uint32_t dummy_pattern = 0xDEADBEEF;
 
-	stack_item* const stack_base_;
-	const std::size_t stack_size_;
+	// All defaults below are zero so that a default-constructed task_control_block
+	// (and therefore a default-constructed task<N>, including its stack buffer)
+	// lands in .bss. See the note on the default constructor for why this matters.
+	stack_item* stack_base_ = nullptr;
+	std::size_t stack_size_ = 0;
 	std::atomic_bool active_ { false };
 	stack_item* stack_pointer_ = nullptr;
-	task_priority priority_ = task_priority::lowest;
-	time_point last_started_ = startup;
+	task_priority priority_ {};                   // set to task_priority::lowest by start_impl
+	time_point last_started_ = startup;           // startup == time_point{0}, BSS-friendly
 	std::optional<time_point> wait_until_;
 	const char* name_ = nullptr;
 	callback<void(void)> entry_;
@@ -352,12 +371,28 @@ public:
 	static_assert(StackSize >= 2* (sizeof(stack_frame) + sizeof(context)) / sizeof(task_control_block::stack_item), "Stack too small");
 
 	/**
-	 * @brief Constructs a new @c task
+	 * @brief Constructs a new @c task with all members zero-initialized
+	 * @remark Both bases (@c stack_storage<StackSize> and @c task_control_block)
+	 *         are now zero-default-constructible, so a globally-declared
+	 *         @c task<N> goes to @c .bss. The stack pointer / size / priority
+	 *         are written later by @c start (see @c task_control_block::start_impl).
 	 */
-	constexpr task() :
-			stack_storage<StackSize>{},
-			task_control_block(stack_storage<StackSize>::stack_.data(), StackSize)
+	constexpr task() = default;
+
+	/**
+	 * @brief Starts the task with the given @p entry callback
+	 * @param entry The @c callback the task will execute
+	 * @param name Optional name for the task
+	 * @return @c true if the task was successfully started, @c false if it was already active
+	 * @remark Forwards the stack of the embedded @c stack_storage<StackSize> base
+	 *         to @c task_control_block::start_impl, which performs the actual
+	 *         registration with the scheduler.
+	 */
+	[[nodiscard]] bool start(callback<void(void)>&& entry, const char* name = nullptr)
 	{
+		return task_control_block::start_impl(
+			stack_storage<StackSize>::stack_.data(), StackSize,
+			std::move(entry), name);
 	}
 
 };

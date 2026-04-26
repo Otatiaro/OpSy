@@ -400,20 +400,29 @@ inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_t
 // --- task_control_block -------------------------------------------------------
 
 /**
- * @brief Starts the task with the given @p entry callback
+ * @brief Configures storage + priority and starts the task with the given @p entry callback
+ * @param stack_base Pointer to the base of the task's stack (provided by @c task<StackSize>)
+ * @param stack_size Size of the stack, in @c stack_item increments
  * @param entry The @c callback the task will execute
  * @param name Optional name for the task
  * @return @c true if the task was successfully started, @c false if it was already active
- * @remark Sets up the initial stack so the task starts in @c task_starter, with
- *         @c scheduler::terminate_task wired as the link register so the task
- *         terminates cleanly when its entry callback returns. The +2 offset
- *         on @c terminate_task skips the leading @c nop in its naked body
- *         (kept so GDB shows a sensible link return).
+ * @remark @c stack_base_, @c stack_size_ and @c priority_ are written here on
+ *         first launch (see the BSS-placement note on the @c task_control_block
+ *         default constructor). Sets up the initial stack so the task starts in
+ *         @c task_starter, with @c scheduler::terminate_task wired as the link
+ *         register so the task terminates cleanly when its entry callback
+ *         returns. The +2 offset on @c terminate_task skips the leading @c nop
+ *         in its naked body (kept so GDB shows a sensible link return).
  */
-inline bool task_control_block::start(callback<void(void)> && entry, const char* name)
+inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
+                                           callback<void(void)>&& entry, const char* name)
 {
 	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
 		return false;
+
+	stack_base_ = stack_base;
+	stack_size_ = stack_size;
+	priority_   = task_priority::lowest;
 
 	entry_ = std::move(entry);
 	name_ = name;

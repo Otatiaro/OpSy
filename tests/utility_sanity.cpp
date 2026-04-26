@@ -189,11 +189,22 @@ static_assert(v_rotated.z() ==  0.0f);
 constexpr auto v_unchanged = opsy::utility::rotate(v_x, q_id);
 static_assert(v_unchanged == v_x);
 
+// operator* equivalents — same numeric result as the named free functions.
+static_assert((q_id * q_arb)   == q_arb);
+static_assert((q_180_z * v_x) == v_rotated);
+
+// Element-wise ops on the underlying vector.
+static_assert((q_arb + q_arb).x() == 0.2f);
+static_assert((q_arb - q_arb).w() == 0.0f);
+static_assert((-q_arb).x()        == -0.1f);
+static_assert((q_arb * 2.0f).w()  == 1.8f);
+static_assert((2.0f * q_arb).w()  == 1.8f);
+static_assert((q_arb / 2.0f).w()  == 0.45f);
+
 [[gnu::used]] void use_quaternion()
 {
 	using opsy::utility::quaternion;
 	using opsy::utility::from_axis_angle;
-	using opsy::utility::hamilton_product;
 	using opsy::utility::inverse;
 	using opsy::utility::slerp;
 
@@ -202,10 +213,15 @@ static_assert(v_unchanged == v_x);
 	auto q1 = from_axis_angle(z_axis, 1.5707963f);   // 90° around z
 	auto q2 = from_axis_angle(z_axis, 3.1415926f);   // 180° around z
 
-	// Composition (gyroscope-style accumulation: orientation = orientation * delta).
+	// Composition the operator way (gyroscope-style):
+	// orientation = orientation * delta.
 	auto orientation = q1;
-	orientation = hamilton_product(orientation, q2);
+	orientation = orientation * q2;
 	orientation.normalize();
+
+	// Rotation of a 3D vector via operator*.
+	const opsy::utility::vector<3> v{1.0f, 2.0f, 3.0f};
+	(void) (orientation * v);
 
 	// Inverse on a non-unit quaternion exercises the divide-by-norm path.
 	auto q_inv = inverse(quaternion<float>{1.0f, 2.0f, 3.0f, 4.0f});

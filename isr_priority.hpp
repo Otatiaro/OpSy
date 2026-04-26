@@ -44,9 +44,9 @@ namespace opsy
 {
 
 /**
- * @brief An interrupt service (or @c Mutex) priority
+ * @brief An interrupt service (or @c mutex) priority
  */
-class IsrPriority
+class isr_priority
 {
 public:
 
@@ -56,52 +56,52 @@ public:
 	static constexpr uint8_t kMaxPreemptionBits = 8;
 
 	/**
-	 * @brief Constructs the @c IsrPriority from preemption priority and sub-priority based on number of preemption bits
+	 * @brief Constructs the @c isr_priority from preemption priority and sub-priority based on number of preemption bits
 	 * @param preempt The preemption priority
 	 * @param sub The sub-priority
-	 * @return The @c IsrPriority which has @p preempt preemption priority and @p sub sub-priority
+	 * @return The @c isr_priority which has @p preempt preemption priority and @p sub sub-priority
 	 */
 	template<std::size_t PreemptBits>
-	static constexpr IsrPriority from_preempt_sub(uint8_t preempt, uint8_t sub)
+	static constexpr isr_priority from_preempt_sub(uint8_t preempt, uint8_t sub)
 	{
-		return IsrPriority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (kMaxPreemptionBits - PreemptBits)) | (sub & (((1u << (kMaxPreemptionBits - PreemptBits)) - 1u)))));
+		return isr_priority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (kMaxPreemptionBits - PreemptBits)) | (sub & (((1u << (kMaxPreemptionBits - PreemptBits)) - 1u)))));
 	}
 
 	/**
-	 * @brief Constructs an @c IsrPriority with a raw value.
+	 * @brief Constructs an @c isr_priority with a raw value.
 	 * @param value The raw value of the priority (with no distinction between preemption and sub-priority)
 	 * @remark The default value is @c 0xFF which is the lowest priority available in the Cortex-M
 	 */
-	constexpr explicit IsrPriority(uint8_t value = 0xFF) :
+	constexpr explicit isr_priority(uint8_t value = 0xFF) :
 			value_(value)
 	{
 
 	}
 
 	/**
-	 * @brief Constructs an @c IsrPriority based on another one.
-	 * @param other The other @c IsrPriority
+	 * @brief Constructs an @c isr_priority based on another one.
+	 * @param other The other @c isr_priority
 	 */
-	constexpr IsrPriority(const IsrPriority& other) :
+	constexpr isr_priority(const isr_priority& other) :
 			value_(other.value_)
 	{
 	}
 
 	/**
-	 * @brief Copies the data from another @c IsrPriority.
-	 * @param other The other @c IsrPriority
+	 * @brief Copies the data from another @c isr_priority.
+	 * @param other The other @c isr_priority
 	 * @return A reference to this instance
 	 */
-	constexpr IsrPriority& operator=(const IsrPriority& other)
+	constexpr isr_priority& operator=(const isr_priority& other)
 	{
 		value_ = other.value_;
 		return *this;
 	}
 
 	/**
-	 * @brief Preemption level of the @c IsrPriority
+	 * @brief Preemption level of the @c isr_priority
 	 * @return The preemption level
-	 * @remark Like all @c IsrPriority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
+	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PreemptBits>
 	constexpr uint8_t preempt() const
@@ -110,9 +110,9 @@ public:
 	}
 
 	/**
-	 * @brief Sub-priority of the @c IsrPriority
+	 * @brief Sub-priority of the @c isr_priority
 	 * @return The sub-priority
-	 * @remark Like all @c IsrPriority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
+	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PreemptBits>
 	constexpr uint8_t sub() const
@@ -121,9 +121,9 @@ public:
 	}
 
 	/**
-	 * @brief Raw value of the @c IsrPriority
+	 * @brief Raw value of the @c isr_priority
 	 * @return The raw value
-	 * @remark Like all @c IsrPriority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
+	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	constexpr uint8_t value() const
 	{
@@ -131,9 +131,9 @@ public:
 	}
 
 	/**
-	 * @brief Masked raw value of the @c IsrPriority. It contains only the bits actually implemented in the Cortex-M.
+	 * @brief Masked raw value of the @c isr_priority. It contains only the bits actually implemented in the Cortex-M.
 	 * @return The masked raw value.
-	 * @remark Like all @c IsrPriority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
+	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PriorityBits>
 	constexpr uint8_t masked_value() const

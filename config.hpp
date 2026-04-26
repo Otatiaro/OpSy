@@ -24,10 +24,10 @@
  * 			preemption level above the system MUST NOT use OpSy at all,
  * 			otherwise atomicity of system calls can not be guaranteed.
  *
- * 			The @c Mutex concrete implementation is also defined here, by default
- * 			it is set to @c PriorityMutex, which is the correct implementation
+ * 			The @c mutex concrete implementation is also defined here, by default
+ * 			it is set to @c priority_mutex, which is the correct implementation
  * 			for the vast majority of projects. But this using allows for special
- * 			types of Mutex to be used (e.g. multi-processor semaphores).
+ * 			types of mutex to be used (e.g. multi-processor semaphores).
  *
  * 			Finally OpSy defines the default @c duration with a time base of 1ms
  * 			and @c time_point as a 64 bit derivative of @c duration.
@@ -127,25 +127,25 @@ constexpr uint32_t kPreemptionBits = 2;
 constexpr uint32_t kOpsyPreemption = 1;
 
 /**
- * @brief Defines the concrete implementation of @c Mutex used in this project.
+ * @brief Defines the concrete implementation of @c mutex used in this project.
  */
-using Mutex = PriorityMutex;
+using mutex = priority_mutex;
 
 #endif
 
 /**
  * @brief A minimal clock type satisfying the C++ TrivialClock requirements,
  *        used as a tag for @c time_point. The actual time source is
- *        @c Scheduler::now(), which increments on each Systick interrupt.
+ *        @c scheduler::now(), which increments on each Systick interrupt.
  * @remark @c now() is declared here and defined in @c opsy.hpp after
- *         @c Scheduler is available, to avoid a circular dependency.
+ *         @c scheduler is available, to avoid a circular dependency.
  */
-struct OpSyClock
+struct opsy_clock
 {
 	using rep        = int64_t;
 	using period     = std::milli;
 	using duration   = opsy::duration;
-	using time_point = std::chrono::time_point<OpSyClock>;
+	using time_point = std::chrono::time_point<opsy_clock>;
 	static constexpr bool is_steady = true;
 	static time_point now() noexcept;
 };
@@ -153,10 +153,10 @@ struct OpSyClock
 /**
  * @brief The type used to describe a time point
  */
-using time_point = OpSyClock::time_point;
+using time_point = opsy_clock::time_point;
 
 /**
- * @brief The @c time_point used as a reference when the @c Scheduler starts
+ * @brief The @c time_point used as a reference when the @c scheduler starts
  */
 static constexpr time_point Startup = time_point{ duration{ 0 } };
 

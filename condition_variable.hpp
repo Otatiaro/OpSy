@@ -7,10 +7,10 @@
  * @brief   Replacement for @c std::condition_variable
  *
  * 		 Compared to @c std::condition_variable:
- * 		  - uses only the @c Mutex class
- * 		  - has @c wait, @c wait_for and @c wait_until without @c Mutex
+ * 		  - uses only the @c mutex class
+ * 		  - has @c wait, @c wait_for and @c wait_until without @c mutex
  * 		  - uses @c duration and @c time_point for time expressions
- * 		  - uses a @c Mutex for @c notify and @c notify_all synchronization
+ * 		  - uses a @c mutex for @c notify and @c notify_all synchronization
  * 		  - does not generate spurious notifications, hence there is no
  * 		    method with check predicates
  *
@@ -50,13 +50,13 @@
 #include "embedded_list.hpp"
 #include "task.hpp"
 #include "cortex_m.hpp"
-//#include "Mutex.hpp"
+//#include "mutex.hpp"
 
 namespace std
 {
 
 /**
- * @brief Result of a timed wait operation on a @c ConditionVariable
+ * @brief Result of a timed wait operation on a @c condition_variable
  * @remark Equivalent to @c std::cv_status from @c <condition_variable>,
  *         redefined here because @c <condition_variable> is unavailable on
  *         Cortex-M targets (no OS threading support in the C++ runtime).
@@ -76,114 +76,114 @@ namespace opsy
 
 /**
  * @brief A condition variable.
- * It is used to synchronize a @c Task with either one or multiple @c Task and/or interrupt service routines
- * @warning Only a @c Task is allowed to @c wait, @c wait_for or @c wait_until. An interrupt service routine is NOT allowed to call wait in any case
+ * It is used to synchronize a @c task with either one or multiple @c task and/or interrupt service routines
+ * @warning Only a @c task is allowed to @c wait, @c wait_for or @c wait_until. An interrupt service routine is NOT allowed to call wait in any case
  * @remark It is a replacement for @c std::condition_variable
  */
-class ConditionVariable
+class condition_variable
 {
-	friend class Scheduler;
+	friend class scheduler;
 
 public:
 
 	/**
-	 * @brief Creates a @c ConditionVariable with the @p priority synchronization on @c notify and @c notify_all
-	 * @param priority The @c Mutex priority used for @c notify and @c notify_all
+	 * @brief Creates a @c condition_variable with the @p priority synchronization on @c notify and @c notify_all
+	 * @param priority The @c mutex priority used for @c notify and @c notify_all
 	 */
-	constexpr explicit ConditionVariable(std::optional<IsrPriority> priority = std::nullopt) :
+	constexpr explicit condition_variable(std::optional<isr_priority> priority = std::nullopt) :
 			mutex_(priority)
 	{
 
 	}
 
 	/**
-	 * @brief Notify the first @c Task in the waiting list if there is any, releasing it from its wait state to the ready state
+	 * @brief Notify the first @c task in the waiting list if there is any, releasing it from its wait state to the ready state
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c Scheduler::wake_up; see the cycle-breaking note there).
+	 *         @c scheduler::wake_up; see the cycle-breaking note there).
 	 */
 	void notify_one();
 
 	/**
-	 * @brief Notify all @c Task in the waiting list, releasing them from their wait state to the ready state
+	 * @brief Notify all @c task in the waiting list, releasing them from their wait state to the ready state
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (see @c notify_one).
 	 */
 	void notify_all();
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with no time limit nor @c Mutex synchronization
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @brief Wait on a @c condition_variable with no time limit nor @c mutex synchronization
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (issues an @c SVC
-	 *         using @c Scheduler::ServiceCallNumber).
+	 *         using @c scheduler::service_call_number).
 	 */
 	void wait();
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with no time limit with @c Mutex synchronization
-	 * @param mutex The @c Mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @brief Wait on a @c condition_variable with no time limit with @c mutex synchronization
+	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	void wait(Mutex& mutex);
+	void wait(mutex& mtx);
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with a timeout and no @c Mutex synchronization
-	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @brief Wait on a @c condition_variable with a timeout and no @c mutex synchronization
+	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
+	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	std::cv_status wait_for(duration timeout);
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with a timeout and @c Mutex synchronization
-	 * @param mutex The @c Mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
-	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
+	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
+	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
+	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	std::cv_status wait_for(Mutex& mutex, duration timeout);
+	std::cv_status wait_for(mutex& mtx, duration timeout);
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with a timeout and @c Mutex synchronization
-	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c Scheduler::now).
+	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
+	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
+	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
 	std::cv_status wait_until(time_point timeout_time);
 
 	/**
-	 * @brief Wait on a @c ConditionVariable with a timeout and @c Mutex synchronization
-	 * @param mutex The @c Mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
-	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
-	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c Scheduler::now).
+	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
+	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
+	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
+	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
-	std::cv_status wait_until(Mutex& mutex, time_point timeout_time);
+	std::cv_status wait_until(mutex& mtx, time_point timeout_time);
 
 private:
 
-	Mutex mutex_;
-	EmbeddedList<TaskControlBlock, TaskLists::Waiting> waiting_list_;
+	mutex mutex_;
+	embedded_list<task_control_block, task_lists::Waiting> waiting_list_;
 
 	/**
-	 * @brief Adds a @c TaskControlBlock to the waiting list, ordered by priority
-	 * @param task The @c TaskControlBlock to add
-	 * @remark Inline here because it has no dependency on @c Scheduler.
+	 * @brief Adds a @c task_control_block to the waiting list, ordered by priority
+	 * @param task The @c task_control_block to add
+	 * @remark Inline here because it has no dependency on @c scheduler.
 	 */
-	void add_waiting(TaskControlBlock& task)
+	void add_waiting(task_control_block& task)
 	{
-		waiting_list_.insert_when(TaskControlBlock::priority_is_lower, task);
+		waiting_list_.insert_when(task_control_block::priority_is_lower, task);
 	}
 
 	/**
-	 * @brief Removes a @c TaskControlBlock from the waiting list
-	 * @param task The @c TaskControlBlock to remove
-	 * @remark Inline here because it has no dependency on @c Scheduler.
+	 * @brief Removes a @c task_control_block from the waiting list
+	 * @param task The @c task_control_block to remove
+	 * @remark Inline here because it has no dependency on @c scheduler.
 	 */
-	void remove_waiting(TaskControlBlock& task)
+	void remove_waiting(task_control_block& task)
 	{
 		waiting_list_.erase(task);
 	}

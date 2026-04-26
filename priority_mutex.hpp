@@ -7,7 +7,7 @@
  * @brief   Replacement for @c std::mutex
  *
  *			It is based on:
- *			 - critical sections for @c Task only exclusion
+ *			 - critical sections for @c task only exclusion
  *			 - @c BASEPRI register (interrupt masking) for interrupt service
  *			 routine exclusion
  *
@@ -61,44 +61,44 @@ namespace opsy
 
 /**
  * @brief A mutual exclusive lock.
- * It is used to protect shared data from being simultaneously accessed by multiple @c Task or interrupt service routines
+ * It is used to protect shared data from being simultaneously accessed by multiple @c task or interrupt service routines
  * @remark It is a replacement for @c std::mutex
  */
-class PriorityMutex
+class priority_mutex
 {
-	friend class Scheduler;
+	friend class scheduler;
 
 public:
 
 	/**
-	 * @brief Creates a new @c Mutex that locks interrupt service routine up to @p priority, or only @c Task if no @p priority is specified.
-	 * @param priority The @c IsrPriority that this @c Mutex should lock, or nothing to make a @c Task only exclusion (critical section)
-	 * @remark use @c IsrPriority with value 0 for a full lock (@c PRIMASK = 1)
+	 * @brief Creates a new @c mutex that locks interrupt service routine up to @p priority, or only @c task if no @p priority is specified.
+	 * @param priority The @c isr_priority that this @c mutex should lock, or nothing to make a @c task only exclusion (critical section)
+	 * @remark use @c isr_priority with value 0 for a full lock (@c PRIMASK = 1)
 	 */
-	constexpr explicit PriorityMutex(std::optional<IsrPriority> priority = std::nullopt) :
+	constexpr explicit priority_mutex(std::optional<isr_priority> priority = std::nullopt) :
 			priority_(priority)
 	{
 	}
 
-	PriorityMutex(const PriorityMutex&) = delete;
-	void operator=(const PriorityMutex&) = delete;
+	priority_mutex(const priority_mutex&) = delete;
+	void operator=(const priority_mutex&) = delete;
 
 	/**
-	 * @brief Constructs a @c Mutex by moving data from another @c Mutex
-	 * @param from The @c Mutex to move data from
+	 * @brief Constructs a @c mutex by moving data from another @c mutex
+	 * @param from The @c mutex to move data from
 	 */
-	constexpr PriorityMutex(PriorityMutex&& from) :
+	constexpr priority_mutex(priority_mutex&& from) :
 			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
 	{
 	}
 
 	/**
-	 * @brief Assigns a @c Mutex by moving data from another @c Mutex
-	 * @param from The @c Mutex to move data from
+	 * @brief Assigns a @c mutex by moving data from another @c mutex
+	 * @param from The @c mutex to move data from
 	 * @return A reference to @c this
-	 * @warning The current @c Mutex must NOT be locked before being assigned
+	 * @warning The current @c mutex must NOT be locked before being assigned
 	 */
-	PriorityMutex& operator=(PriorityMutex&& from)
+	priority_mutex& operator=(priority_mutex&& from)
 	{
 		assert(!locked_); // trying to override a locked mutex !
 		locked_ = from.locked_;
@@ -110,24 +110,24 @@ public:
 	}
 
 	/**
-	 * @brief Gets the @c IsrPriority this @c Mutex locks, or @c std::nullopt if it is only a @c Task exclusion
-	 * @return The @c IsrPriority this @c Mutex locks, or @c std::nullopt if it is only a @c Task exclusion
+	 * @brief Gets the @c isr_priority this @c mutex locks, or @c std::nullopt if it is only a @c task exclusion
+	 * @return The @c isr_priority this @c mutex locks, or @c std::nullopt if it is only a @c task exclusion
 	 */
-	constexpr std::optional<IsrPriority> priority() const
+	constexpr std::optional<isr_priority> priority() const
 	{
 		return priority_;
 	}
 
 	/**
-	 * @brief Takes a lock on this @c Mutex
+	 * @brief Takes a lock on this @c mutex
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls into
-	 *         @c Scheduler, @c Hooks and @c CortexM, see the cycle-breaking
+	 *         @c scheduler, @c hooks and @c cortex_m, see the cycle-breaking
 	 *         note there).
 	 */
 	void lock();
 
 	/**
-	 * @brief Releases the lock on this @c Mutex
+	 * @brief Releases the lock on this @c mutex
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (see @c lock).
 	 */
 	void unlock();
@@ -136,24 +136,24 @@ private:
 
 	/**
 	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed
-	 * @param section The @c CriticalSection ownership transferred from the scheduler
+	 * @param section The @c critical_section ownership transferred from the scheduler
 	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	uint32_t relock_from_pend_sv(CriticalSection section);
+	uint32_t relock_from_pend_sv(critical_section section);
 
 	/**
 	 * @brief Release the hardware portion of the lock from a service call, leaving @c locked_ untouched
-	 * @remark Used during @c ConditionVariable::wait so the scheduler can atomically
+	 * @remark Used during @c condition_variable::wait so the scheduler can atomically
 	 *         release the mutex and put the task to sleep. Defined inline at the
 	 *         bottom of @c scheduler.hpp.
 	 */
 	void release_from_service_call();
 
 	bool locked_ = false;
-	IsrPriority previous_lock_ = IsrPriority(0);
-	CriticalSection critical_section_;
-	std::optional<IsrPriority> priority_;
+	isr_priority previous_lock_ = isr_priority(0);
+	critical_section critical_section_;
+	std::optional<isr_priority> priority_;
 };
 
 }

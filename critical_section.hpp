@@ -6,12 +6,12 @@
  * @date    01-March-2019
  * @brief   An object representing a lock on a critical section
  *
- * 			When a @c Task has a lock on a critical section, this prevents
- * 			the @c Scheduler from changing the current task.
- * 			A valid @c CriticalSection can only be created by @c Scheduler
+ * 			When a @c task has a lock on a critical section, this prevents
+ * 			the @c scheduler from changing the current task.
+ * 			A valid @c critical_section can only be created by @c scheduler
  *
  * 			Obviously, do not call blocking features with an active
- * 			critical section (other than @c ConditionVariable wait)
+ * 			critical section (other than @c condition_variable wait)
  *
  * 			This object is not copy constructible or copy assignable, only
  * 			move constructible and move assignable.
@@ -55,30 +55,30 @@ namespace opsy
 /**
  * @brief A critical section handle
  */
-class CriticalSection
+class critical_section
 {
-	friend class Scheduler;
+	friend class scheduler;
 
 public:
 
 	/**
-	 * @brief Constructs an invalid @c CriticalSection handle (only @c Scheduler can create valid ones)
+	 * @brief Constructs an invalid @c critical_section handle (only @c scheduler can create valid ones)
 	 */
-	constexpr CriticalSection() :
+	constexpr critical_section() :
 			valid_(false)
 	{
 
 	}
 
-	CriticalSection& operator=(const CriticalSection&) = delete;
-	CriticalSection(const CriticalSection&) = delete;
+	critical_section& operator=(const critical_section&) = delete;
+	critical_section(const critical_section&) = delete;
 
 	/**
-	 * @brief Assigns a @c CriticalSection by moving data from another @c CriticalSection
-	 * @param other The @c CriticalSection to move data from
-	 * @warning This @c CriticalSection should not be active before it is assigned to
+	 * @brief Assigns a @c critical_section by moving data from another @c critical_section
+	 * @param other The @c critical_section to move data from
+	 * @warning This @c critical_section should not be active before it is assigned to
 	 */
-	constexpr CriticalSection& operator=(CriticalSection&& other)
+	constexpr critical_section& operator=(critical_section&& other)
 	{
 		assert(!valid_);
 		valid_ = other.valid_;
@@ -87,28 +87,28 @@ public:
 	}
 
 	/**
-	 * @brief Constructs a @c CriticalSection by moving data from another @c CriticalSection
-	 * @param other The @c CriticalSection to move data from
+	 * @brief Constructs a @c critical_section by moving data from another @c critical_section
+	 * @param other The @c critical_section to move data from
 	 */
-	constexpr CriticalSection(CriticalSection&& other) :
+	constexpr critical_section(critical_section&& other) :
 			valid_(other.valid_)
 	{
 		other.valid_ = false;
 	}
 
 	/**
-	 * @brief Deletes the @c CriticalSection, releasing the lock if it is active
+	 * @brief Deletes the @c critical_section, releasing the lock if it is active
 	 * @remark The body is defined inline at the bottom of @c scheduler.hpp because
-	 *         it calls @c Scheduler::critical_section_end, and @c scheduler.hpp
+	 *         it calls @c scheduler::critical_section_end, and @c scheduler.hpp
 	 *         already includes (transitively) this header. Defining the body
-	 *         after the @c Scheduler class declaration breaks the cycle without
+	 *         after the @c scheduler class declaration breaks the cycle without
 	 *         requiring a translation unit.
 	 */
-	~CriticalSection();
+	~critical_section();
 
 private:
 
-	constexpr explicit CriticalSection(bool valid) :
+	constexpr explicit critical_section(bool valid) :
 			valid_(valid)
 	{
 

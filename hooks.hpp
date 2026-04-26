@@ -56,16 +56,16 @@ namespace opsy
 	/**
 	 * @brief Methods called by OpSy at various places in the code
 	 */
-	class Hooks
+	class hooks
 	{
 	public:
 		/**
 		 * @brief Called when the scheduler is starting
 		 * @param idle The idle task
 		 * @param coreClock The core clock
-		 * @param foreachTask A @c Callback used to iterate over all @c Task
+		 * @param foreachTask A @c callback used to iterate over all @c task
 		 */
-		static void starting([[maybe_unused]] IdleTaskControlBlock& idle, [[maybe_unused]] uint32_t coreClock, [[maybe_unused]] Callback<void(Callback<void(const TaskControlBlock&)>)> foreachTask)
+		static void starting([[maybe_unused]] idle_task_control_block& idle, [[maybe_unused]] uint32_t coreClock, [[maybe_unused]] callback<void(callback<void(const task_control_block&)>)> foreachTask)
 		{}
 
 		/**
@@ -88,7 +88,7 @@ namespace opsy
 
 		/**
 		 * @brief Called when exiting Systick handler
-		 * @param taskSwitch @c true if a @c Task switch is requested, @c false otherwise
+		 * @param taskSwitch @c true if a @c task switch is requested, @c false otherwise
 		 */
 		static constexpr void exit_systick([[maybe_unused]] bool taskSwitch)
 		{}
@@ -101,163 +101,163 @@ namespace opsy
 
 		/**
 		 * @brief Called when exiting Service Call handler
-		 * @param taskSwitch @c true if a @c Task switch is requested, @c false otherwise
+		 * @param taskSwitch @c true if a @c task switch is requested, @c false otherwise
 		 */
 		static constexpr void exit_service_call([[maybe_unused]] bool taskSwitch)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is added to the list of active @c Task
-		 * @param task The newly added @c Task
+		 * @brief Called when a @c task is added to the list of active @c task
+		 * @param task The newly added @c task
 		 */
-		static constexpr void task_added([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_added([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is terminated (removed from the list of active @c Task)
-		 * @param task The terminated @c Task
+		 * @brief Called when a @c task is terminated (removed from the list of active @c task)
+		 * @param task The terminated @c task
 		 */
-		static constexpr void task_terminated([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_terminated([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is started (executed)
-		 * @param task The @c Task being started
+		 * @brief Called when a @c task is started (executed)
+		 * @param task The @c task being started
 		 */
-		static constexpr void task_started([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_started([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is put to sleep
-		 * @param task The @c Task put to sleep
+		 * @brief Called when a @c task is put to sleep
+		 * @param task The @c task put to sleep
 		 */
-		static constexpr void task_sleep([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_sleep([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is stopped (stop being executed)
-		 * @param task The @c Task being stopped
+		 * @brief Called when a @c task is stopped (stop being executed)
+		 * @param task The @c task being stopped
 		 */
-		static constexpr void task_stopped([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_stopped([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task starts waiting a @c ConditionVariable
-		 * @param task The @c Task that starts waiting
-		 * @param cv The @c ConditionVariable being waited on
+		 * @brief Called when a @c task starts waiting a @c condition_variable
+		 * @param task The @c task that starts waiting
+		 * @param cv The @c condition_variable being waited on
 		 */
-		static constexpr void task_wait([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv)
+		static constexpr void task_wait([[maybe_unused]] task_control_block& task, [[maybe_unused]] condition_variable& cv)
 		{}
 
 		/**
-		 * @brief Called when a @c Task starts waiting a @c ConditionVariable with a duration
-		 * @param task The @c Task that starts waiting
-		 * @param cv The @c ConditionVariable being waited on
+		 * @brief Called when a @c task starts waiting a @c condition_variable with a duration
+		 * @param task The @c task that starts waiting
+		 * @param cv The @c condition_variable being waited on
 		 * @param tp The @c time_point at which a timeout would occur
 		 */
-		static constexpr void task_wait_timeout([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] time_point tp)
+		static constexpr void task_wait_timeout([[maybe_unused]] task_control_block& task, [[maybe_unused]] condition_variable& cv, [[maybe_unused]] time_point tp)
 		{}
 
 		/**
-		 * @brief Called when a @c Task is ready (to be executed)
-		 * @param task The @c Task that is ready to be executed
+		 * @brief Called when a @c task is ready (to be executed)
+		 * @param task The @c task that is ready to be executed
 		 */
-		static constexpr void task_ready([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_ready([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task name has changed
-		 * @param task The @c Task that has changed name
+		 * @brief Called when a @c task name has changed
+		 * @param task The @c task that has changed name
 		 */
-		static constexpr void task_name_changed([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_name_changed([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task priority has changed
-		 * @param task The @c Task that has changed priority
+		 * @brief Called when a @c task priority has changed
+		 * @param task The @c task that has changed priority
 		 */
-		static constexpr void task_priority_changed([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_priority_changed([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task enters a critical section (prevents task switching)
+		 * @brief Called when a @c task enters a critical section (prevents task switching)
 		 */
 		static constexpr void enter_critical_section()
 		{}
 
 		/**
-		 * @brief Called when a @c Task exits a critical section (task switching allowed)
+		 * @brief Called when a @c task exits a critical section (task switching allowed)
 		 */
 		static constexpr void exit_critical_section()
 		{}
 
 		/**
-		 * @brief Called when a @c Mutex is stored by the system on a @c Task
-		 * @param task The @c Task for which the system has stored a @c Mutex
+		 * @brief Called when a @c mutex is stored by the system on a @c task
+		 * @param task The @c task for which the system has stored a @c mutex
 		 */
-		static constexpr void mutex_stored_for_task([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void mutex_stored_for_task([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Mutex is restored by the system for a @c Task
-		 * @param task The @c Task whose @c Mutex has been restored by the system
+		 * @brief Called when a @c mutex is restored by the system for a @c task
+		 * @param task The @c task whose @c mutex has been restored by the system
 		 */
-		static constexpr void mutex_restored_for_task([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void mutex_restored_for_task([[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task or interrupt service routine enters a full lock (complete lock, @c PRIMASK = 1)
+		 * @brief Called when a @c task or interrupt service routine enters a full lock (complete lock, @c PRIMASK = 1)
 		 */
 		static constexpr void enter_full_lock()
 		{}
 
 		/**
-		 * @brief Called when a @c Task or interrupt service routine exits a full lock
+		 * @brief Called when a @c task or interrupt service routine exits a full lock
 		 */
 		static constexpr void exit_full_lock()
 		{}
 
 		/**
-		 * @brief Called when a @c Task or interrupt service routine enters a priority lock (partial lock, @c BASEPRI = XX)
+		 * @brief Called when a @c task or interrupt service routine enters a priority lock (partial lock, @c BASEPRI = XX)
 		 */
-		static constexpr void enter_priority_lock(IsrPriority)
+		static constexpr void enter_priority_lock(isr_priority)
 		{}
 
 		/**
-		 * @brief Called when a @c Task or interrupt service routine exits a priority lock
+		 * @brief Called when a @c task or interrupt service routine exits a priority lock
 		 */
 		static constexpr void exit_priority_lock()
 		{}
 
 		/**
-		 * @brief Called when a @c Task starts waiting a @c ConditionVariable
-		 * @param cv The @c ConditionVariable being waiting on
-		 * @param task The @c Task that starts waiting
+		 * @brief Called when a @c task starts waiting a @c condition_variable
+		 * @param cv The @c condition_variable being waiting on
+		 * @param task The @c task that starts waiting
 		 */
-		static constexpr void condition_variable_start_waiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task)
+		static constexpr void condition_variable_start_waiting([[maybe_unused]] condition_variable& cv, [[maybe_unused]] task_control_block& task)
 		{}
 
 		/**
-		 * @brief Called when a @c Task starts waiting a @c ConditionVariable with a timeout
-		 * @param cv The @c ConditionVariable being waiting on
-		 * @param task The @c Task that starts waiting
+		 * @brief Called when a @c task starts waiting a @c condition_variable with a timeout
+		 * @param cv The @c condition_variable being waiting on
+		 * @param task The @c task that starts waiting
 		 * @param timeout The timeout duration
 		 */
-		static constexpr void condition_variable_start_waiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] duration timeout)
+		static constexpr void condition_variable_start_waiting([[maybe_unused]] condition_variable& cv, [[maybe_unused]] task_control_block& task, [[maybe_unused]] duration timeout)
 		{}
 
 		/**
-		 * @brief Called when a @c ConditionVariable is notified once
-		 * @param cv The @c ConditionVariable being notified
+		 * @brief Called when a @c condition_variable is notified once
+		 * @param cv The @c condition_variable being notified
 		 */
-		static constexpr void condition_variable_notify_one([[maybe_unused]] ConditionVariable& cv)
+		static constexpr void condition_variable_notify_one([[maybe_unused]] condition_variable& cv)
 		{}
 
 		/**
-		 * @brief Called when a @c ConditionVariable is notified for all waiting @c Task
-		 * @param cv The @c ConditionVariable being notified
+		 * @brief Called when a @c condition_variable is notified for all waiting @c task
+		 * @param cv The @c condition_variable being notified
 		 */
-		static constexpr void condition_variable_notify_all([[maybe_unused]] ConditionVariable& cv)
+		static constexpr void condition_variable_notify_all([[maybe_unused]] condition_variable& cv)
 		{}
 
 		/**

@@ -9,16 +9,16 @@
  * 			The scheduler is responsible for task switching, timeouts, and
  * 			globally makes the link between all OpSy elements.
  *
- * 			@c Task will not run until the @c Scheduler is started.
- * 			When the @c Scheduler starts, it does NOT return from @c start.
- * 			Instead it starts running the most important @c Task or goes to
- * 			idle if there is no @c Task ready to run.
+ * 			@c task will not run until the @c scheduler is started.
+ * 			When the @c scheduler starts, it does NOT return from @c start.
+ * 			Instead it starts running the most important @c task or goes to
+ * 			idle if there is no @c task ready to run.
  *
  * 			It also offers the @c now method, which returns the @c time_point
- * 			since the @c Scheduler started.
+ * 			since the @c scheduler started.
  *
- * 			You can iterate over all the @c Task currently handled by the
- * 			@c Scheduler with @c all_tasks
+ * 			You can iterate over all the @c task currently handled by the
+ * 			@c scheduler with @c all_tasks
  *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
@@ -75,50 +75,50 @@ namespace opsy
 {
 
 /**
- * @brief The @c Scheduler is the OpSy manager, it handles @c Task switch, timeouts, etc.
- * @remark You can start @c Task before the @c Scheduler is started, but they will not be executed until the @c Scheduler is started
+ * @brief The @c scheduler is the OpSy manager, it handles @c task switch, timeouts, etc.
+ * @remark You can start @c task before the @c scheduler is started, but they will not be executed until the @c scheduler is started
  */
-class Scheduler
+class scheduler
 {
 	friend void ::SysTick_Handler();
 	friend void ::PendSV_Handler();
 	friend void ::SVC_Handler();
 	friend void sleep_for(duration t);
-	friend class TaskControlBlock;
-	friend class CriticalSection;
-	friend class ConditionVariable;
+	friend class task_control_block;
+	friend class critical_section;
+	friend class condition_variable;
 
 public:
 
 	/**
-	 * @brief The Service Call @c IsrPriority, it is set to system preemption and most important sub-priority
+	 * @brief The Service Call @c isr_priority, it is set to system preemption and most important sub-priority
 	 */
-	static constexpr auto kServiceCallPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, 0);
+	static constexpr auto kServiceCallPriority = isr_priority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, 0);
 
 	/**
-	 * @brief The Systick @c IsrPriority, it is set to system preemption and least important sub-priority
-	 * @remark Any interrupt service routine with priority above this one, or @c Mutex locks that locks higher priority, will NOT be able to use any of OpSy features
+	 * @brief The Systick @c isr_priority, it is set to system preemption and least important sub-priority
+	 * @remark Any interrupt service routine with priority above this one, or @c mutex locks that locks higher priority, will NOT be able to use any of OpSy features
 	 */
-	static constexpr auto kSystickPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, CortexM::min_sub());
+	static constexpr auto kSystickPriority = isr_priority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, cortex_m::min_sub());
 
 	/**
-	 * @brief The PendSV @c IsrPriority, is it set to the minimum preemption and sub-priority possible
+	 * @brief The PendSV @c isr_priority, is it set to the minimum preemption and sub-priority possible
 	 * @remark But as soon as it starts, it will lock anything up to the Service Call
 	 */
-	static constexpr auto kPendSvPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(CortexM::min_preempt(), CortexM::min_sub());
+	static constexpr auto kPendSvPriority = isr_priority::from_preempt_sub<kPreemptionBits>(cortex_m::min_preempt(), cortex_m::min_sub());
 
 	/**
-	 * @brief Starts the @c Scheduler
-	 * @param idle The @c IdleTask to use when the system goes idle. If you don't provide one, the @c Scheduler will use a default one that uses @c WFI in a loop
-	 * @return @c true if the @c Scheduler started, @c false otherwise (already started)
+	 * @brief Starts the @c scheduler
+	 * @param idle The @c idle_task to use when the system goes idle. If you don't provide one, the @c scheduler will use a default one that uses @c WFI in a loop
+	 * @return @c true if the @c scheduler started, @c false otherwise (already started)
 	 */
-	[[noreturn]] static bool start(IdleTaskControlBlock& idle = DefaultIdle<>);
+	[[noreturn]] static bool start(idle_task_control_block& idle = DefaultIdle<>);
 
 	/**
-	 * @brief Gets a read only reference to the @c EmbeddedList of @c Task currently active
-	 * @return A read only reference to the @c EmbeddedList of @c Task currently active
+	 * @brief Gets a read only reference to the @c embedded_list of @c task currently active
+	 * @return A read only reference to the @c embedded_list of @c task currently active
 	 */
-	static const EmbeddedList<TaskControlBlock, TaskLists::Handle>& all_tasks()
+	static const embedded_list<task_control_block, task_lists::Handle>& all_tasks()
 	{
 		assert(is_started_);
 		return all_tasks_;
@@ -130,30 +130,30 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(is_started_ && CortexM::current_priority().value_or(CortexM::kLowestPriority).value() >= kSystickPriority.value());
+		assert(is_started_ && cortex_m::current_priority().value_or(cortex_m::kLowestPriority).value() >= kSystickPriority.value());
 		return ticks_;
 	}
 
 	/**
-	 * @brief Try to get a valid @c CriticalSection from the @c Scheduler
-	 * @return A @c CriticalSection with state @c true if possible, @c false otherwise (already in critical section)
-	 * @remark Use this only for @c Task to @c Task synchronization, prefer @c Mutex for a more generic synchronization (uses @c IsrPriority to sychronize with interrupt service routines)
+	 * @brief Try to get a valid @c critical_section from the @c scheduler
+	 * @return A @c critical_section with state @c true if possible, @c false otherwise (already in critical section)
+	 * @remark Use this only for @c task to @c task synchronization, prefer @c mutex for a more generic synchronization (uses @c isr_priority to sychronize with interrupt service routines)
 	 */
-	static inline CriticalSection critical_section()
+	static inline opsy::critical_section try_critical_section()
 	{
 		if (critical_section_) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
-			return CriticalSection(false);
+			return opsy::critical_section(false);
 		else
 		{
-			Hooks::enter_critical_section();
+			hooks::enter_critical_section();
 			critical_section_ = true;
-			return CriticalSection(true);
+			return opsy::critical_section(true);
 		}
 	}
 
 private:
 
-	enum class ServiceCallNumber
+	enum class service_call_number
 		: uint8_t
 		{
 			Terminate, Sleep, Switch, Wait,
@@ -161,44 +161,44 @@ private:
 
 	static bool is_started_;
 	static time_point ticks_;
-	static EmbeddedList<TaskControlBlock, TaskLists::Handle> all_tasks_;
-	static EmbeddedList<TaskControlBlock, TaskLists::Timeout> timeouts_;
-	static EmbeddedList<TaskControlBlock, TaskLists::Waiting> ready_;
+	static embedded_list<task_control_block, task_lists::Handle> all_tasks_;
+	static embedded_list<task_control_block, task_lists::Timeout> timeouts_;
+	static embedded_list<task_control_block, task_lists::Waiting> ready_;
 	static bool idling_;
 	static bool may_need_switch_;
 	static volatile bool critical_section_;
 
-	static IdleTaskControlBlock* idle_;
-	static TaskControlBlock* previous_task_;
-	static TaskControlBlock* current_task_;
-	static TaskControlBlock* next_task_;
+	static idle_task_control_block* idle_;
+	static task_control_block* previous_task_;
+	static task_control_block* current_task_;
+	static task_control_block* next_task_;
 
-	static void add_task(TaskControlBlock& task)
+	static void add_task(task_control_block& task)
 	{
-		Hooks::task_added(task);
+		hooks::task_added(task);
 		all_tasks_.push_front(task);
-		ready_.insert_when(TaskControlBlock::priority_is_lower, task);
+		ready_.insert_when(task_control_block::priority_is_lower, task);
 		if(is_started_)
 			trigger_soft_switch();
 	}
 
-	static void terminate_task(TaskControlBlock* task);
+	static void terminate_task(task_control_block* task);
 
 	static void trigger_soft_switch()
 	{
-		auto previous = CortexM::set_basepri(kServiceCallPriority);
+		auto previous = cortex_m::set_basepri(kServiceCallPriority);
 		may_need_switch_ = false;
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
-		CortexM::set_basepri(previous); // and restore the basepri to its previous value
+		cortex_m::set_basepri(previous); // and restore the basepri to its previous value
 	}
 
 	static __attribute__((always_inline)) void trigger_hard_switch()
 	{
-		asm volatile("svc %[immediate]" : : [immediate] "I" (ServiceCallNumber::Switch));
+		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::Switch));
 	}
 
-	static constexpr bool wakeup_after(const TaskControlBlock& left, const TaskControlBlock& right)
+	static constexpr bool wakeup_after(const task_control_block& left, const task_control_block& right)
 	{
 		assert(left.wait_until_.has_value() && right.wait_until_.has_value());
 		return left.wait_until_.value_or(Startup) < right.wait_until_.value_or(Startup);
@@ -208,7 +208,7 @@ private:
 
 	static void __attribute__((always_inline)) systick_handler()
 	{
-		Hooks::enter_systick();
+		hooks::enter_systick();
 		ticks_+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
 
 		bool dirty = false;
@@ -226,32 +226,32 @@ private:
 				task.set_return_value(static_cast<uint32_t>(std::cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 
-			ready_.insert_when(TaskControlBlock::priority_is_lower, task);
-			Hooks::task_ready(task);
+			ready_.insert_when(task_control_block::priority_is_lower, task);
+			hooks::task_ready(task);
 			dirty = true;
 		}
 
 		if(dirty)
-			Hooks::exit_systick(do_switch());
+			hooks::exit_systick(do_switch());
 		else
-			Hooks::exit_systick(false);
+			hooks::exit_systick(false);
 	}
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
-	static void service_call_handler(StackFrame* frame, ServiceCallNumber parameter, bool isThread, uint32_t excReturn);
-	static void wake_up(TaskControlBlock& task, ConditionVariable& initiator);
-	static void update_priority(TaskControlBlock& task, Priority newPriority);
+	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool isThread, uint32_t excReturn);
+	static void wake_up(task_control_block& task, condition_variable& initiator);
+	static void update_priority(task_control_block& task, task_priority newPriority);
 
-	static void update_name(TaskControlBlock& task)
+	static void update_name(task_control_block& task)
 	{
-		Hooks::task_name_changed(task);
+		hooks::task_name_changed(task);
 	}
 
 	static void critical_section_end()
 	{
 		assert(critical_section_ == true); // should be in critical section
 		critical_section_ = false;
-		Hooks::exit_critical_section();
+		hooks::exit_critical_section();
 		if (may_need_switch_)
 			trigger_soft_switch();
 	}
@@ -259,8 +259,8 @@ private:
 
 }
 
-// Inline definitions for CriticalSection / PriorityMutex / ConditionVariable.
-// Pulled here, AFTER the full @c Scheduler declaration is in scope, to break
+// Inline definitions for critical_section / priority_mutex / condition_variable.
+// Pulled here, AFTER the full @c scheduler declaration is in scope, to break
 // the include cycle between scheduler.hpp and these three primitives' headers.
 // See scheduler_inl.hpp for details.
 #include "scheduler_inl.hpp"

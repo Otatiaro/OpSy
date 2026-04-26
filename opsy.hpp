@@ -49,9 +49,9 @@ namespace opsy
 {
 
 /**
- * @brief Puts the @c Task to sleep for a given @c duration
- * @warning This should only be called from @c Task and never from interrupt service routine
- * @warning Make sure you release all @c Mutex before you call @c sleep_for
+ * @brief Puts the @c task to sleep for a given @c duration
+ * @warning This should only be called from @c task and never from interrupt service routine
+ * @warning Make sure you release all @c mutex before you call @c sleep_for
  */
 void inline sleep_for(duration t)
 {
@@ -61,28 +61,28 @@ void inline sleep_for(duration t)
 			"mov r1, %[count_hi] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (Scheduler::ServiceCallNumber::Sleep),
+			: [immediate] "I" (scheduler::service_call_number::Sleep),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
 			: "r0", "r1");
 }
 
 /**
- * @brief Puts the @c Task to sleep up to a @c time_point
- * @warning This should only be called from @c Task and never from interrupt service routine
- * @warning Make sure you release all @c Mutex before you call @c sleep_for
+ * @brief Puts the @c task to sleep up to a @c time_point
+ * @warning This should only be called from @c task and never from interrupt service routine
+ * @warning Make sure you release all @c mutex before you call @c sleep_for
  */
 void inline sleep_until(time_point tp)
 {
 	using namespace std::chrono_literals;
-	const auto remaining = tp - Scheduler::now();
+	const auto remaining = tp - scheduler::now();
 	assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
 	sleep_for(remaining);
 }
 
-inline OpSyClock::time_point OpSyClock::now() noexcept
+inline opsy_clock::time_point opsy_clock::now() noexcept
 {
-	return Scheduler::now();
+	return scheduler::now();
 }
 
 }

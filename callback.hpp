@@ -6,7 +6,7 @@
  * @date    01-March-2019
  * @brief   Replacement for @c std::function
  *
- * 		 Compared to @c std::function, @c Callback does not:
+ * 		 Compared to @c std::function, @c callback does not:
  * 		  - allocate any memory on the heap
  * 		    it does not compile if the storage is not big enough
  * 		    to contain the required data
@@ -62,10 +62,10 @@ namespace opsy
 static constexpr std::size_t kDefaultCallbackStorageSize = 3;
 
 /**
- * @brief The base definition of a @c Callback, which will be specialized by @c Callback<ReturnType(Arguments...), StorageSize> for concrete implementation
+ * @brief The base definition of a @c callback, which will be specialized by @c callback<ReturnType(Arguments...), StorageSize> for concrete implementation
  */
 template<typename, std::size_t StorageSize = kDefaultCallbackStorageSize>
-class Callback;
+class callback;
 
 enum callback_validity_t
 {
@@ -82,55 +82,55 @@ enum callback_validity_t
  * @remark It is a replacement for @c std::function
  */
 template<std::size_t StorageSize, typename ReturnType, typename ... Arguments>
-class Callback<ReturnType(Arguments...), StorageSize>
+class callback<ReturnType(Arguments...), StorageSize>
 {
     template<typename, std::size_t>
-    friend class Callback;
+    friend class callback;
 
 public:
 
 	/**
-	 * Creates an empty @c Callback.
+	 * Creates an empty @c callback.
 	 */
-	constexpr Callback() = default;
+	constexpr callback() = default;
 
 	/**
-	 * Creates a @c Callback executing a function
-	 * @param function The function to execute when the @c Callback is called
+	 * Creates a @c callback executing a function
+	 * @param function The function to execute when the @c callback is called
 	 * @tparam Function The type of the function
 	 */
 	template<typename Function>
-	Callback(Function&& function) :
+	callback(Function&& function) :
 			valid_(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? ValidDestructor : ValidNoDestructor)
 	{
-		static_assert(sizeof(CallbackImpl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
-		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, Callback>, "Do not wrap Callback in a Callback, you probably meant to move it");
+		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
+		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
 
-		new (&storage_) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
+		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 	}
 
-	Callback(const Callback&) = delete;
-	Callback& operator=(const Callback&) = delete;
+	callback(const callback&) = delete;
+	callback& operator=(const callback&) = delete;
 
 	/**
-	 * Creates a @c Callback by moving data from another @c Callback
-	 * @param from The @c Callback to move data from
+	 * Creates a @c callback by moving data from another @c callback
+	 * @param from The @c callback to move data from
 	 */
     template<std::size_t FromSize>
-	constexpr Callback(Callback<ReturnType(Arguments...), FromSize>&& from) :
+	constexpr callback(callback<ReturnType(Arguments...), FromSize>&& from) :
 			valid_(from.valid_)
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");        
-        *reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&storage_) = from.storage_; // copy only necessary data
+        *reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
 		from.valid_ = Invalid;
 	}
 
 	/**
-	 * Assigns @c Callback from another @c Callback by moving data
-	 * @param from The @c Callback to move from
+	 * Assigns @c callback from another @c callback by moving data
+	 * @param from The @c callback to move from
 	 */
     template<std::size_t FromSize>
-	constexpr Callback& operator=(Callback<ReturnType(Arguments...), FromSize>&& from)
+	constexpr callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from)
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
@@ -139,31 +139,31 @@ public:
 
 		valid_ = from.valid_;
 		if (valid_ != Invalid)
-			*reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&storage_) = from.storage_; // copy only necessary data
+			*reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
 		from.valid_ = Invalid;
 		return *this;
 	}
 
 	/**
-	 * Assigns @c Callback from a function
+	 * Assigns @c callback from a function
 	 * @param function The function to encapsulate
 	 */
 	template<typename Function>
-	constexpr Callback& operator=(Function&& function)
+	constexpr callback& operator=(Function&& function)
 	{
-		static_assert(sizeof(CallbackImpl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
-		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, Callback>, "Do not wrap Callback in a Callback, you probably meant to move it");
+		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
+		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
 
 		valid_ = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? ValidDestructor : ValidNoDestructor;
-		new (&storage_) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
+		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;
 	}
 
 	/**
-	 * Calls the @c Callback function if it contains one
+	 * Calls the @c callback function if it contains one
 	 * @tparam The arguments types
 	 * @param args The arguments to pass to the function
-	 * @return If the @c Callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c Callback is not empty, execute the function and return its result
+	 * @return If the @c callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c callback is not empty, execute the function and return its result
 	 * @remark This is the @c const version of the operator
 	 */
 	template<typename ... Args>
@@ -186,10 +186,10 @@ public:
 	}
 
 	/**
-	 * Calls the @c Callback function if it contains one
+	 * Calls the @c callback function if it contains one
 	 * @tparam The arguments types
 	 * @param args The arguments to pass to the function
-	 * @return If the @c Callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c Callback is not empty, execute the function and return its result
+	 * @return If the @c callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c callback is not empty, execute the function and return its result
 	 * @remark This is the non @c const version of the operator
 	 */
 	template<typename ... Args>
@@ -212,15 +212,15 @@ public:
 	}
 
 	/**
-	 * Checks if the @c Callback is valid (contains an actual function)
-	 * @return @c true if the @c Callback contains a function, @c false if it is empty
+	 * Checks if the @c callback is valid (contains an actual function)
+	 * @return @c true if the @c callback contains a function, @c false if it is empty
 	 */
 	constexpr operator bool() const
 	{
 		return valid_ != Invalid;
 	}
 
-	~Callback()
+	~callback()
 	{
 	if (valid_ == ValidDestructor)
 		std::destroy_at(get());
@@ -228,24 +228,24 @@ public:
 
 	private:
 
-	class ICallback
+	class i_callback
 	{
 	public:
 		virtual ReturnType apply(Arguments&&... arguments) const = 0;
 		virtual ReturnType apply(Arguments&&... arguments) = 0;
-		virtual ~ICallback() = default;
+		virtual ~i_callback() = default;
 	};
 
-	static constexpr std::size_t FullSize = sizeof(ICallback) + StorageSize * sizeof(void*);
-	using Storage = struct alignas(std::alignment_of_v<ICallback>) { std::byte data[FullSize]; };
+	static constexpr std::size_t FullSize = sizeof(i_callback) + StorageSize * sizeof(void*);
+	using storage = struct alignas(std::alignment_of_v<i_callback>) { std::byte data[FullSize]; };
 
 	template<typename Function>
-	class CallbackImpl: ICallback
+	class callback_impl: i_callback
 	{
 
 	public:
 
-		constexpr explicit CallbackImpl(Function&& func) :
+		constexpr explicit callback_impl(Function&& func) :
 				function_(std::forward<Function>(func))
 		{
 
@@ -261,23 +261,23 @@ public:
 			return function_(std::forward<Arguments>(args)...);
 		}
 
-		~CallbackImpl() final = default;
+		~callback_impl() final = default;
 
 	private:
 		Function function_;
 	};
 
-	constexpr inline ICallback* get()
+	constexpr inline i_callback* get()
 	{
-		return reinterpret_cast<ICallback*>(&storage_);
+		return reinterpret_cast<i_callback*>(&storage_);
 	}
 
-	constexpr inline const ICallback* get() const
+	constexpr inline const i_callback* get() const
 	{
-		return reinterpret_cast<const ICallback*>(&storage_);
+		return reinterpret_cast<const i_callback*>(&storage_);
 	}
 
 	callback_validity_t valid_{ Invalid };
-	Storage storage_{ };
+	storage storage_{ };
 };
 }

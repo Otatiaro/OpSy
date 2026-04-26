@@ -52,34 +52,34 @@ namespace
 {
 
 template<typename Type>
-class MemoryRegister
+class memory_register
 {
 public:
 
-	explicit constexpr MemoryRegister(uint32_t address) :
-			m_address(address)
+	explicit constexpr memory_register(uint32_t address) :
+			address_(address)
 	{
 
 	}
 
 	constexpr uint32_t address() const
 	{
-		return m_address;
+		return address_;
 	}
 
 	Type inline get() const
 	{
-		return *reinterpret_cast<Type*>(m_address);
+		return *reinterpret_cast<Type*>(address_);
 	}
 
 	inline void set(Type value) const
 	{
-		*reinterpret_cast<Type*>(m_address) = value;
+		*reinterpret_cast<Type*>(address_) = value;
 	}
 
 private:
-	const uint32_t m_address;
-	MemoryRegister& operator=(const MemoryRegister& other) = delete;
+	const uint32_t address_;
+	memory_register& operator=(const memory_register& other) = delete;
 
 };
 }
@@ -96,14 +96,14 @@ static constexpr std::size_t kPrigroupMax = 7;
 /**
  * @brief Contains all addresses and static methods to access Cortex-M low level features and system peripherals (NVIC, Systick, etc.)
  */
-class CortexM
+class cortex_m
 {
 public:
 
 	/**
 	 * @brief An Interrupt Service Routine (ISR) entry point definition, ISR are static or global methods with no return type and no arguments
 	 */
-	using IsrHandler = void(*)(void);
+	using isr_handler_t = void(*)(void);
 
 	/**
 	 * @brief Number of system interrupt requests in the Cortex-M
@@ -118,10 +118,10 @@ public:
 	/**
 	 * @brief System interrupt requests
 	 */
-	enum class SystemIrq
+	enum class system_irq
 		: uint32_t
 		{
-			InitialSp = 0, ///< Value set to MSP at startup (it is not an IsrHandler but a memory pointer)
+			InitialSp = 0, ///< Value set to MSP at startup (it is not an isr_handler_t but a memory pointer)
 		Reset = 1, ///< First code to be executed at system reset
 		NonMaskableInterrupt = 2, ///< Non maskable interrupt
 		HardFault = 3, ///< Hard Fault
@@ -134,7 +134,7 @@ public:
 	 * @brief Cortex-M types
 	 * @remark There are many more but only Cortex-M4 and Cortex-M7 are officially supported
 	 */
-	enum class Type
+	enum class core_type
 		: uint16_t
 		{
 			M4 = 0xc24, ///< Cortex-M4
@@ -146,12 +146,12 @@ public:
 	 * @brief Lowest priority available in the system
 	 * @remark Still an ISR priority, a task runs at no priority, so an ISR with this priority still preempts tasks
 	 */
-	static constexpr IsrPriority kLowestPriority = IsrPriority(0xFF);
+	static constexpr isr_priority kLowestPriority = isr_priority(0xFF);
 
 	/**
 	 * @brief Highest priority available in the system
 	 */
-	static constexpr IsrPriority kHighestPriority = IsrPriority(0);
+	static constexpr isr_priority kHighestPriority = isr_priority(0);
 
 	/**
 	 * @brief Indicates whether the target architecture provides hardware stack-limit registers (MSPLIM / PSPLIM).
@@ -171,10 +171,10 @@ public:
 	 * @brief Gets the current executing Cortex-M type
 	 * @return The Cortex-M type (only M4 and M7 implemented in the enumeration)
 	 */
-	static Type type()
+	static core_type type()
 	{
-		const auto cpuid = MemoryRegister<uint32_t>(ScbCpuidAddress).get();
-		return static_cast<Type>((cpuid >> CpuidPartNoPos) & CpuidPartNoMask);
+		const auto cpuid = memory_register<uint32_t>(ScbCpuidAddress).get();
+		return static_cast<core_type>((cpuid >> CpuidPartNoPos) & CpuidPartNoMask);
 	}
 
 	/**
@@ -204,10 +204,10 @@ public:
 	{
 		assert(reload != 0);
 		assert(reload - 1 <= SystickReloadMask);
-		MemoryRegister<uint32_t>(SystickCtrlAddress).set(0); // stop timer in case it was already started
-		MemoryRegister<uint32_t>(SystickLoadAddress).set(reload - 1); // set the reload value
-		MemoryRegister<uint32_t>(SystickValAddress).set(0); // reset the counter
-		MemoryRegister<uint32_t>(SystickCtrlAddress).set(SystickCtrlClkSource | SystickCtrlTickInt | SystickCtrlEnable); // and start the timer
+		memory_register<uint32_t>(SystickCtrlAddress).set(0); // stop timer in case it was already started
+		memory_register<uint32_t>(SystickLoadAddress).set(reload - 1); // set the reload value
+		memory_register<uint32_t>(SystickValAddress).set(0); // reset the counter
+		memory_register<uint32_t>(SystickCtrlAddress).set(SystickCtrlClkSource | SystickCtrlTickInt | SystickCtrlEnable); // and start the timer
 	}
 
 	/**
@@ -217,7 +217,7 @@ public:
 	 */
 	static uint32_t systick_count()
 	{
-		return MemoryRegister<uint32_t>(SystickLoadAddress).get() - MemoryRegister<uint32_t>(SystickValAddress).get();
+		return memory_register<uint32_t>(SystickLoadAddress).get() - memory_register<uint32_t>(SystickValAddress).get();
 	}
 
 	/**
@@ -228,7 +228,7 @@ public:
 	static void enable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		MemoryRegister<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		memory_register<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -238,7 +238,7 @@ public:
 	static void disable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		MemoryRegister<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		memory_register<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -249,7 +249,7 @@ public:
 	static bool is_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (MemoryRegister<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -259,7 +259,7 @@ public:
 	static void set_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		MemoryRegister<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -269,7 +269,7 @@ public:
 	static void clear_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		MemoryRegister<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		memory_register<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -296,7 +296,7 @@ public:
 	static bool is_active(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (MemoryRegister<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (memory_register<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -304,10 +304,10 @@ public:
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
 	 */
-	static void set_priority(uint32_t irq, IsrPriority priority)
+	static void set_priority(uint32_t irq, isr_priority priority)
 	{
 		assert(irq <= MaxIrq);
-		MemoryRegister<uint8_t>(NvicIpAddress + irq).set(priority.value());
+		memory_register<uint8_t>(NvicIpAddress + irq).set(priority.value());
 	}
 
 	/**
@@ -315,31 +315,31 @@ public:
 	 * @param irq The interrupt request to get priority for
 	 * @return The interrupt priority
 	 */
-	static IsrPriority priority(uint32_t irq)
+	static isr_priority priority(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return IsrPriority(MemoryRegister<uint8_t>(NvicIpAddress + irq).get());
+		return isr_priority(memory_register<uint8_t>(NvicIpAddress + irq).get());
 	}
 
 	/**
 	 * @brief Sets the priority for a system interrupt
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
-	 * @warning Only @c SystemIrq::NonMaskableInterrupt, @c SystemIrq::HardFault, @c SystemIrq::ServiceCall, @c SystemIrq::PendSV and @c SystemIrq::Systick are configurable
+	 * @warning Only @c system_irq::NonMaskableInterrupt, @c system_irq::HardFault, @c system_irq::ServiceCall, @c system_irq::PendSV and @c system_irq::Systick are configurable
 	 */
-	static void set_priority(SystemIrq irq, IsrPriority priority)
+	static void set_priority(system_irq irq, isr_priority priority)
 	{
 		switch (irq)
 		{
-		case SystemIrq::NonMaskableInterrupt:
-		case SystemIrq::HardFault:
-		case SystemIrq::ServiceCall:
-		case SystemIrq::PendSV:
-		case SystemIrq::Systick:
-			MemoryRegister<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
+		case system_irq::NonMaskableInterrupt:
+		case system_irq::HardFault:
+		case system_irq::ServiceCall:
+		case system_irq::PendSV:
+		case system_irq::Systick:
+			memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
 			break;
-		case SystemIrq::InitialSp:
-		case SystemIrq::Reset:
+		case system_irq::InitialSp:
+		case system_irq::Reset:
 		default:
 			assert(false);
 			break;
@@ -350,24 +350,24 @@ public:
 	 * @brief Gets the current priority for a system interrupt
 	 * @param irq The interrupt request to get priority for
 	 * @return The current priority
-	 * @warning Only @c SystemIrq::NonMaskableInterrupt, @c SystemIrq::HardFault, @c SystemIrq::ServiceCall, @c SystemIrq::PendSV and @c SystemIrq::Systick are configurable
+	 * @warning Only @c system_irq::NonMaskableInterrupt, @c system_irq::HardFault, @c system_irq::ServiceCall, @c system_irq::PendSV and @c system_irq::Systick are configurable
 	 */
-	static IsrPriority priority(SystemIrq irq)
+	static isr_priority priority(system_irq irq)
 	{
 		switch (irq)
 		{
-		case SystemIrq::NonMaskableInterrupt:
-		case SystemIrq::HardFault:
-		case SystemIrq::ServiceCall:
-		case SystemIrq::PendSV:
-		case SystemIrq::Systick:
-			return IsrPriority(MemoryRegister<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
+		case system_irq::NonMaskableInterrupt:
+		case system_irq::HardFault:
+		case system_irq::ServiceCall:
+		case system_irq::PendSV:
+		case system_irq::Systick:
+			return isr_priority(memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
 			break;
-		case SystemIrq::InitialSp:
-		case SystemIrq::Reset:
+		case system_irq::InitialSp:
+		case system_irq::Reset:
 		default:
 			assert(false);
-			return IsrPriority(0);
+			return isr_priority(0);
 		}
 	}
 
@@ -399,16 +399,16 @@ public:
 	 */
 	static void __attribute__((noreturn)) reset()
 	{
-		MemoryRegister<uint32_t>(AircrAddress).set(AircrVectkeyValue | AircrSysreset);
+		memory_register<uint32_t>(AircrAddress).set(AircrVectkeyValue | AircrSysreset);
 	}
 
 	/**
 	 * @brief Gets the current interrupt handler vector
 	 * @return The current interrupt handler vector
 	 */
-	static IsrHandler* vtor()
+	static isr_handler_t* vtor()
 	{
-		return reinterpret_cast<IsrHandler*>(MemoryRegister<uint32_t>(ScbVtorAddress).get());
+		return reinterpret_cast<isr_handler_t*>(memory_register<uint32_t>(ScbVtorAddress).get());
 	}
 
 	/**
@@ -417,7 +417,7 @@ public:
 	 * @param copySize Number of handlers to copy from the previous to the new one
 	 * @remark It is most preferable to move interrupt handler vector at system startup before any interrupt is active
 	 */
-	static void move_vtor(IsrHandler* new_vtor, std::size_t copySize = 0)
+	static void move_vtor(isr_handler_t* new_vtor, std::size_t copySize = 0)
 	{
 		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % kVtorAlignment == 0)); // check vtor is not null and correctly aligned
 		assert(copySize <= MaxIrq + kSystemIrqs);
@@ -425,7 +425,7 @@ public:
 		for (auto i = 0u; i < copySize; ++i)
 			new_vtor[i] = vtor()[i];
 
-		MemoryRegister<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
+		memory_register<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
 	}
 
 	/**
@@ -433,20 +433,20 @@ public:
 	 * @param irq The interrupt request to get the handler for
 	 * @return The current handler of the specified system interrupt
 	 */
-	static IsrHandler isr_handler(SystemIrq irq)
+	static isr_handler_t isr_handler(system_irq irq)
 	{
 		switch (irq)
 		{
-		case SystemIrq::NonMaskableInterrupt:
-		case SystemIrq::HardFault:
-		case SystemIrq::ServiceCall:
-		case SystemIrq::PendSV:
-		case SystemIrq::Systick:
-		case SystemIrq::Reset:
+		case system_irq::NonMaskableInterrupt:
+		case system_irq::HardFault:
+		case system_irq::ServiceCall:
+		case system_irq::PendSV:
+		case system_irq::Systick:
+		case system_irq::Reset:
 		{
 			return vtor()[static_cast<std::size_t>(irq)];
 		}
-		case SystemIrq::InitialSp:
+		case system_irq::InitialSp:
 		default:
 			assert(false);
 			return 0;
@@ -458,7 +458,7 @@ public:
 	 * @param irq The interrupt request to get the handler for
 	 * @return The current handler of the specified peripheral interrupt
 	 */
-	static IsrHandler isr_handler(uint32_t irq)
+	static isr_handler_t isr_handler(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		return vtor()[irq + kSystemIrqs];
@@ -480,7 +480,7 @@ public:
 	 * @remark This call first checks if the current ISR is already correctly set, and tries to set it otherwise
 	 * @warning If you use this method to change the current value, make sure the interrupt handler vector is in writable memory (i.e. not FLASH)
 	 */
-	static void set_isr_handler(SystemIrq irq, IsrHandler handler)
+	static void set_isr_handler(system_irq irq, isr_handler_t handler)
 	{
 		if (isr_handler(irq) != handler)
 			vtor()[static_cast<std::size_t>(irq)] = handler;
@@ -493,7 +493,7 @@ public:
 	 * @remark This call first checks if the current ISR is already correctly set, and tries to set it otherwise
 	 * @warning If you use this method to change the current value, make sure the interrupt handler vector is in writable memory (i.e. not FLASH)
 	 */
-	static void set_isr_handler(uint32_t irq, IsrHandler handler)
+	static void set_isr_handler(uint32_t irq, isr_handler_t handler)
 	{
 		assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
@@ -502,9 +502,9 @@ public:
 
 	/**
 	 * @brief Tries to get the priority of the currently executing interrupt service routine
-	 * @return @c nullopt if no ISR currently executing, the @c IsrPriority of the current ISR otherwise
+	 * @return @c nullopt if no ISR currently executing, the @c isr_priority of the current ISR otherwise
 	 */
-	static std::optional<IsrPriority> current_priority()
+	static std::optional<isr_priority> current_priority()
 	{
 		auto ipsrValue = ipsr();
 
@@ -512,7 +512,7 @@ public:
 			return std::nullopt;
 
 		if (ipsrValue < kSystemIrqs)
-			return priority(static_cast<SystemIrq>(ipsrValue));
+			return priority(static_cast<system_irq>(ipsrValue));
 		else
 			return priority(ipsrValue - kSystemIrqs);
 	}
@@ -639,7 +639,7 @@ public:
 	 */
 	static inline void trigger_pend_sv()
 	{
-		MemoryRegister<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
+		memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
 	}
 
 	/**
@@ -647,15 +647,15 @@ public:
 	 */
 	static inline void clear_pend_sv()
 	{
-		MemoryRegister<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
+		memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
 	}
 
 	/**
 	 * @brief Sets the @c BASEPRI register value, and gets back its previous value
-	 * @param priority The new @c IsrPriority to set @c BASEPRI register to
+	 * @param priority The new @c isr_priority to set @c BASEPRI register to
 	 * @return The previous value of @c BASEPRI register
 	 */
-	static inline IsrPriority set_basepri(IsrPriority priority = IsrPriority(0)) __attribute__((always_inline))
+	static inline isr_priority set_basepri(isr_priority priority = isr_priority(0)) __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile(
@@ -665,7 +665,7 @@ public:
 				: [output] "=&r" (result)
 				: [input] "r" (priority.value())
 				: );
-		return IsrPriority(static_cast<uint8_t>(result));
+		return isr_priority(static_cast<uint8_t>(result));
 	}
 
 	/**
@@ -707,7 +707,7 @@ public:
 	 */
 	static inline void enable_fpu() __attribute__((always_inline))
 	{
-		MemoryRegister<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
+		memory_register<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
 		data_barrier();
 		instruction_barrier();
 	}
@@ -788,12 +788,12 @@ public:
 
 	static inline uint32_t cycle_count()
 	{
-		return MemoryRegister<uint32_t>(CycCntAddress).get();
+		return memory_register<uint32_t>(CycCntAddress).get();
 	}
 
 	static inline void cycle_count(uint32_t value)
 	{
-		MemoryRegister<uint32_t>(CycCntAddress).set(value);
+		memory_register<uint32_t>(CycCntAddress).set(value);
 	}
 
 private:
@@ -864,13 +864,13 @@ private:
 
 	static uint8_t priority_grouping()
 	{
-		return static_cast<uint8_t>((MemoryRegister<uint32_t>(AircrAddress).get() & AircrPrigroupMsk) >> AircrPrigroupPos);
+		return static_cast<uint8_t>((memory_register<uint32_t>(AircrAddress).get() & AircrPrigroupMsk) >> AircrPrigroupPos);
 	}
 
 	static void priority_grouping(uint8_t value)
 	{
 		assert(value <= kPrigroupMax);
-		MemoryRegister<uint32_t>(AircrAddress).set((MemoryRegister<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
+		memory_register<uint32_t>(AircrAddress).set((memory_register<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
 	}
 };
 }

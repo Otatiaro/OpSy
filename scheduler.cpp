@@ -3,22 +3,22 @@
 namespace opsy
 {
 
-__attribute__((section(".bss.opsy.scheduler.isstarted"))) bool Scheduler::is_started_ = false;
-__attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point Scheduler::ticks_ = opsy::Startup;
-__attribute__((section(".bss.opsy.scheduler.alltasks"))) EmbeddedList<TaskControlBlock, TaskLists::Handle> Scheduler::all_tasks_;
-__attribute__((section(".bss.opsy.scheduler.timeouts"))) EmbeddedList<TaskControlBlock, TaskLists::Timeout> Scheduler::timeouts_;
-__attribute__((section(".bss.opsy.scheduler.ready"))) EmbeddedList<TaskControlBlock, TaskLists::Waiting> Scheduler::ready_;
-__attribute__((section(".bss.opsy.scheduler.idling"))) bool Scheduler::idling_ = false;
-__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) bool Scheduler::may_need_switch_ = false;
-__attribute__((section(".bss.opsy.scheduler.idle"))) IdleTaskControlBlock* Scheduler::idle_;
-__attribute__((section(".bss.opsy.scheduler.previoustask"))) TaskControlBlock* Scheduler::previous_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.currenttask"))) TaskControlBlock* Scheduler::current_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.nexttask"))) TaskControlBlock* Scheduler::next_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool Scheduler::critical_section_ = false;
+__attribute__((section(".bss.opsy.scheduler.isstarted"))) bool scheduler::is_started_ = false;
+__attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point scheduler::ticks_ = opsy::Startup;
+__attribute__((section(".bss.opsy.scheduler.alltasks"))) embedded_list<task_control_block, task_lists::Handle> scheduler::all_tasks_;
+__attribute__((section(".bss.opsy.scheduler.timeouts"))) embedded_list<task_control_block, task_lists::Timeout> scheduler::timeouts_;
+__attribute__((section(".bss.opsy.scheduler.ready"))) embedded_list<task_control_block, task_lists::Waiting> scheduler::ready_;
+__attribute__((section(".bss.opsy.scheduler.idling"))) bool scheduler::idling_ = false;
+__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) bool scheduler::may_need_switch_ = false;
+__attribute__((section(".bss.opsy.scheduler.idle"))) idle_task_control_block* scheduler::idle_;
+__attribute__((section(".bss.opsy.scheduler.previoustask"))) task_control_block* scheduler::previous_task_ = nullptr;
+__attribute__((section(".bss.opsy.scheduler.currenttask"))) task_control_block* scheduler::current_task_ = nullptr;
+__attribute__((section(".bss.opsy.scheduler.nexttask"))) task_control_block* scheduler::next_task_ = nullptr;
+__attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool scheduler::critical_section_ = false;
 
-[[noreturn]] bool __attribute__((section(".text.opsy.start"))) Scheduler::start(IdleTaskControlBlock& idle)
+[[noreturn]] bool __attribute__((section(".text.opsy.start"))) scheduler::start(idle_task_control_block& idle)
 {
-	assert((CortexM::type() == CortexM::Type::M4) || (CortexM::type() == CortexM::Type::M7) || (CortexM::type() == CortexM::Type::M33)); // only Cortex-M4, M7 and M33 are officially supported
+	assert((cortex_m::type() == cortex_m::core_type::M4) || (cortex_m::type() == cortex_m::core_type::M7) || (cortex_m::type() == cortex_m::core_type::M33)); // only Cortex-M4, M7 and M33 are officially supported
 	assert(!is_started_);
 	is_started_ = true;
 
@@ -28,33 +28,33 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool Sc
 	auto coreClock = core_clock();
 	idle_ = &idle;
 
-	CortexM::preempt_bits(kPreemptionBits);
-	CortexM::set_priority(CortexM::SystemIrq::ServiceCall, kServiceCallPriority); // service call is at system preemption and highest sub priority
-	CortexM::set_priority(CortexM::SystemIrq::PendSV, kPendSvPriority); // pending service is at lowest possible priority
-	CortexM::set_priority(CortexM::SystemIrq::Systick, kSystickPriority); // systick handler is at system preemption with lowest sub priority
-	CortexM::set_isr_handler(CortexM::SystemIrq::Systick, ::SysTick_Handler);
-	CortexM::set_isr_handler(CortexM::SystemIrq::PendSV, ::PendSV_Handler);
-	CortexM::set_isr_handler(CortexM::SystemIrq::ServiceCall, ::SVC_Handler);
+	cortex_m::preempt_bits(kPreemptionBits);
+	cortex_m::set_priority(cortex_m::system_irq::ServiceCall, kServiceCallPriority); // service call is at system preemption and highest sub priority
+	cortex_m::set_priority(cortex_m::system_irq::PendSV, kPendSvPriority); // pending service is at lowest possible priority
+	cortex_m::set_priority(cortex_m::system_irq::Systick, kSystickPriority); // systick handler is at system preemption with lowest sub priority
+	cortex_m::set_isr_handler(cortex_m::system_irq::Systick, ::SysTick_Handler);
+	cortex_m::set_isr_handler(cortex_m::system_irq::PendSV, ::PendSV_Handler);
+	cortex_m::set_isr_handler(cortex_m::system_irq::ServiceCall, ::SVC_Handler);
 
 	assert(coreClock % ratio == 0u); // for exact time clock the core clock divided by ratio should not leave a remainder
-	CortexM::enable_systick(coreClock / ratio);
+	cortex_m::enable_systick(coreClock / ratio);
 
-	Hooks::starting(idle, coreClock, [](Callback<void(const TaskControlBlock&)> callback)
+	hooks::starting(idle, coreClock, [](callback<void(const task_control_block&)> callback)
 	{
 		for(const auto& task : all_tasks_)
 			callback(task);
 	});
 
-	CortexM::set_psp(CortexM::msp());
-	CortexM::set_control(0b10);
-	CortexM::set_msp(CortexM::msp_at_reset());
+	cortex_m::set_psp(cortex_m::msp());
+	cortex_m::set_control(0b10);
+	cortex_m::set_msp(cortex_m::msp_at_reset());
 
 	if(!do_switch())
 		__builtin_trap();
 	while(true) {} // can not reach
 }
 
-bool __attribute__((section(".text.opsy.doswitch"))) Scheduler::do_switch()
+bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
 {
 	assert(is_started_);
 	assert((current_task_ != nullptr) || (critical_section_ == false)); // can't have no current task in critical section
@@ -69,7 +69,7 @@ bool __attribute__((section(".text.opsy.doswitch"))) Scheduler::do_switch()
 	{
 		assert(current_task_ != next_task_);
 
-		ready_.insert_when(TaskControlBlock::priority_is_lower, *next_task_);
+		ready_.insert_when(task_control_block::priority_is_lower, *next_task_);
 		next_task_ = nullptr;
 	}
 
@@ -77,13 +77,13 @@ bool __attribute__((section(".text.opsy.doswitch"))) Scheduler::do_switch()
 
 	if (current_task_ != nullptr)
 	{
-		ready_.insert_when(TaskControlBlock::priority_is_lower, *current_task_);
+		ready_.insert_when(task_control_block::priority_is_lower, *current_task_);
 		current_task_ = nullptr;
 	}
 
 	if (ready_.empty())
 	{
-		CortexM::trigger_pend_sv();
+		cortex_m::trigger_pend_sv();
 		return true;
 	}
 	else
@@ -99,20 +99,20 @@ bool __attribute__((section(".text.opsy.doswitch"))) Scheduler::do_switch()
 		}
 		else
 		{
-			CortexM::trigger_pend_sv();
+			cortex_m::trigger_pend_sv();
 			return true;
 		}
 	}
 }
 
-void __attribute__((naked)) Scheduler::terminate_task(TaskControlBlock* task)
+void __attribute__((naked)) scheduler::terminate_task(task_control_block* task)
 {
 	asm volatile(
 			"nop \n\t"
 			"mov r0, %[task] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (ServiceCallNumber::Terminate), [task] "r" (task)
+			: [immediate] "I" (service_call_number::Terminate), [task] "r" (task)
 			: "r0");
 }
 
@@ -120,9 +120,9 @@ void __attribute__((naked)) Scheduler::terminate_task(TaskControlBlock* task)
 
 
 
-void __attribute__((section(".text.opsy.wakeup"))) Scheduler::wake_up(TaskControlBlock& task, ConditionVariable& condition)
+void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_control_block& task, condition_variable& condition)
 {
-	auto previous = CortexM::set_basepri(kServiceCallPriority); // get a lock up to service call
+	auto previous = cortex_m::set_basepri(kServiceCallPriority); // get a lock up to service call
 	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
 	condition.remove_waiting(task);
@@ -135,14 +135,14 @@ void __attribute__((section(".text.opsy.wakeup"))) Scheduler::wake_up(TaskContro
 		timeouts_.erase(task);
 	}
 
-	ready_.insert_when(TaskControlBlock::priority_is_lower, task);
+	ready_.insert_when(task_control_block::priority_is_lower, task);
 	do_switch(); // ask for a switch if needed (released a task with higher priority)
-	CortexM::set_basepri(previous); // and restore the basepri to its previous value
+	cortex_m::set_basepri(previous); // and restore the basepri to its previous value
 }
 
-void __attribute__((section(".text.opsy.updatepriority"))) Scheduler::update_priority(TaskControlBlock& task, Priority newPriority)
+void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_priority(task_control_block& task, task_priority newPriority)
 {
-	auto previous = CortexM::set_basepri(kServiceCallPriority); // get a lock up to service call
+	auto previous = cortex_m::set_basepri(kServiceCallPriority); // get a lock up to service call
 
 	task.priority_ = newPriority;
 	if(task.is_started()) // check task is started
@@ -157,29 +157,29 @@ void __attribute__((section(".text.opsy.updatepriority"))) Scheduler::update_pri
 		else if(!task.wait_until_.has_value()) // task is not current or next, is not waiting for a condition variable, and not waiting for a timeout, then it is in ready list
 		{
 			ready_.erase(task); // remove the task from ready list
-			ready_.insert_when(TaskControlBlock::priority_is_lower, task); // then re insert it, this will update its order
+			ready_.insert_when(task_control_block::priority_is_lower, task); // then re insert it, this will update its order
 			if(&ready_.front() == &task) // this brought the task to the first place in the ready list
 				do_switch(); // so test if it is higher priority than current / next task
 		}
 	}
 
-	Hooks::task_priority_changed(task);
-	CortexM::set_basepri(previous);
+	hooks::task_priority_changed(task);
+	cortex_m::set_basepri(previous);
 }
 
-uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pend_sv_handler(uint32_t* psp)
+uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pend_sv_handler(uint32_t* psp)
 {
-	Hooks::enter_pend_sv();
-	CortexM::clear_pend_sv();
+	hooks::enter_pend_sv();
+	cortex_m::clear_pend_sv();
 
 	uint64_t result = 0;
 
 	if (previous_task_ != nullptr)
 	{
 		assert(psp >= previous_task_->stack_base_); // Process stack pointer below the task stack base, stack overflow !
-		assert(*previous_task_->stack_base_ == TaskControlBlock::Dummy); // The lowest slot of the task stack has been modified, this shows a stack overflow
+		assert(*previous_task_->stack_base_ == task_control_block::Dummy); // The lowest slot of the task stack has been modified, this shows a stack overflow
 		previous_task_->stack_pointer_ = psp;
-		Hooks::task_stopped(*previous_task_);
+		hooks::task_stopped(*previous_task_);
 	}
 
 	if (idling_)
@@ -190,7 +190,7 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pe
 		idling_ = true;
 		previous_task_ = nullptr;
 		result = reinterpret_cast<uint64_t>(idle_->stack_pointer_);
-		Hooks::enter_idle();
+		hooks::enter_idle();
 	}
 	else
 	{
@@ -203,26 +203,26 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) Scheduler::pe
 
 		if(current_task_->mutex_ != nullptr) // there is a mutex we need to re-acquire before exit
 		{
-			result |= static_cast<uint64_t>(current_task_->mutex_->relock_from_pend_sv(CriticalSection(true))) <<32;
+			result |= static_cast<uint64_t>(current_task_->mutex_->relock_from_pend_sv(critical_section(true))) <<32;
 			critical_section_ = true;
 			current_task_->mutex_ = nullptr;
-			Hooks::mutex_restored_for_task(*current_task_);
+			hooks::mutex_restored_for_task(*current_task_);
 		}
 
 		assert(current_task_->is_started());
-		Hooks::task_started(*current_task_);
+		hooks::task_started(*current_task_);
 	}
 
-	if constexpr (CortexM::kHasStackLimitRegs)
-		CortexM::set_psplim(idling_ ? idle_->stack_base_ : current_task_->stack_base_);
+	if constexpr (cortex_m::kHasStackLimitRegs)
+		cortex_m::set_psplim(idling_ ? idle_->stack_base_ : current_task_->stack_base_);
 
 	return result;
 }
 
-void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_call_handler(StackFrame* frame,
-		ServiceCallNumber parameter, [[maybe_unused]] bool isThread, uint32_t excReturn)
+void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_call_handler(stack_frame* frame,
+		service_call_number parameter, [[maybe_unused]] bool isThread, uint32_t excReturn)
 {
-	Hooks::enter_service_call();
+	hooks::enter_service_call();
 	bool taskSwitch = false;
 
 	switch (parameter)
@@ -231,10 +231,10 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_c
 		assert(false);
 		break;
 
-	case ServiceCallNumber::Terminate:
+	case service_call_number::Terminate:
 	{
 		assert(frame->r0 != 0); // task pointer is nullptr
-		auto& task = *reinterpret_cast<TaskControlBlock*>(frame->r0);
+		auto& task = *reinterpret_cast<task_control_block*>(frame->r0);
 
 		if(!task.active_.exchange(false)) // was not active, abort termination
 			break;
@@ -259,11 +259,11 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_c
 			previous_task_ = current_task_ = nullptr;
 			taskSwitch = do_switch();
 		}
-		Hooks::task_terminated(task);
+		hooks::task_terminated(task);
 		break;
 	}
 
-	case ServiceCallNumber::Sleep:
+	case service_call_number::Sleep:
 	{
 		assert(isThread); // should not be called from non thread mode
 		assert(!critical_section_); // should not be called in critical section
@@ -274,13 +274,13 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_c
 		assert(delta.count() >= 0);
 		current_task_->wait_until_ = ticks_ + delta;
 		timeouts_.insert_when(wakeup_after, *current_task_);
-		Hooks::task_sleep(*current_task_);
+		hooks::task_sleep(*current_task_);
 		current_task_ = nullptr;
 		taskSwitch = do_switch();
 		break;
 	}
 
-	case ServiceCallNumber::Switch:
+	case service_call_number::Switch:
 	{
 		assert(isThread); // should not be called from non thread mode
 		assert(!critical_section_); // should not be called in critical section
@@ -288,54 +288,54 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_c
 		break;
 	}
 
-	case ServiceCallNumber::Wait:
+	case service_call_number::Wait:
 	{
 		assert(isThread); // should not be called from non thread mode
 		assert(frame->r0 != 0); // cannot be called with undefined condition variable
 		assert(current_task_ != nullptr); // cannot be called if there is no current task running
 
-		ConditionVariable* condition = reinterpret_cast<ConditionVariable*>(frame->r0);
+		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
 		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
 		duration timeout{raw};
-		Mutex* mutex = reinterpret_cast<Mutex*>(frame->r3);
+		mutex* mtx = reinterpret_cast<mutex*>(frame->r3);
 
 		if(timeout.count() >= 0)
 		{
 			current_task_->wait_until_ = ticks_ + timeout;
 			timeouts_.insert_when(wakeup_after, *current_task_);
-			Hooks::task_wait_timeout(*current_task_, *condition, current_task_->wait_until_.value());
-			Hooks::condition_variable_start_waiting(*condition, *current_task_, timeout);
+			hooks::task_wait_timeout(*current_task_, *condition, current_task_->wait_until_.value());
+			hooks::condition_variable_start_waiting(*condition, *current_task_, timeout);
 		}
 		else
 		{
-			Hooks::task_wait(*current_task_, *condition);
-			Hooks::condition_variable_start_waiting(*condition, *current_task_);
+			hooks::task_wait(*current_task_, *condition);
+			hooks::condition_variable_start_waiting(*condition, *current_task_);
 		}
 
-		if(mutex != nullptr)
+		if(mtx != nullptr)
 		{
 			assert(critical_section_ == true); // should be in critical section
-			current_task_->mutex_ = mutex;
-			mutex->release_from_service_call();
-			mutex->critical_section_.disable();
+			current_task_->mutex_ = mtx;
+			mtx->release_from_service_call();
+			mtx->critical_section_.disable();
 			critical_section_ = false;
-			Hooks::mutex_stored_for_task(*current_task_);
+			hooks::mutex_stored_for_task(*current_task_);
 		}
 
 		condition->add_waiting(*current_task_);
 		current_task_->waiting_ = condition;
 
 		// Pre-set stack_pointer_ so set_return_value() is safe if an ISR tail-chains
-		// before PendSV saves the context. PendSV will save Context (and FpContext
+		// before PendSV saves the context. PendSV will save context (and fp_context
 		// when the FPU was active) below 'frame'; computing that address here lets
-		// wake_up() → set_return_value() navigate to StackFrame::r0 correctly regardless
+		// wake_up() → set_return_value() navigate to stack_frame::r0 correctly regardless
 		// of whether PendSV has already run.
 		{
-			const bool fpuActive = !(excReturn & TaskControlBlock::kFpFlag);
-			auto* sp = reinterpret_cast<TaskControlBlock::StackItem*>(frame)
-					  - sizeof(Context) / sizeof(TaskControlBlock::StackItem)
-					  - (fpuActive ? sizeof(FpContext) / sizeof(TaskControlBlock::StackItem) : 0u);
-			reinterpret_cast<Context*>(sp)->lr = excReturn; // pre-populate lr for set_return_value's FPU check
+			const bool fpuActive = !(excReturn & task_control_block::kFpFlag);
+			auto* sp = reinterpret_cast<task_control_block::stack_item*>(frame)
+					  - sizeof(context) / sizeof(task_control_block::stack_item)
+					  - (fpuActive ? sizeof(fp_context) / sizeof(task_control_block::stack_item) : 0u);
+			reinterpret_cast<context*>(sp)->lr = excReturn; // pre-populate lr for set_return_value's FPU check
 			current_task_->stack_pointer_ = sp;
 		}
 
@@ -345,7 +345,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) Scheduler::service_c
 	}
 
 	}
-	Hooks::exit_service_call(taskSwitch);
+	hooks::exit_service_call(taskSwitch);
 }
 
 }
@@ -354,7 +354,7 @@ extern "C"
 {
 void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
 {
-	opsy::Scheduler::systick_handler();
+	opsy::scheduler::systick_handler();
 }
 
 void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
@@ -382,7 +382,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"isb \n\t"
 			"bx LR"
 			:
-			: [handler] "g" (opsy::Scheduler::pend_sv_handler), [mask]"I"(opsy::Scheduler::kServiceCallPriority.value())
+			: [handler] "g" (opsy::scheduler::pend_sv_handler), [mask]"I"(opsy::scheduler::kServiceCallPriority.value())
 			: "r0", "r1", "r2", "r3");
 }
 
@@ -407,7 +407,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_H
 			"pop {LR} \n\t"
 			"bx LR"
 			:
-			:[handler] "g" (opsy::Scheduler::service_call_handler)
+			:[handler] "g" (opsy::scheduler::service_call_handler)
 			: "r0", "r1", "r2", "r3");
 }
 }

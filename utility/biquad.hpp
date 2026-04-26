@@ -66,6 +66,29 @@ enum class filter_type
  * A biquad filter class
  * @tparam T The type of the values to filter
  * @tparam Coef The type of the coefficients (usually float or double)
+ *
+ * @par Type contract on @c T
+ *      The value type @c T must support:
+ *       - default construction (the @c reset / initial-value path uses @c T())
+ *       - copy construction and assignment (delay line shifts and resets)
+ *       - @c T @c + @c T -> @c T (delay line accumulation)
+ *       - @c T @c - @c T -> @c T (input minus feedback)
+ *       - @c T @c * @c Coef -> @c T (coefficient application)
+ *       - @c T @c / @c Coef -> @c T (steady-state inverse in @ref init)
+ *       - @c T @c == @c T (used by tests; skip if unused)
+ *
+ * @par Type contract on @c Coef
+ *       - default construction
+ *       - the standard set of arithmetic operators between @c Coef values
+ *         (@c +, @c -, @c *, @c /, unary @c -)
+ *       - convertible from a small set of integer literals
+ *         (@c static_cast<Coef>(0), @c static_cast<Coef>(1), @c static_cast<Coef>(2))
+ *       - @c std::numbers::sqrt2_v<Coef> and @c std::numbers::pi_v<Coef> must
+ *         be valid (any of the standard arithmetic types satisfies this)
+ *
+ *      A native floating-point type ( @c float, @c double, @c long @c double)
+ *      satisfies both contracts trivially. Fixed-point types work as long as
+ *      they expose the operators above.
  */
 template<typename T = float, typename Coef = float>
 class biquad

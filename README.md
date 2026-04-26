@@ -1,68 +1,264 @@
-<p align="center"> 
-<img src="https://eznovsas.github.io/OpSy/LOGOOPSY256.png">
-</p>
-
 # OpSy
 
-OpSy is a Real Time Operating System or RTOS for Cortex-M microcontrollers.
-It is designed to support Cortex-M3, Cortex-M4, Cortex-M7 and probably Cortex-M33 in the future.
+OpSy is a small, header-mostly real-time operating system (RTOS) for ARMv7-M
+and ARMv8-M Cortex-M microcontrollers. It is written in modern C++ (C++23)
+and built around the standard library threading primitives (`std::mutex`,
+`std::condition_variable`, `std::lock_guard`, `std::chrono`) so the API feels
+familiar to anyone who has written multi-threaded C++ on a hosted platform.
 
-It is entirely written in C++17, and with GCC in mind.
-The typical target compiler is ARM GCC, and it has been developed using version 8-2018-q4-major.
+OpSy does no heap allocation, throws no exceptions, and has no dependency
+beyond a C++23-capable `arm-none-eabi-g++`.
 
-The main goal is to make it as easy as possible to use with STM32 targets.
+## Status
 
-Code documentation is available at https://eznovsas.github.io/OpSy/
+Alpha. The API is stable enough to use in side projects but has not yet
+soaked through extensive production deployment in this iteration. Earlier
+iterations of the same scheduler design have flown on hundreds of thousands
+of hours in commercial flight controllers.
 
-# Basic how to
+## Supported targets
 
-For now, if you want to use OpSy with Atollic, you need to update the toolchain to ARM GCC 8-2018-q4-major.
-I will not detail this procedure because a far better alternative is coming.
+- Cortex-M3, Cortex-M4, Cortex-M7 (ARMv7-M)
+- Cortex-M33 (ARMv8-M, with TrustZone disabled / non-secure)
 
-Once you have a project with C++17 enabled, using OpSy is 4 very simple steps:
-- add files in your project, the git is designed to be included as a git submodule
-- add `#include <opsy.hpp>` at the beginning of your `main.cpp` files
-- at the end of your main function, simply add `opsy::Scheduler::start();`
+The scheduler asserts at startup that the running core is one of the above.
 
-That's it, if your run it, the scheduler will take control at the end of your main function, and most probably go to idle because there is no task to run. Done.
+## Requirements
 
-Ok maybe we can do a bit more, like a blinky (blink an LED), for that you will need the code to configure the output pin, and code to set and reset the pin.
-Then follow these steps:
-- add the pin configuration code in your main before the call to `Scheduler::start`
-- right after your `#include` statements, add `using namespace std::chrono_literals;` this allows to use the C++ time related literals to easily express seconds, milliseconds, etc.
-- before main, declares a global variable like this : `opsy::Task<512> task;`. The 512 is the size reserved for your task stack, 512 is plenty, a lot more than we need to blink an LED.
-- in main, before the call to `Scheduler::start()`, start your task with its code like this :
+- C++23 compiler. Tested with the ARM GNU toolchain shipped in recent
+  STM32CubeIDE versions (currently `arm-none-eabi-g++ 14.3 rel1`).
+- A linker script that places `.text`, `.bss`, `.data` etc. as usual on
+  Cortex-M, plus `_estack`, `_sstack`, `_sidata`, `_sdata`, `_edata`,
+  `_sbss`, `_ebss` symbols if you reuse the example startup code.
+- An NVIC priority configuration that leaves at least 2 preemption bits
+  (the OpSy default — overridable, see *Configuration* below).
 
-```cpp
-task.start([=]()
-	{
-		while(true)
-		{
-			/* SET THE LED ON */
-			opsy::sleep_for(250ms);
-			/* SET THE LED OFF */
-			opsy::sleep_for(250ms);
-		}
-	});
+## Repository layout
+
+OpSy is intended to be added to a project as a git submodule. All public
+headers live next to each other in this directory; the only translation
+unit is `scheduler.cpp`, which holds the static state and the two ISRs
+(`PendSV` and `SVC`) that the scheduler installs.
+
+| File | Purpose |
+|---|---|
+| `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `main.cpp`. |
+| `scheduler.hpp` | The `scheduler` class itself. Most users only call `scheduler::start()`. |
+| `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
+| `scheduler_inl.hpp` | Inline definitions for the header-only primitives, included from the bottom of `scheduler.hpp`. Never include this directly. |
+| `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
+| `priority_mutex.hpp` | `priority_mutex` (the default `mutex` alias). |
+| `condition_variable.hpp` | `condition_variable`, plus a `cv_status` enum redefined in `namespace std` because `<condition_variable>` is not available on bare-metal Cortex-M. |
+| `critical_section.hpp` | RAII handle for task-only exclusion. |
+| `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
+| `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
+| `callback.hpp` | A small `std::function` replacement with no heap and no exceptions. Used by `task::start`. |
+| `embedded_list.hpp` | Intrusive doubly-linked list used internally for the ready / waiting / timeout queues. |
+| `hooks.hpp` | Default (empty) hook callbacks. Override by providing `<opsy_hooks.hpp>` somewhere on the include path. |
+| `config.hpp` | Default configuration. Override by providing `<opsy_config.hpp>` somewhere on the include path. |
+
+## Naming convention
+
+Identifiers follow the C++ standard library style: `snake_case` types and
+methods, trailing `_` on members, no `k`/`m_`/`s_` prefixes.
+
+## Quick start
+
+Add OpSy to your project as a submodule:
+
+```sh
+git submodule add https://github.com/Otatiaro/OpSy.git src/OpSy
 ```
 
-Most tasks do work indefinitely, so they use a while(true) loop, here the task job is to set the LED on, wait 250ms (milliseconds), set the LED off, and wait again 250ms.
-We can use the "XXXms" thanks to `std::chrono_literals`, many are defined for seconds, minutes, etc. Run it, now you LED is blinking at 2Hz.
+Then in your build system add `src/OpSy/scheduler.cpp` to your sources and
+add `src/OpSy/` to your include path. Example with CMake:
 
-I can do that without an RTOS, you are probably thinking ... right, using "delay" or for loops in replacement of sleep_for, but now comes the good part.
-Declare another task, and make it blink another LED, maybe with an extra `sleep_for` before the while loop to make it out of synch with the first one, or use different on or off periods ...
-You can now write your project as independant modules, BOTH in terms of memory usage, AND in terms of processing. OpSy allows you to run them as if each one had its own CPU.
+```cmake
+target_sources(my_app PRIVATE src/OpSy/scheduler.cpp)
+target_include_directories(my_app PRIVATE src/OpSy)
+```
 
-Welcome in the whole new world of RTOS !!!!
+Minimal `main.cpp`:
 
-# History
+```cpp
+#include <opsy.hpp>
 
-This version of OpSy is the third main iteration of the RTOS. I started the very first implementation when working on the Neuron Flybarless unit.
-It has proven to be very reliable with hundreds of thousands of flight with no issue.
-I did a complete redesign when working on the EzManta project, which required more tasks, more complexity, etc.
-Then, over the years, I built a list of things I would like it to do, or do better, or differently, and as we became ST Partner, we considered releasing it open source.
-With the projects we are now working on, and the new products coming from ST (both hardware and software, be patient ;) ), it was time to work on this third iteration.
+int main()
+{
+    // Configure clocks, peripherals, ...
+    opsy::scheduler::start(); // [[noreturn]]
+}
+```
 
-# Current Version
+`scheduler::start()` never returns — it switches the CPU to the lowest
+priority task, or to the idle task (a `WFI` loop by default) if no task
+has been registered. The system is now ready.
 
-Current Version is in alpha state, first implementation is done but requires a lot of testing before it is usable in production environment.
+## Blinky
+
+```cpp
+#include <opsy.hpp>
+
+using namespace std::chrono_literals;
+
+opsy::task<512> blinker; // 512 stack slots = 2 KiB on Cortex-M
+
+int main()
+{
+    // ... clock and GPIO init ...
+
+    blinker.start([] {
+        while (true)
+        {
+            led_on();
+            opsy::sleep_for(250ms);
+            led_off();
+            opsy::sleep_for(250ms);
+        }
+    });
+
+    opsy::scheduler::start();
+}
+```
+
+`opsy::task<N>` is a value type that contains its own `N`-word stack — no
+dynamic allocation, no separate buffer to manage. Declare it as a global
+or `static` local; the scheduler keeps a pointer to it for the lifetime of
+the program.
+
+`task::start()` takes any callable that fits in the default `callback`
+storage (3 pointers worth — enough for any non-capturing lambda and most
+small captures). It is `[[nodiscard]]`: it returns `false` if the task was
+already started.
+
+The lambda runs forever in this example (`while (true)`); if it ever
+returns, the scheduler terminates the task cleanly.
+
+Add a second `task<>` and you have two truly independent execution
+contexts — preempted by the scheduler so each behaves as if it had its
+own CPU.
+
+## Synchronization primitives
+
+OpSy mirrors the standard library API, so the synchronization patterns
+you are used to from `<thread>` / `<mutex>` translate directly.
+
+### `opsy::mutex` (alias for `priority_mutex`)
+
+```cpp
+#include <mutex>
+#include <opsy.hpp>
+
+opsy::mutex m{opsy::isr_priority{0x80}};
+
+void from_task()
+{
+    std::lock_guard guard{m};
+    // critical section, masks both task switch
+    // and any ISR with priority numerically >= 0x80
+}
+```
+
+A `priority_mutex` constructed without an `isr_priority` only synchronizes
+between tasks (a critical section). With an `isr_priority`, locking the
+mutex sets `BASEPRI` to that level, masking every interrupt at or below
+that priority for the duration of the lock — that is how you protect
+shared state between a task and an ISR.
+
+A `priority_mutex(isr_priority{0})` is the strongest form: a full lock
+that disables all maskable interrupts (`PRIMASK = 1`).
+
+### `opsy::condition_variable`
+
+```cpp
+opsy::mutex              m{opsy::isr_priority{0x80}};
+opsy::condition_variable cv{opsy::isr_priority{0x80}};
+
+void wait_for_data()
+{
+    std::lock_guard guard{m};
+    cv.wait(m); // atomically releases m, sleeps,
+                // re-acquires m on wake
+}
+
+void from_isr()
+{
+    cv.notify_one(); // safe to call from ISR at the cv's priority
+}
+```
+
+`condition_variable::wait` exists in four flavours: with or without a
+mutex, and with or without a timeout (`wait_for(duration)` /
+`wait_until(time_point)`). The timed variants return a `std::cv_status`,
+matching `<condition_variable>`. Unlike the standard, OpSy does **not**
+emit spurious wakeups, so the predicate-checking overloads are
+intentionally absent.
+
+### `opsy::critical_section`
+
+A scoped handle for task-only exclusion. Obtained via
+`scheduler::try_critical_section()`. While held, the scheduler will not
+preempt the current task. Useful when you need to protect against other
+tasks but specifically *not* against ISRs (for example, when the data is
+only ever produced by an ISR and consumed by a task).
+
+### Sleeping
+
+```cpp
+opsy::sleep_for(500ms);
+opsy::sleep_until(opsy::scheduler::now() + 1s);
+```
+
+Both must be called from a task, never from an ISR, and you must release
+every `mutex` before calling them.
+
+## Configuration
+
+OpSy ships with sensible defaults in `config.hpp` and `hooks.hpp`. To
+override either, add an `<opsy_config.hpp>` or `<opsy_hooks.hpp>` file
+to any directory on your include path; OpSy detects them with
+`__has_include` and uses them in place of the defaults.
+
+Typical reasons to provide an `<opsy_config.hpp>`:
+
+- Change the time base (the default `duration` is `std::chrono::milliseconds`).
+- Change the preemption-bit split or the OpSy preemption level.
+- Replace the default `mutex` alias with a custom mutex (e.g. a multi-core
+  semaphore on a multiprocessor system).
+- Provide a different `core_clock()` than reading the linker-provided
+  `SystemCoreClock` symbol.
+
+Typical reasons to provide an `<opsy_hooks.hpp>`:
+
+- Wire `Hooks::task_started` / `task_stopped` / `enter_pend_sv` / etc.
+  to a tracing tool such as SEGGER SystemView.
+- Add custom asserts or logging on context switches.
+
+## ISR priorities and OpSy
+
+The scheduler runs at one specific NVIC preemption level
+(`opsy_preemption`, default 1). Anything at a numerically *lower* preempt
+value (so higher hardware priority) than OpSy **must not** call any OpSy
+API: such an ISR can preempt the SVC handler and break atomicity. ISRs
+at a numerically *higher* preempt value (lower priority) can use OpSy's
+synchronization primitives normally, as long as the `priority_mutex` or
+`condition_variable` they touch was constructed with an `isr_priority`
+that masks them.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
+
+## History
+
+Third iteration of the design. The first version flew on the Neuron
+Flybarless flight controller (hundreds of thousands of flights logged
+without a scheduler-level incident). The second iteration was rewritten
+for the EzManta project, which needed more concurrent activities and a
+richer synchronization model. The current iteration drops C++14 baggage
+in favour of C++23 features (`constexpr` everywhere, `std::optional`,
+`std::chrono`, `[[nodiscard]]`, ...) and a cleaner header layout — the
+core primitives (`task`, `priority_mutex`, `condition_variable`,
+`critical_section`) are header-only; only the scheduler itself needs a
+translation unit, because of its static state and the inline assembly in
+`PendSV_Handler` / `SVC_Handler`.

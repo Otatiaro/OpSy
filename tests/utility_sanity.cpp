@@ -120,6 +120,15 @@ static_assert(v2.size() == 2);
 static_assert(v2.x() == 2.0f);
 static_assert(v2.y() == 3.0f);
 
+// dot_product / cross_product are constexpr — lock that in.
+static_assert(opsy::utility::dot_product(v3, v3) == 14.0f);
+constexpr opsy::utility::vector<3> ex{1.0f, 0.0f, 0.0f};
+constexpr opsy::utility::vector<3> ey{0.0f, 1.0f, 0.0f};
+constexpr auto ez = opsy::utility::cross_product(ex, ey);
+static_assert(ez.x() == 0.0f);
+static_assert(ez.y() == 0.0f);
+static_assert(ez.z() == 1.0f);
+
 [[gnu::used]] opsy::utility::vector<4> g_vec;
 
 [[gnu::used]] void use_vector()

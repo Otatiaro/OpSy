@@ -605,7 +605,7 @@ auto rotate(const vector<2, T>& v, T angle) -> vector<2, T>
  * @return The cross product of left and right
  */
 template<typename T>
-auto cross_product(const vector<3, T>& left, const vector<3, T>& right) -> vector<3, T>
+constexpr auto cross_product(const vector<3, T>& left, const vector<3, T>& right) -> vector<3, T>
 {
 	return vector<3, T>{
 		left.y() * right.z() - left.z() * right.y(),
@@ -621,7 +621,7 @@ auto cross_product(const vector<3, T>& left, const vector<3, T>& right) -> vecto
  * @return The dot product of left and right
  */
 template<std::size_t N, typename T>
-auto dot_product(const vector<N, T>& left, const vector<N, T>& right) -> T
+constexpr auto dot_product(const vector<N, T>& left, const vector<N, T>& right) -> T
 {
 	T result = T();
 

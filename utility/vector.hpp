@@ -81,13 +81,16 @@ public:
 	}
 
 	/**
-	 * Creates a @c vector from another @c vector
-	 * @param other The vector to copy
+	 * Special members defaulted so the type is formally
+	 * @c std::is_trivially_copyable_v — required for safe @c memcpy
+	 * round-trips to non-volatile storage (EEPROM, flash backup, ...).
+	 * The bodies are equivalent to the implicit defaults that operate on
+	 * @c values_ , so this is a documentation / type-trait change only.
 	 */
-	constexpr vector(const vector& other) : values_{other.values_}
-	{
-
-	}
+	constexpr vector(const vector&)            = default;
+	constexpr vector(vector&&)                 = default;
+	constexpr vector& operator=(const vector&) = default;
+	constexpr vector& operator=(vector&&)      = default;
 
 	/**
 	 * Creates a @c vector with a specified value at each rank
@@ -104,17 +107,6 @@ public:
 	constexpr vector() : vector(T())
 	{
 
-	}
-
-	/**
-	 * Copy assignment operator
-	 * @param other The vector to copy over this instance
-	 * @return This instance reference
-	 */
-	constexpr vector& operator=(const vector& other)
-	{
-		values_ = other.values_;
-		return *this;
 	}
 
 	/**

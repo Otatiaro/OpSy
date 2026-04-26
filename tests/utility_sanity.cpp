@@ -14,6 +14,8 @@
  ******************************************************************************
  */
 
+#include <type_traits>
+
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
 #include <utility/matrix.hpp>
@@ -23,6 +25,16 @@
 #include <utility/vector.hpp>
 
 namespace {
+
+// ────────────────────────── trivially copyable ────────────────────────────
+// vector / matrix / quaternion must be trivially copyable so callers can
+// memcpy them into non-volatile storage (EEPROM-backed structs, flash
+// snapshots, ...) without UB.
+static_assert(std::is_trivially_copyable_v<opsy::utility::vector<3, float>>);
+static_assert(std::is_trivially_copyable_v<opsy::utility::vector<9, float>>);
+static_assert(std::is_trivially_copyable_v<opsy::utility::matrix<3, 3, float>>);
+static_assert(std::is_trivially_copyable_v<opsy::utility::matrix<9, 9, float>>);
+static_assert(std::is_trivially_copyable_v<opsy::utility::quaternion<float>>);
 
 // ============================== allocator ==============================
 // In-class static_asserts: N > 3, sizeof(element_type) == sizeof(void*).

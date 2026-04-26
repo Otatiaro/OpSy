@@ -32,17 +32,9 @@ jobs:
 
       - name: Install LLVM Embedded Toolchain for Arm
         if: matrix.compiler == 'clang'
-        run: |
-          version=19.1.5
-          asset=LLVM-ET-Arm-${version}-Linux-x86_64.tar.xz
-          # --retry handles transient 5xx from the GitHub release CDN;
-          # --retry-all-errors covers DNS / connection blips on top of that.
-          curl --fail --retry 5 --retry-delay 5 --retry-all-errors -L \
-            -o /tmp/${asset} \
-            https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${version}/${asset}
-          sudo mkdir -p /opt
-          sudo tar -xJf /tmp/${asset} -C /opt
-          echo "/opt/LLVM-ET-Arm-${version}-Linux-x86_64/bin" >> "$GITHUB_PATH"
+        uses: stellar-aria/llvm-embedded-toolchain-for-arm-action@latest
+        with:
+          release: '19.1.5'
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build

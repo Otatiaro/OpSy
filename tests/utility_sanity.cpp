@@ -16,6 +16,7 @@
 
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
+#include <utility/matrix.hpp>
 #include <utility/memory.hpp>
 #include <utility/quaternion.hpp>
 #include <utility/slope.hpp>
@@ -150,6 +151,121 @@ static_assert(ez.z() == 1.0f);
 
 	opsy::utility::vector<2> v2d{1.0f, 0.0f};
 	(void) opsy::utility::rotate(v2d, 1.0f);
+}
+
+// ================================ matrix ===============================
+// Default ctor is the zero matrix.
+constexpr opsy::utility::matrix<2, 3> m_zero;
+static_assert(m_zero(0, 0) == 0.0f);
+static_assert(m_zero(1, 2) == 0.0f);
+
+// Variadic ctor: row-major flat list.
+constexpr opsy::utility::matrix<2, 3> m_a{
+	1.0f, 2.0f, 3.0f,
+	4.0f, 5.0f, 6.0f
+};
+static_assert(m_a(0, 0) == 1.0f);
+static_assert(m_a(0, 2) == 3.0f);
+static_assert(m_a(1, 0) == 4.0f);
+static_assert(m_a(1, 2) == 6.0f);
+static_assert(m_a.at<0, 1>() == 2.0f);
+static_assert(m_a.at<1, 1>() == 5.0f);
+
+// row(i) and col(j).
+constexpr auto row1 = m_a.row(1);
+static_assert(row1.x() == 4.0f && row1.y() == 5.0f && row1.z() == 6.0f);
+constexpr auto col2 = m_a.col(2);
+static_assert(col2.x() == 3.0f && col2.y() == 6.0f);
+
+// Element-wise + and -.
+constexpr auto m_sum = m_a + m_a;
+static_assert(m_sum(0, 0) == 2.0f && m_sum(1, 2) == 12.0f);
+constexpr auto m_zero2 = m_a - m_a;
+static_assert(m_zero2 == m_zero);
+
+// Unary minus + scalar mul/div.
+static_assert((-m_a)(0, 0) == -1.0f);
+static_assert((m_a * 2.0f)(1, 1) == 10.0f);
+static_assert((2.0f * m_a)(1, 1) == 10.0f);
+static_assert((m_a / 2.0f)(0, 2) == 1.5f);
+
+// Transpose: <2, 3> -> <3, 2>.
+constexpr auto m_at = m_a.transposed();
+static_assert(m_at.row_count == 3 && m_at.column_count == 2);
+static_assert(m_at(0, 0) == 1.0f && m_at(2, 0) == 3.0f);
+static_assert(m_at(0, 1) == 4.0f && m_at(2, 1) == 6.0f);
+// (m^T)^T == m
+static_assert(m_at.transposed() == m_a);
+
+// Identity matrix.
+constexpr auto i3 = opsy::utility::identity_matrix<3>();
+static_assert(i3(0, 0) == 1.0f && i3(1, 1) == 1.0f && i3(2, 2) == 1.0f);
+static_assert(i3(0, 1) == 0.0f && i3(2, 0) == 0.0f);
+
+// Matrix * matrix: identity is the neutral element.
+constexpr opsy::utility::matrix<3, 3> m_b{
+	1.0f, 2.0f, 3.0f,
+	4.0f, 5.0f, 6.0f,
+	7.0f, 8.0f, 9.0f
+};
+static_assert(i3 * m_b == m_b);
+static_assert(m_b * i3 == m_b);
+
+// A specific 2x2 product, hand-computed.
+//   ( 1 2 )   ( 5 6 )   ( 1*5+2*7  1*6+2*8 )   ( 19 22 )
+//   ( 3 4 ) * ( 7 8 ) = ( 3*5+4*7  3*6+4*8 ) = ( 43 50 )
+constexpr opsy::utility::matrix<2, 2> m_l{1.0f, 2.0f, 3.0f, 4.0f};
+constexpr opsy::utility::matrix<2, 2> m_r{5.0f, 6.0f, 7.0f, 8.0f};
+constexpr auto m_p = m_l * m_r;
+static_assert(m_p(0, 0) == 19.0f);
+static_assert(m_p(0, 1) == 22.0f);
+static_assert(m_p(1, 0) == 43.0f);
+static_assert(m_p(1, 1) == 50.0f);
+
+// Non-square product: <2, 3> * <3, 2> = <2, 2>.
+constexpr opsy::utility::matrix<3, 2> m_c{
+	7.0f,  8.0f,
+	9.0f, 10.0f,
+	11.0f, 12.0f
+};
+constexpr auto m_a_times_c = m_a * m_c;
+// Row 0: (1, 2, 3) . cols of m_c
+//   col0: 1*7 + 2*9 + 3*11 = 7+18+33 = 58
+//   col1: 1*8 + 2*10 + 3*12 = 8+20+36 = 64
+static_assert(m_a_times_c(0, 0) == 58.0f);
+static_assert(m_a_times_c(0, 1) == 64.0f);
+// Row 1: (4, 5, 6) . cols of m_c
+//   col0: 4*7 + 5*9 + 6*11 = 28+45+66 = 139
+//   col1: 4*8 + 5*10 + 6*12 = 32+50+72 = 154
+static_assert(m_a_times_c(1, 0) == 139.0f);
+static_assert(m_a_times_c(1, 1) == 154.0f);
+
+// Matrix * vector.
+//   m_a * (1, 1, 1) = (1+2+3, 4+5+6) = (6, 15)
+constexpr opsy::utility::vector<3> v_ones{1.0f, 1.0f, 1.0f};
+constexpr auto v_mv = m_a * v_ones;
+static_assert(v_mv.x() == 6.0f && v_mv.y() == 15.0f);
+
+// Identity * v == v.
+constexpr opsy::utility::vector<3> v_arb{1.0f, 2.0f, 3.0f};
+static_assert(i3 * v_arb == v_arb);
+
+[[gnu::used]] void use_matrix()
+{
+	using opsy::utility::matrix;
+	using opsy::utility::identity_matrix;
+
+	matrix<3, 3> m{
+		1.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 1.0f
+	};
+	m += identity_matrix<3>();
+	m -= identity_matrix<3>();
+	m *= 2.0f;
+	m /= 2.0f;
+	(void) m.row(0);
+	(void) m.col(1);
 }
 
 // ============================== quaternion ==============================

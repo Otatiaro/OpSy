@@ -1,8 +1,10 @@
 # OpSy utility headers
 
-A small set of self-contained C++23 headers shipped alongside OpSy. They
+A small set of self-contained C++23 headers shipped alongside OpSy. Most
 have no dependency on the scheduler — feel free to use them on a hosted
-platform too.
+platform too. The only exception is `interrupt_vector.hpp`, which is
+ARM Cortex-M specific by design (it builds the architectural vector
+table).
 
 All identifiers live in `namespace opsy::utility`. The headers are
 header-only, allocate nothing on the heap, throw no exceptions, and
@@ -15,6 +17,7 @@ core scheduler.
 |---|---|
 | `allocator.hpp` | `allocator<N, UseDummy, Dummy>` — fixed-size, in-band-tagged allocator. Slots are `int` (negative = allocated, positive = free); free space is coalesced on `deallocate`. Optional sentinel fill helps catch use-after-free. |
 | `biquad.hpp` | `biquad<T, Coef>` — second-order IIR filter (direct form II transposed). `filter_type::{low_pass, high_pass, notch, band_pass}`, Butterworth Q default, value and coefficient types are independent template parameters. |
+| `interrupt_vector.hpp` | `interrupt_vector<PeripheralIrqs>` — compile-time builder for the ARM Cortex-M vector table. System exception slots are passed by name to the constructor; peripheral ISRs are added by chaining `.with_handler<IRQ, fn>()`. The whole expression is constant-initialisable so the table lives in `.isr_vector` in flash. **Cortex-M only.** |
 | `slope.hpp` | `slope<N, T, Coef>` — FIR numerical derivative based on a least-squares linear fit over `N` samples. Coefficients are computed at compile time, so `value()` is a fixed-size dot product. Mean delay is `N/2` samples. |
 | `vector.hpp` | `vector<N, T>` — compile-time-sized math vector with the usual operators (`+`, `-`, `*`, `/`), `norm()` / `length()` / `normalized()`, typed `x()` / `y()` / `z()` / `w()` accessors constrained by size, plus `append` / `prepend` / `sub`, `dot_product`, `cross_product`, `rotate`. |
 

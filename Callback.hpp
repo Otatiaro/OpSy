@@ -172,13 +172,13 @@ public:
 		if constexpr(std::is_void_v<ReturnType>)
 		{
 			if(m_valid != Invalid)
-			get()->apply(std::forward<Arguments>(args)...);
+			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
 			if(m_valid != Invalid)
 			return std::optional<ReturnType>
-			{	get()->apply(std::forward<Arguments>(args)...)};
+			{	get()->apply(std::forward<Args>(args)...)};
 			else
 			return std::optional<ReturnType>
 			{	std::nullopt};
@@ -198,13 +198,13 @@ public:
 		if constexpr(std::is_void_v<ReturnType>)
 		{
 			if(m_valid != Invalid)
-			get()->apply(std::forward<Arguments>(args)...);
+			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
 			if(m_valid != Invalid)
 			return std::optional<ReturnType>
-			{	get()->apply(std::forward<Arguments>(args)...)};
+			{	get()->apply(std::forward<Args>(args)...)};
 			else
 			return std::optional<ReturnType>
 			{	std::nullopt};

@@ -17,6 +17,7 @@
 #include <type_traits>
 
 #include <algorithms/ellipsoid_fit.hpp>
+#include <algorithms/triad.hpp>
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
 #include <utility/matrix.hpp>
@@ -554,6 +555,47 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	// reordering can't silently break the contract).
 	static_assert(std::is_trivially_copyable_v<magnetometer_calibration<float>>);
 	static_assert(std::is_trivially_copyable_v<magnetometer_calibration<double>>);
+}
+
+// =============================== triad ==================================
+// attitude_from_down_and_east — uses sin/cos/sqrt under the hood (shortest
+// arc + rotation), so runtime exercise only.
+
+[[gnu::used]] void use_triad()
+{
+	using opsy::algorithms::attitude_from_down_and_east;
+	using opsy::utility::vector;
+	using opsy::utility::cross_product;
+
+	// Body aligned to NED — accel reads +Z (down), accel × mag reads +Y
+	// (east). Result should be the identity rotation.
+	{
+		const vector<3, float> down{0.0f, 0.0f, 1.0f};
+		const vector<3, float> east{0.0f, 1.0f, 0.0f};
+		(void) attitude_from_down_and_east(down, east);
+	}
+
+	// Synthetic IMU sample: body tilted, accel and mag values picked so
+	// that the algorithm has to do real work in both arcs.
+	{
+		// accel has a slight roll: down ≈ (0, sin(0.3), cos(0.3))
+		const float c = 0.9553f;   // cos(0.3)
+		const float s = 0.2955f;   // sin(0.3)
+		const vector<3, float> accel{0.0f, s, c};
+		// mag has the typical NED structure with positive N and D.
+		const vector<3, float> mag  {0.6f, 0.0f, 0.8f};
+		const auto down = accel;                      // already unit length
+		const auto east_raw = cross_product(accel, mag);
+		const auto east = east_raw.normalized();
+		(void) attitude_from_down_and_east(down, east);
+	}
+
+	// Double instantiation — host-side validation.
+	{
+		const vector<3, double> down{0.0, 0.0, 1.0};
+		const vector<3, double> east{0.0, 1.0, 0.0};
+		(void) attitude_from_down_and_east(down, east);
+	}
 }
 
 // ============================== quaternion ==============================

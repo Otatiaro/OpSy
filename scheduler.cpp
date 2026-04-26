@@ -127,14 +127,29 @@ bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
 	}
 }
 
-void __attribute__((naked)) scheduler::terminate_task(task_control_block* task)
+void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_control_block* task)
 {
+	// The function is `naked`, so the compiler emits no prologue that could
+	// touch r0 before our asm runs. Per AAPCS the first pointer-sized
+	// argument (`task`) is already passed in r0 at entry, so the SVC handler
+	// receives it without any explicit `mov` here. We deliberately do NOT
+	// reference `task` through a `[task] "r" (task)` operand: clang refuses
+	// parameter references inside naked functions
+	// ("parameter references not allowed in naked functions"), since with no
+	// prologue there is no place for the compiler to materialize the value
+	// into the requested constraint. Relying on the AAPCS register placement
+	// works for both gcc and clang.
+	//
+	// The `nop` is intentional: `task::start()` wires this function's address
+	// (plus 2 bytes — exactly past the nop) as the task's link register, so
+	// when the task entry callable returns naturally we land here on the
+	// `svc`. The +2 offset is the "magic" that makes GDB show a sensible
+	// link return instead of pointing at the start of the function.
 	asm volatile(
 			"nop \n\t"
-			"mov r0, %[task] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (service_call_number::terminate), [task] "r" (task)
+			: [immediate] "I" (service_call_number::terminate)
 			: "r0");
 }
 

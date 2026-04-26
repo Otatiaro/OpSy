@@ -33,8 +33,12 @@ jobs:
       - name: Install LLVM Embedded Toolchain for Arm
         if: matrix.compiler == 'clang'
         uses: stellar-aria/llvm-embedded-toolchain-for-arm-action@latest
+        # 19.1.1 is the latest version the action knows about. 19.1.5 exists
+        # upstream but the action's release table hasn't been bumped to
+        # include it yet. 19.1.1 is the same toolchain family — fine for
+        # a compile-only sanity check.
         with:
-          release: '19.1.5'
+          release: '19.1.1'
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build

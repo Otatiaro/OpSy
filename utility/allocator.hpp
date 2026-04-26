@@ -45,12 +45,14 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <limits>
 
 namespace opsy::utility
 {
 
-template<std::size_t N, bool UseDummy = false, int Dummy = 0xBAADF00D>
+template<std::size_t N, bool UseDummy = false, int Dummy = static_cast<int>(0xBAADF00D)>
 class allocator
 {
 public:
@@ -85,8 +87,8 @@ public:
 		if (needed_slots > available_slots) // not enough free slots to allocate, return null
 			return nullptr;
 
-		const auto previous_index = N - 2 - available_slots; // this is the index of the beginning of the free space
-		const auto new_index = previous_index + needed_slots + 2; // this is the index of the end of the new allocation
+		const auto previous_index = N - 2 - static_cast<size_type>(available_slots); // this is the index of the beginning of the free space
+		const auto new_index = previous_index + static_cast<size_type>(needed_slots) + 2; // this is the index of the end of the new allocation
 		data_[previous_index] = data_[new_index - 1] = -needed_slots; // creates the new allocation
 		data_[new_index] = data_[N - 1] = available_slots - needed_slots - 2; // and update the remaining slots
 		return reinterpret_cast<void*>(&data_[previous_index + 1]);
@@ -105,13 +107,13 @@ public:
 	void deallocate(const void* ptr)
 	{
 		assert(owns(ptr)); // to deallocate, the ptr must be handled by the allocator
-		auto ptr_index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // ptr_index is the slot index of the pointer
+		auto ptr_index = static_cast<size_type>(reinterpret_cast<const element_type*>(ptr) - data_.data()); // ptr_index is the slot index of the pointer
 		auto allocated_slots = -data_[ptr_index - 1]; // the size of the allocation
-		assert(allocated_slots > 0 && (data_[ptr_index + allocated_slots] == -allocated_slots)); // check the indicators are coherent
-		data_[ptr_index - 1] = data_[ptr_index + allocated_slots] = allocated_slots; // release the allocation
+		assert(allocated_slots > 0 && (data_[ptr_index + static_cast<size_type>(allocated_slots)] == -allocated_slots)); // check the indicators are coherent
+		data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(allocated_slots)] = allocated_slots; // release the allocation
 
 		if constexpr (UseDummy)
-			for (auto i = ptr_index; i < ptr_index + allocated_slots; ++i)
+			for (auto i = ptr_index; i < ptr_index + static_cast<size_type>(allocated_slots); ++i)
 				data_[i] = Dummy;
 
 		if (ptr_index != 1) // the allocation was not the first one, so check if the previous allocation is also free
@@ -120,25 +122,25 @@ public:
 			if (previous_allocation_slots > 0) // the previous allocation if free, merge the two
 			{
 				const auto combined_slots = allocated_slots + previous_allocation_slots + 2;
-				data_[ptr_index - 3 - previous_allocation_slots] = data_[ptr_index + allocated_slots] = combined_slots;
+				data_[ptr_index - 3 - static_cast<size_type>(previous_allocation_slots)] = data_[ptr_index + static_cast<size_type>(allocated_slots)] = combined_slots;
 				if constexpr (UseDummy)
 					data_[ptr_index - 1] = data_[ptr_index - 2] = Dummy;
 
 				// update variable in case there is also a free allocation after the current one
 				allocated_slots = combined_slots;
-				ptr_index -= previous_allocation_slots + 2;
+				ptr_index -= static_cast<size_type>(previous_allocation_slots) + 2;
 			}
 		}
 
-		if (static_cast<size_type>(ptr_index + allocated_slots + 1) < N - 2) // the allocation was not the last one, check if next if also free
+		if (ptr_index + static_cast<size_type>(allocated_slots) + 1 < N - 2) // the allocation was not the last one, check if next if also free
 		{
-			const auto next_allocation_slots = data_[ptr_index + allocated_slots + 1];
+			const auto next_allocation_slots = data_[ptr_index + static_cast<size_type>(allocated_slots) + 1];
 			if (next_allocation_slots > 0) // next slot is free, merge the two
 			{
 				const auto combined_slots = allocated_slots + next_allocation_slots + 2;
-				data_[ptr_index - 1] = data_[ptr_index + combined_slots] = combined_slots;
+				data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(combined_slots)] = combined_slots;
 				if constexpr (UseDummy)
-					data_[ptr_index + allocated_slots] = data_[ptr_index + allocated_slots + 1] = Dummy;
+					data_[ptr_index + static_cast<size_type>(allocated_slots)] = data_[ptr_index + static_cast<size_type>(allocated_slots) + 1] = Dummy;
 			}
 		}
 	}
@@ -150,9 +152,9 @@ public:
 	 */
 	bool owns(const void* ptr) const
 	{
-		assert(reinterpret_cast<unsigned int>(ptr) % std::alignment_of<element_type>::value == 0); // the pointer is necessary aligned with the slots
+		assert(reinterpret_cast<std::uintptr_t>(ptr) % std::alignment_of<element_type>::value == 0); // the pointer is necessary aligned with the slots
 		const auto index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
-		return index > 0 && index < static_cast<ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
+		return index > 0 && index < static_cast<std::ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
 	}
 
 	/**
@@ -171,7 +173,7 @@ public:
 	constexpr size_type available() const
 	{
 		const auto last_slot = data_[N - 1];
-		return last_slot > 0 ? last_slot * sizeof(element_type) : 0;
+		return last_slot > 0 ? static_cast<size_type>(last_slot) * sizeof(element_type) : 0;
 	}
 
 	/**
@@ -189,18 +191,18 @@ public:
 	 */
 	constexpr bool run_check() const
 	{
-		auto start_indicator = 0; // start at the beginning of the data
+		size_type start_indicator = 0; // start at the beginning of the data
 
 		while (true)
 		{
-			const auto size = data_[start_indicator]; // gets the size of the first space
-			const auto end_indicator_index = static_cast<size_type>(start_indicator + 1 + std::abs(size)); // position of the end of chunk indicator
+			const auto chunk_size = data_[start_indicator]; // gets the size of the first space
+			const auto end_indicator_index = start_indicator + 1U + static_cast<size_type>(std::abs(chunk_size)); // position of the end of chunk indicator
 
-			if ((end_indicator_index > N - 1) || data_[end_indicator_index] != size) // the allocation points outside of the data or the end indicator has a different value
+			if ((end_indicator_index > N - 1) || data_[end_indicator_index] != chunk_size) // the allocation points outside of the data or the end indicator has a different value
 				return false;
 
 			if constexpr (UseDummy)
-				if (size > 0) // chunk was not allocated, verify it contains dummy value
+				if (chunk_size > 0) // chunk was not allocated, verify it contains dummy value
 					for (auto i = start_indicator + 1U; i < end_indicator_index; ++i)
 						if (data_[i] != Dummy)
 							return false;

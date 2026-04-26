@@ -1,8 +1,11 @@
-# Compile-only sanity test for the OpSy public API.
+# Compile-only sanity test for the OpSy public API and utility headers.
 #
-# Builds scheduler.cpp + sanity.cpp into a static library so the entire API
-# surface is exercised at compile time on every Cortex-M target supported
-# by OpSy. No executable is produced (no startup, no linker script needed).
+# Builds scheduler.cpp + sanity.cpp + utility_sanity.cpp into a static
+# library so the entire API surface is exercised at compile time on every
+# Cortex-M target supported by OpSy. utility_sanity.cpp also runs the
+# constexpr/static_assert tests embedded in utility/*.hpp by instantiating
+# every template with valid configurations. No executable is produced (no
+# startup, no linker script needed).
 #
 # Drive it with -DOPSY_TARGET=m3|m4|m7|m33 from the CI matrix.
 
@@ -30,6 +33,7 @@ set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_library(opsy_sanity STATIC
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sanity.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
 )
 
 target_include_directories(opsy_sanity PUBLIC ${OPSY_ROOT})

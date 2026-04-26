@@ -18,7 +18,7 @@
  * 			since the @c Scheduler started.
  *
  * 			You can iterate over all the @c Task currently handled by the
- * 			@c Scheduler with @c allTasks
+ * 			@c Scheduler with @c all_tasks
  *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
@@ -93,19 +93,19 @@ public:
 	/**
 	 * @brief The Service Call @c IsrPriority, it is set to system preemption and most important sub-priority
 	 */
-	static constexpr auto kServiceCallPriority = IsrPriority::FromPreemptSub<kPreemptionBits>(kOpsyPreemption, 0);
+	static constexpr auto kServiceCallPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, 0);
 
 	/**
 	 * @brief The Systick @c IsrPriority, it is set to system preemption and least important sub-priority
 	 * @remark Any interrupt service routine with priority above this one, or @c Mutex locks that locks higher priority, will NOT be able to use any of OpSy features
 	 */
-	static constexpr auto kSystickPriority = IsrPriority::FromPreemptSub<kPreemptionBits>(kOpsyPreemption, CortexM::minSub());
+	static constexpr auto kSystickPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, CortexM::min_sub());
 
 	/**
 	 * @brief The PendSV @c IsrPriority, is it set to the minimum preemption and sub-priority possible
 	 * @remark But as soon as it starts, it will lock anything up to the Service Call
 	 */
-	static constexpr auto kPendSvPriority = IsrPriority::FromPreemptSub<kPreemptionBits>(CortexM::minPreempt(), CortexM::minSub());
+	static constexpr auto kPendSvPriority = IsrPriority::from_preempt_sub<kPreemptionBits>(CortexM::min_preempt(), CortexM::min_sub());
 
 	/**
 	 * @brief Starts the @c Scheduler
@@ -118,7 +118,7 @@ public:
 	 * @brief Gets a read only reference to the @c EmbeddedList of @c Task currently active
 	 * @return A read only reference to the @c EmbeddedList of @c Task currently active
 	 */
-	static const EmbeddedList<TaskControlBlock, TaskLists::Handle>& allTasks()
+	static const EmbeddedList<TaskControlBlock, TaskLists::Handle>& all_tasks()
 	{
 		assert(is_started_);
 		return all_tasks_;
@@ -130,7 +130,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(is_started_ && CortexM::currentPriority().value_or(CortexM::kLowestPriority).value() >= kSystickPriority.value());
+		assert(is_started_ && CortexM::current_priority().value_or(CortexM::kLowestPriority).value() >= kSystickPriority.value());
 		return ticks_;
 	}
 
@@ -139,13 +139,13 @@ public:
 	 * @return A @c CriticalSection with state @c true if possible, @c false otherwise (already in critical section)
 	 * @remark Use this only for @c Task to @c Task synchronization, prefer @c Mutex for a more generic synchronization (uses @c IsrPriority to sychronize with interrupt service routines)
 	 */
-	static inline CriticalSection criticalSection()
+	static inline CriticalSection critical_section()
 	{
 		if (critical_section_) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return CriticalSection(false);
 		else
 		{
-			Hooks::enterCriticalSection();
+			Hooks::enter_critical_section();
 			critical_section_ = true;
 			return CriticalSection(true);
 		}
@@ -173,42 +173,42 @@ private:
 	static TaskControlBlock* current_task_;
 	static TaskControlBlock* next_task_;
 
-	static void addTask(TaskControlBlock& task)
+	static void add_task(TaskControlBlock& task)
 	{
-		Hooks::taskAdded(task);
+		Hooks::task_added(task);
 		all_tasks_.push_front(task);
-		ready_.insertWhen(TaskControlBlock::priorityIsLower, task);
+		ready_.insert_when(TaskControlBlock::priority_is_lower, task);
 		if(is_started_)
-			triggerSoftSwitch();
+			trigger_soft_switch();
 	}
 
-	static void terminateTask(TaskControlBlock* task);
+	static void terminate_task(TaskControlBlock* task);
 
-	static void triggerSoftSwitch()
+	static void trigger_soft_switch()
 	{
-		auto previous = CortexM::setBasepri(kServiceCallPriority);
+		auto previous = CortexM::set_basepri(kServiceCallPriority);
 		may_need_switch_ = false;
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
-		doSwitch(); // do the actual switch
-		CortexM::setBasepri(previous); // and restore the basepri to its previous value
+		do_switch(); // do the actual switch
+		CortexM::set_basepri(previous); // and restore the basepri to its previous value
 	}
 
-	static __attribute__((always_inline)) void triggerHardSwitch()
+	static __attribute__((always_inline)) void trigger_hard_switch()
 	{
 		asm volatile("svc %[immediate]" : : [immediate] "I" (ServiceCallNumber::Switch));
 	}
 
-	static constexpr bool wakeupAfter(const TaskControlBlock& left, const TaskControlBlock& right)
+	static constexpr bool wakeup_after(const TaskControlBlock& left, const TaskControlBlock& right)
 	{
 		assert(left.wait_until_.has_value() && right.wait_until_.has_value());
 		return left.wait_until_.value_or(Startup) < right.wait_until_.value_or(Startup);
 	}
 
-	static bool doSwitch();
+	static bool do_switch();
 
-	static void __attribute__((always_inline)) SystickHandler()
+	static void __attribute__((always_inline)) systick_handler()
 	{
-		Hooks::enterSystick();
+		Hooks::enter_systick();
 		ticks_+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
 
 		bool dirty = false;
@@ -222,38 +222,38 @@ private:
 
 			if(task.waiting_ != nullptr)
 			{
-				task.waiting_->removeWaiting(task);
-				task.setReturnValue(static_cast<uint32_t>(std::cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
+				task.waiting_->remove_waiting(task);
+				task.set_return_value(static_cast<uint32_t>(std::cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 
-			ready_.insertWhen(TaskControlBlock::priorityIsLower, task);
-			Hooks::taskReady(task);
+			ready_.insert_when(TaskControlBlock::priority_is_lower, task);
+			Hooks::task_ready(task);
 			dirty = true;
 		}
 
 		if(dirty)
-			Hooks::exitSystick(doSwitch());
+			Hooks::exit_systick(do_switch());
 		else
-			Hooks::exitSystick(false);
+			Hooks::exit_systick(false);
 	}
 
-	static uint64_t pendSvHandler(uint32_t* psp);
-	static void serviceCallHandler(StackFrame* frame, ServiceCallNumber parameter, bool isThread, uint32_t excReturn);
-	static void wakeUp(TaskControlBlock& task, ConditionVariable& initiator);
-	static void updatePriority(TaskControlBlock& task, Priority newPriority);
+	static uint64_t pend_sv_handler(uint32_t* psp);
+	static void service_call_handler(StackFrame* frame, ServiceCallNumber parameter, bool isThread, uint32_t excReturn);
+	static void wake_up(TaskControlBlock& task, ConditionVariable& initiator);
+	static void update_priority(TaskControlBlock& task, Priority newPriority);
 
-	static void updateName(TaskControlBlock& task)
+	static void update_name(TaskControlBlock& task)
 	{
-		Hooks::taskNameChanged(task);
+		Hooks::task_name_changed(task);
 	}
 
-	static void criticalSectionEnd()
+	static void critical_section_end()
 	{
 		assert(critical_section_ == true); // should be in critical section
 		critical_section_ = false;
-		Hooks::exitCriticalSection();
+		Hooks::exit_critical_section();
 		if (may_need_switch_)
-			triggerSoftSwitch();
+			trigger_soft_switch();
 	}
 };
 

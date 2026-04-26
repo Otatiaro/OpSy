@@ -71,74 +71,74 @@ namespace opsy
 		/**
 		 * @brief Called when entering PendSv for context switch
 		 */
-		static constexpr void enterPendSv()
+		static constexpr void enter_pend_sv()
 		{}
 
 		/**
 		 * @brief Called when going to idle (no active task)
 		 */
-		static constexpr void enterIdle()
+		static constexpr void enter_idle()
 		{}
 
 		/**
 		 * @brief Called when entering Systick handler
 		 */
-		static constexpr void enterSystick()
+		static constexpr void enter_systick()
 		{}
 
 		/**
 		 * @brief Called when exiting Systick handler
 		 * @param taskSwitch @c true if a @c Task switch is requested, @c false otherwise
 		 */
-		static constexpr void exitSystick([[maybe_unused]] bool taskSwitch)
+		static constexpr void exit_systick([[maybe_unused]] bool taskSwitch)
 		{}
 
 		/**
 		 * @brief Called when entering Service Call handler
 		 */
-		static constexpr void enterServiceCall()
+		static constexpr void enter_service_call()
 		{}
 
 		/**
 		 * @brief Called when exiting Service Call handler
 		 * @param taskSwitch @c true if a @c Task switch is requested, @c false otherwise
 		 */
-		static constexpr void exitServiceCall([[maybe_unused]] bool taskSwitch)
+		static constexpr void exit_service_call([[maybe_unused]] bool taskSwitch)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is added to the list of active @c Task
 		 * @param task The newly added @c Task
 		 */
-		static constexpr void taskAdded([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_added([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is terminated (removed from the list of active @c Task)
 		 * @param task The terminated @c Task
 		 */
-		static constexpr void taskTerminated([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_terminated([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is started (executed)
 		 * @param task The @c Task being started
 		 */
-		static constexpr void taskStarted([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_started([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is put to sleep
 		 * @param task The @c Task put to sleep
 		 */
-		static constexpr void taskSleep([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_sleep([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is stopped (stop being executed)
 		 * @param task The @c Task being stopped
 		 */
-		static constexpr void taskStopped([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_stopped([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
@@ -146,7 +146,7 @@ namespace opsy
 		 * @param task The @c Task that starts waiting
 		 * @param cv The @c ConditionVariable being waited on
 		 */
-		static constexpr void taskWait([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv)
+		static constexpr void task_wait([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv)
 		{}
 
 		/**
@@ -155,78 +155,78 @@ namespace opsy
 		 * @param cv The @c ConditionVariable being waited on
 		 * @param tp The @c time_point at which a timeout would occur
 		 */
-		static constexpr void taskWaitTimeout([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] time_point tp)
+		static constexpr void task_wait_timeout([[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] time_point tp)
 		{}
 
 		/**
 		 * @brief Called when a @c Task is ready (to be executed)
 		 * @param task The @c Task that is ready to be executed
 		 */
-		static constexpr void taskReady([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_ready([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task name has changed
 		 * @param task The @c Task that has changed name
 		 */
-		static constexpr void taskNameChanged([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_name_changed([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task priority has changed
 		 * @param task The @c Task that has changed priority
 		 */
-		static constexpr void taskPriorityChanged([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void task_priority_changed([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task enters a critical section (prevents task switching)
 		 */
-		static constexpr void enterCriticalSection()
+		static constexpr void enter_critical_section()
 		{}
 
 		/**
 		 * @brief Called when a @c Task exits a critical section (task switching allowed)
 		 */
-		static constexpr void exitCriticalSection()
+		static constexpr void exit_critical_section()
 		{}
 
 		/**
 		 * @brief Called when a @c Mutex is stored by the system on a @c Task
 		 * @param task The @c Task for which the system has stored a @c Mutex
 		 */
-		static constexpr void mutexStoredForTask([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void mutex_stored_for_task([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Mutex is restored by the system for a @c Task
 		 * @param task The @c Task whose @c Mutex has been restored by the system
 		 */
-		static constexpr void mutexRestoredForTask([[maybe_unused]] TaskControlBlock& task)
+		static constexpr void mutex_restored_for_task([[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
 		 * @brief Called when a @c Task or interrupt service routine enters a full lock (complete lock, @c PRIMASK = 1)
 		 */
-		static constexpr void enterFullLock()
+		static constexpr void enter_full_lock()
 		{}
 
 		/**
 		 * @brief Called when a @c Task or interrupt service routine exits a full lock
 		 */
-		static constexpr void exitFullLock()
+		static constexpr void exit_full_lock()
 		{}
 
 		/**
 		 * @brief Called when a @c Task or interrupt service routine enters a priority lock (partial lock, @c BASEPRI = XX)
 		 */
-		static constexpr void enterPriorityLock(IsrPriority)
+		static constexpr void enter_priority_lock(IsrPriority)
 		{}
 
 		/**
 		 * @brief Called when a @c Task or interrupt service routine exits a priority lock
 		 */
-		static constexpr void exitPriorityLock()
+		static constexpr void exit_priority_lock()
 		{}
 
 		/**
@@ -234,7 +234,7 @@ namespace opsy
 		 * @param cv The @c ConditionVariable being waiting on
 		 * @param task The @c Task that starts waiting
 		 */
-		static constexpr void conditionVariableStartWaiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task)
+		static constexpr void condition_variable_start_waiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task)
 		{}
 
 		/**
@@ -243,21 +243,21 @@ namespace opsy
 		 * @param task The @c Task that starts waiting
 		 * @param timeout The timeout duration
 		 */
-		static constexpr void conditionVariableStartWaiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] duration timeout)
+		static constexpr void condition_variable_start_waiting([[maybe_unused]] ConditionVariable& cv, [[maybe_unused]] TaskControlBlock& task, [[maybe_unused]] duration timeout)
 		{}
 
 		/**
 		 * @brief Called when a @c ConditionVariable is notified once
 		 * @param cv The @c ConditionVariable being notified
 		 */
-		static constexpr void conditionVariableNotifyOne([[maybe_unused]] ConditionVariable& cv)
+		static constexpr void condition_variable_notify_one([[maybe_unused]] ConditionVariable& cv)
 		{}
 
 		/**
 		 * @brief Called when a @c ConditionVariable is notified for all waiting @c Task
 		 * @param cv The @c ConditionVariable being notified
 		 */
-		static constexpr void conditionVariableNotifyAll([[maybe_unused]] ConditionVariable& cv)
+		static constexpr void condition_variable_notify_all([[maybe_unused]] ConditionVariable& cv)
 		{}
 
 		/**
@@ -267,7 +267,7 @@ namespace opsy
 		 * @param name The @c T name
 		 */
 		template<typename T>
-		static constexpr void setName([[maybe_unused]] const T& target, [[maybe_unused]] const char* name)
+		static constexpr void set_name([[maybe_unused]] const T& target, [[maybe_unused]] const char* name)
 		{}
 
 		/**
@@ -278,7 +278,7 @@ namespace opsy
 		{}
 
 		template<void(*Routine)()>
-		static constexpr auto decorateIsr()
+		static constexpr auto decorate_isr()
 		{
 			return Routine;
 		}

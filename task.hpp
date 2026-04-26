@@ -218,7 +218,7 @@ public:
 	 * @param name The new name of the @c TaskControlBlock (optional)
 	 * @return @c true if the @c TaskControlBlock successfully started, @c false otherwise (already started)
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c Scheduler::addTask and references @c Scheduler::terminateTask;
+	 *         @c Scheduler::add_task and references @c Scheduler::terminate_task;
 	 *         see the cycle-breaking note in @c scheduler_inl.hpp).
 	 */
 	[[nodiscard]] bool start(Callback<void(void)> && entry, const char* name = nullptr);
@@ -235,7 +235,7 @@ public:
 	 * @brief Checks if the @c TaskControlBlock is started
 	 * @return @c true if the @c TaskControlBlock is started, @c false otherwise
 	 */
-	bool isStarted() const
+	bool is_started() const
 	{
 		return active_.load(std::memory_order_relaxed);
 	}
@@ -253,7 +253,7 @@ public:
 	 * @brief Dynamically change the @c Priority of the @c TaskControlBlock
 	 * @param newPriority the new @c Priority
 	 * @remark This may trigger a @c TaskControlBlock switch from the system to make sure the most important @c TaskControlBlock is always executed
-	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c Scheduler::updatePriority).
+	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c Scheduler::update_priority).
 	 */
 	void priority(Priority newPriority);
 
@@ -270,7 +270,7 @@ public:
 	 * @brief Sets the name of the @c TaskControlBlock
 	 * @param name The new name of the @c TaskControlBlock
 	 */
-	constexpr void setName(const char* name)
+	constexpr void set_name(const char* name)
 	{
 		name_ = name;
 	}
@@ -281,7 +281,7 @@ public:
 	 * @param right The right operand
 	 * @return @c true if @p left is more important that @p right, @c false otherwise
 	 */
-	static constexpr bool priorityIsLower(const TaskControlBlock& left, const TaskControlBlock& right)
+	static constexpr bool priority_is_lower(const TaskControlBlock& left, const TaskControlBlock& right)
 	{
 		if (left.priority() > right.priority())
 			return false;
@@ -312,11 +312,11 @@ private:
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c TaskControlBlock being started
 	 * @remark Defined inline in @c scheduler_inl.hpp because it terminates the
-	 *         task via @c Scheduler::terminateTask once @c entry_ returns.
+	 *         task via @c Scheduler::terminate_task once @c entry_ returns.
 	 */
-	static void taskStarter(TaskControlBlock* thisPtr);
+	static void task_starter(TaskControlBlock* thisPtr);
 
-	void setReturnValue(uint32_t value)
+	void set_return_value(uint32_t value)
 	{
 		auto ptr = stack_pointer_;
 		Context* context = reinterpret_cast<Context*>(ptr);
@@ -387,7 +387,7 @@ public:
 
 		frame->psr = 1 << 24;
 		frame->pc = entry;
-		frame->lr = reinterpret_cast<CodePointer>(reinterpret_cast<uint32_t>(noReturn) + 2);
+		frame->lr = reinterpret_cast<CodePointer>(reinterpret_cast<uint32_t>(no_return) + 2);
 
 		stack_pointer_ -= sizeof(Context) / sizeof(uint32_t);
 		const auto context = reinterpret_cast<Context*>(stack_pointer_);
@@ -401,7 +401,7 @@ private:
 	uint32_t* const stack_base_;
 	uint32_t* stack_pointer_;
 
-	static void __attribute__((naked)) noReturn()
+	static void __attribute__((naked)) no_return()
 	{
 		asm volatile(
 				"nop \n\t"

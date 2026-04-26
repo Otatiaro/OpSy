@@ -171,7 +171,7 @@ public:
 	 * @brief Gets the current executing Cortex-M type
 	 * @return The Cortex-M type (only M4 and M7 implemented in the enumeration)
 	 */
-	static Type getType()
+	static Type type()
 	{
 		const auto cpuid = MemoryRegister<uint32_t>(ScbCpuidAddress).get();
 		return static_cast<Type>((cpuid >> CpuidPartNoPos) & CpuidPartNoMask);
@@ -181,9 +181,9 @@ public:
 	 * @brief Gets the current number of preemption bits
 	 * @return The current number of preemption bits
 	 */
-	static uint8_t preemptBits()
+	static uint8_t preempt_bits()
 	{
-		return static_cast<uint8_t>(kPrigroupMax + 1u - priorityGrouping());
+		return static_cast<uint8_t>(kPrigroupMax + 1u - priority_grouping());
 	}
 
 	/**
@@ -191,16 +191,16 @@ public:
 	 * @param value The required number of preemption bits
 	 * @warning The @p value should be between @c 0 and the number of priority bits actually implemented in the Cortex
 	 */
-	static void preemptBits(uint8_t value)
+	static void preempt_bits(uint8_t value)
 	{
-		priorityGrouping(static_cast<uint8_t>(kPrigroupMax + 1u - value));
+		priority_grouping(static_cast<uint8_t>(kPrigroupMax + 1u - value));
 	}
 
 	/**
 	 * @brief Enables the System Tick (Systick) counter with the specified reload counter
 	 * @param reload The reload counter, counter is decremented each clock cycle and a Systick interrupt is generated when it reaches @c 0, then reloaded with this value
 	 */
-	static void enableSystick(uint32_t reload)
+	static void enable_systick(uint32_t reload)
 	{
 		assert(reload != 0);
 		assert(reload - 1 <= SystickReloadMask);
@@ -215,7 +215,7 @@ public:
 	 * @return The current Systick value
 	 * @remark This value is actually going up, and is the difference between the reload value and the current value of the timer (which decrements)
 	 */
-	static uint32_t systickCount()
+	static uint32_t systick_count()
 	{
 		return MemoryRegister<uint32_t>(SystickLoadAddress).get() - MemoryRegister<uint32_t>(SystickValAddress).get();
 	}
@@ -225,7 +225,7 @@ public:
 	 * @param irq The interrupt request to enable
 	 * @warning Make sure the handler and priority are set before you enable an interrupt
 	 */
-	static void enableInterrupt(uint32_t irq)
+	static void enable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		MemoryRegister<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
@@ -235,7 +235,7 @@ public:
 	 * @brief Disables a peripheral interrupt
 	 * @param irq The interrupt request to disable
 	 */
-	static void disableInterrupt(uint32_t irq)
+	static void disable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		MemoryRegister<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
@@ -246,7 +246,7 @@ public:
 	 * @param irq The interrupt request to check
 	 * @return @c true if the interrupt is pending, @c false otherwise
 	 */
-	static bool isPending(uint32_t irq)
+	static bool is_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		return (MemoryRegister<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
@@ -256,7 +256,7 @@ public:
 	 * @brief Sets the pending status for a peripheral interrupt
 	 * @param irq The interrupt request to set pending flag for
 	 */
-	static void setPending(uint32_t irq)
+	static void set_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		MemoryRegister<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
@@ -266,7 +266,7 @@ public:
 	 * @brief Clears the pending flag for a peripheral interrupt
 	 * @param irq The interrupt request to clear pending flag for
 	 */
-	static void clearPending(uint32_t irq)
+	static void clear_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		MemoryRegister<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
@@ -275,7 +275,7 @@ public:
 	/**
 	 * @brief Triggers an instruction synchronization barrier
 	 */
-	static inline void instructionBarrier()
+	static inline void instruction_barrier()
 	{
 		asm volatile("isb");
 	}
@@ -283,7 +283,7 @@ public:
 	/**
 	 * @brief  Triggers a data synchronization barrier
 	 */
-	static inline void dataBarrier()
+	static inline void data_barrier()
 	{
 		asm volatile("dsb");
 	}
@@ -293,7 +293,7 @@ public:
 	 * @param irq The interrupt request to check
 	 * @return @c true if the interrupt is active, @c false otherwise
 	 */
-	static bool isActive(uint32_t irq)
+	static bool is_active(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		return (MemoryRegister<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
@@ -304,7 +304,7 @@ public:
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
 	 */
-	static void setPriority(uint32_t irq, IsrPriority priority)
+	static void set_priority(uint32_t irq, IsrPriority priority)
 	{
 		assert(irq <= MaxIrq);
 		MemoryRegister<uint8_t>(NvicIpAddress + irq).set(priority.value());
@@ -315,7 +315,7 @@ public:
 	 * @param irq The interrupt request to get priority for
 	 * @return The interrupt priority
 	 */
-	static IsrPriority getPriority(uint32_t irq)
+	static IsrPriority priority(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
 		return IsrPriority(MemoryRegister<uint8_t>(NvicIpAddress + irq).get());
@@ -327,7 +327,7 @@ public:
 	 * @param priority The priority
 	 * @warning Only @c SystemIrq::NonMaskableInterrupt, @c SystemIrq::HardFault, @c SystemIrq::ServiceCall, @c SystemIrq::PendSV and @c SystemIrq::Systick are configurable
 	 */
-	static void setPriority(SystemIrq irq, IsrPriority priority)
+	static void set_priority(SystemIrq irq, IsrPriority priority)
 	{
 		switch (irq)
 		{
@@ -352,7 +352,7 @@ public:
 	 * @return The current priority
 	 * @warning Only @c SystemIrq::NonMaskableInterrupt, @c SystemIrq::HardFault, @c SystemIrq::ServiceCall, @c SystemIrq::PendSV and @c SystemIrq::Systick are configurable
 	 */
-	static IsrPriority getPriority(SystemIrq irq)
+	static IsrPriority priority(SystemIrq irq)
 	{
 		switch (irq)
 		{
@@ -377,7 +377,7 @@ public:
 	 * @return The minimum (lowest) preemption priority available
 	 */
 	template<std::size_t PreemptBits = kPreemptionBits>
-	static constexpr uint8_t minSub()
+	static constexpr uint8_t min_sub()
 	{
 		return (1 << (kPrigroupMax + 1 - PreemptBits)) - 1;
 	}
@@ -388,7 +388,7 @@ public:
 	 * @return The minimum (lowest) sub-priority available
 	 */
 	template<std::size_t PreemptBits = kPreemptionBits>
-	static constexpr uint8_t minPreempt()
+	static constexpr uint8_t min_preempt()
 	{
 		return (1 << PreemptBits) - 1;
 	}
@@ -406,26 +406,26 @@ public:
 	 * @brief Gets the current interrupt handler vector
 	 * @return The current interrupt handler vector
 	 */
-	static IsrHandler* getVtor()
+	static IsrHandler* vtor()
 	{
 		return reinterpret_cast<IsrHandler*>(MemoryRegister<uint32_t>(ScbVtorAddress).get());
 	}
 
 	/**
 	 * @brief Moves the interrupt handler vector to a new location
-	 * @param vtor The new interrupt handler vector
+	 * @param new_vtor The new interrupt handler vector
 	 * @param copySize Number of handlers to copy from the previous to the new one
 	 * @remark It is most preferable to move interrupt handler vector at system startup before any interrupt is active
 	 */
-	static void moveVtor(IsrHandler* vtor, std::size_t copySize = 0)
+	static void move_vtor(IsrHandler* new_vtor, std::size_t copySize = 0)
 	{
-		assert((vtor != nullptr) && (reinterpret_cast<uint32_t>(vtor) % kVtorAlignment == 0)); // check vtor is not null and correctly aligned
+		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % kVtorAlignment == 0)); // check vtor is not null and correctly aligned
 		assert(copySize <= MaxIrq + kSystemIrqs);
 
 		for (auto i = 0u; i < copySize; ++i)
-			vtor[i] = getVtor()[i];
+			new_vtor[i] = vtor()[i];
 
-		MemoryRegister<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(vtor));
+		MemoryRegister<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
 	}
 
 	/**
@@ -433,7 +433,7 @@ public:
 	 * @param irq The interrupt request to get the handler for
 	 * @return The current handler of the specified system interrupt
 	 */
-	static IsrHandler getIsrHandler(SystemIrq irq)
+	static IsrHandler isr_handler(SystemIrq irq)
 	{
 		switch (irq)
 		{
@@ -444,7 +444,7 @@ public:
 		case SystemIrq::Systick:
 		case SystemIrq::Reset:
 		{
-			return getVtor()[static_cast<std::size_t>(irq)];
+			return vtor()[static_cast<std::size_t>(irq)];
 		}
 		case SystemIrq::InitialSp:
 		default:
@@ -458,19 +458,19 @@ public:
 	 * @param irq The interrupt request to get the handler for
 	 * @return The current handler of the specified peripheral interrupt
 	 */
-	static IsrHandler getIsrHandler(uint32_t irq)
+	static IsrHandler isr_handler(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return getVtor()[irq + kSystemIrqs];
+		return vtor()[irq + kSystemIrqs];
 	}
 
 	/**
 	 * @brief Gets the value set to main stack pointer (MSP) at system reset (or startup)
 	 * @return The value set to main stack pointer (MSP) at system reset (or startup)
 	 */
-	static uint32_t* mspAtReset()
+	static uint32_t* msp_at_reset()
 	{
-		return reinterpret_cast<uint32_t*>(*getVtor());
+		return reinterpret_cast<uint32_t*>(*vtor());
 	}
 
 	/**
@@ -480,10 +480,10 @@ public:
 	 * @remark This call first checks if the current ISR is already correctly set, and tries to set it otherwise
 	 * @warning If you use this method to change the current value, make sure the interrupt handler vector is in writable memory (i.e. not FLASH)
 	 */
-	static void setIsrHandler(SystemIrq irq, IsrHandler handler)
+	static void set_isr_handler(SystemIrq irq, IsrHandler handler)
 	{
-		if (getIsrHandler(irq) != handler)
-			getVtor()[static_cast<std::size_t>(irq)] = handler;
+		if (isr_handler(irq) != handler)
+			vtor()[static_cast<std::size_t>(irq)] = handler;
 	}
 
 	/**
@@ -493,18 +493,18 @@ public:
 	 * @remark This call first checks if the current ISR is already correctly set, and tries to set it otherwise
 	 * @warning If you use this method to change the current value, make sure the interrupt handler vector is in writable memory (i.e. not FLASH)
 	 */
-	static void setIsrHandler(uint32_t irq, IsrHandler handler)
+	static void set_isr_handler(uint32_t irq, IsrHandler handler)
 	{
 		assert(irq <= MaxIrq);
-		if (getIsrHandler(irq) != handler)
-			getVtor()[irq + kSystemIrqs] = handler;
+		if (isr_handler(irq) != handler)
+			vtor()[irq + kSystemIrqs] = handler;
 	}
 
 	/**
 	 * @brief Tries to get the priority of the currently executing interrupt service routine
 	 * @return @c nullopt if no ISR currently executing, the @c IsrPriority of the current ISR otherwise
 	 */
-	static std::optional<IsrPriority> currentPriority()
+	static std::optional<IsrPriority> current_priority()
 	{
 		auto ipsrValue = ipsr();
 
@@ -512,9 +512,9 @@ public:
 			return std::nullopt;
 
 		if (ipsrValue < kSystemIrqs)
-			return getPriority(static_cast<SystemIrq>(ipsrValue));
+			return priority(static_cast<SystemIrq>(ipsrValue));
 		else
-			return getPriority(ipsrValue - kSystemIrqs);
+			return priority(ipsrValue - kSystemIrqs);
 	}
 
 	/**
@@ -556,7 +556,7 @@ public:
 	 * @brief Gets the current @c MSP (Main Stack Pointer) value
 	 * @return The current @c MSP value
 	 */
-	static uint32_t* getMsp() __attribute__((always_inline))
+	static uint32_t* msp() __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile("mrs %0, msp" : "=r" (result));
@@ -567,7 +567,7 @@ public:
 	 * @brief Sets the @c MSP (Main Stack Pointer) value
 	 * @param msp The value to set @c MSP to
 	 */
-	static void setMsp(uint32_t* msp) __attribute__((always_inline))
+	static void set_msp(uint32_t* msp) __attribute__((always_inline))
 	{
 		asm volatile("msr msp, %0" : : "r"(msp));
 	}
@@ -577,7 +577,7 @@ public:
 	 * @param limit The lower bound of the main stack — UsageFault fires if MSP goes below this address.
 	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
 	 */
-	static void setMsplim(uint32_t* limit) __attribute__((always_inline))
+	static void set_msplim(uint32_t* limit) __attribute__((always_inline))
 	{
 		if constexpr (kHasStackLimitRegs)
 			asm volatile("msr msplim, %0" : : "r"(limit));
@@ -587,7 +587,7 @@ public:
 	 * @brief Gets the current @c PSP (Process Stack Pointer) value
 	 * @return The current @c PSP value
 	 */
-	static uint32_t* getPsp() __attribute__((always_inline))
+	static uint32_t* psp() __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile("mrs %0, psp" : "=r" (result));
@@ -598,7 +598,7 @@ public:
 	 * @brief Sets the @c PSP (Process Stack Pointer) value
 	 * @param psp The value to set @c PSP to
 	 */
-	static void setPsp(uint32_t* psp) __attribute__((always_inline))
+	static void set_psp(uint32_t* psp) __attribute__((always_inline))
 	{
 		asm volatile("msr psp, %0" : : "r"(psp));
 	}
@@ -608,7 +608,7 @@ public:
 	 * @param limit The lower bound of the process stack — UsageFault fires if PSP goes below this address.
 	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
 	 */
-	static void setPsplim(uint32_t* limit) __attribute__((always_inline))
+	static void set_psplim(uint32_t* limit) __attribute__((always_inline))
 	{
 		if constexpr (kHasStackLimitRegs)
 			asm volatile("msr psplim, %0" : : "r"(limit));
@@ -618,7 +618,7 @@ public:
 	 * @brief Sets the @c CONTROL register value
 	 * @param control The value to set @c CONTROL register to
 	 */
-	static void setControl(uint32_t control) __attribute__((always_inline))
+	static void set_control(uint32_t control) __attribute__((always_inline))
 	{
 		asm volatile("msr control, %0" : : "r" (control) : "memory");
 	}
@@ -627,7 +627,7 @@ public:
 	 * @brief Gets the current @c CONTROL register value
 	 * @return The current @c CONTROL register value
 	 */
-	static uint32_t getControl() __attribute__((always_inline))
+	static uint32_t control() __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile("mrs %0, control" : "=r" (result));
@@ -637,7 +637,7 @@ public:
 	/**
 	 * @brief Triggers the pending state for system interrupt @c PendSV
 	 */
-	static inline void triggerPendSv()
+	static inline void trigger_pend_sv()
 	{
 		MemoryRegister<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
 	}
@@ -645,7 +645,7 @@ public:
 	/**
 	 * @brief Clears the pending state for system interrupt @c PendSV
 	 */
-	static inline void clearPendSv()
+	static inline void clear_pend_sv()
 	{
 		MemoryRegister<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
 	}
@@ -655,7 +655,7 @@ public:
 	 * @param priority The new @c IsrPriority to set @c BASEPRI register to
 	 * @return The previous value of @c BASEPRI register
 	 */
-	static inline IsrPriority setBasepri(IsrPriority priority = IsrPriority(0)) __attribute__((always_inline))
+	static inline IsrPriority set_basepri(IsrPriority priority = IsrPriority(0)) __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile(
@@ -671,7 +671,7 @@ public:
 	/**
 	 * @brief Disables all interrupts by setting @c PRIMASK register to 1
 	 */
-	static inline void disableInterrupts() __attribute__((always_inline))
+	static inline void disable_interrupts() __attribute__((always_inline))
 	{
 		asm volatile(
 				"cpsid i \n\t"
@@ -683,7 +683,7 @@ public:
 	 * @brief Enables all interrupts by setting @c PRIMASK to 0
 	 * @warning This does not mean all peripheral interrupts are enabled, it means they are not masked by @c PRIMASK anymore
 	 */
-	static inline void enableInterrupts() __attribute__((always_inline))
+	static inline void enable_interrupts() __attribute__((always_inline))
 	{
 		asm volatile(
 				"cpsie i \n\t"
@@ -695,7 +695,7 @@ public:
 	 * @brief Checks if PRIMASK register is set to @c 1
 	 * @return @c true if @c PRIMASK is set to @c 1 (all interrupts disabled), @c false otherwise
 	 */
-	static inline bool isPrimask() __attribute__((always_inline))
+	static inline bool is_primask() __attribute__((always_inline))
 	{
 		uint32_t value;
 		asm volatile("mrs %[output], primask" : [output] "=r" (value));
@@ -705,11 +705,11 @@ public:
 	/**
 	 * @brief Enabled the Floating Point Unit (FPU) on devices which have the FPU coprocessor
 	 */
-	static inline void enableFpu() __attribute__((always_inline))
+	static inline void enable_fpu() __attribute__((always_inline))
 	{
 		MemoryRegister<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
-		dataBarrier();
-		instructionBarrier();
+		data_barrier();
+		instruction_barrier();
 	}
 
 	/**
@@ -719,7 +719,7 @@ public:
 	 * @remark It is possible only for a size of 1, 2 or 4 bytes
 	 */
 	template<typename T>
-	static inline T loadExclusive(T* ptr)
+	static inline T load_exclusive(T* ptr)
 	{
 	    T result;
 
@@ -743,7 +743,7 @@ public:
 		}
 		else
 		{
-	        static_assert("Wrong template parameter size for loadExclusive");
+	        static_assert("Wrong template parameter size for load_exclusive");
 		}
 
 	    return result;
@@ -756,7 +756,7 @@ public:
 	 * @return @c 0 if the store is effective, @c 1 otherwise
 	 */
 	template<typename T>
-	static inline uint32_t storeExclusive(T* ptr, T value)
+	static inline uint32_t store_exclusive(T* ptr, T value)
 	{
 	    uint32_t result;
 
@@ -780,18 +780,18 @@ public:
 			}
 	    else
 	    {
-	        static_assert("Wrong template parameter size for storeExclusive");
+	        static_assert("Wrong template parameter size for store_exclusive");
 	    }
 
 	    return result;
 	}
 
-	static inline uint32_t cycleCount()
+	static inline uint32_t cycle_count()
 	{
 		return MemoryRegister<uint32_t>(CycCntAddress).get();
 	}
 
-	static inline void cycleCount(uint32_t value)
+	static inline void cycle_count(uint32_t value)
 	{
 		MemoryRegister<uint32_t>(CycCntAddress).set(value);
 	}
@@ -862,12 +862,12 @@ private:
 	static constexpr std::size_t CpuidPartNoLength = 12;
 	static constexpr std::size_t CpuidPartNoMask = (1 << CpuidPartNoLength) - 1;
 
-	static uint8_t priorityGrouping()
+	static uint8_t priority_grouping()
 	{
 		return static_cast<uint8_t>((MemoryRegister<uint32_t>(AircrAddress).get() & AircrPrigroupMsk) >> AircrPrigroupPos);
 	}
 
-	static void priorityGrouping(uint8_t value)
+	static void priority_grouping(uint8_t value)
 	{
 		assert(value <= kPrigroupMax);
 		MemoryRegister<uint32_t>(AircrAddress).set((MemoryRegister<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));

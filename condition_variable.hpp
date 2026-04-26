@@ -99,7 +99,7 @@ public:
 	/**
 	 * @brief Notify the first @c Task in the waiting list if there is any, releasing it from its wait state to the ready state
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c Scheduler::wakeUp; see the cycle-breaking note there).
+	 *         @c Scheduler::wake_up; see the cycle-breaking note there).
 	 */
 	void notify_one();
 
@@ -173,9 +173,9 @@ private:
 	 * @param task The @c TaskControlBlock to add
 	 * @remark Inline here because it has no dependency on @c Scheduler.
 	 */
-	void addWaiting(TaskControlBlock& task)
+	void add_waiting(TaskControlBlock& task)
 	{
-		waiting_list_.insertWhen(TaskControlBlock::priorityIsLower, task);
+		waiting_list_.insert_when(TaskControlBlock::priority_is_lower, task);
 	}
 
 	/**
@@ -183,7 +183,7 @@ private:
 	 * @param task The @c TaskControlBlock to remove
 	 * @remark Inline here because it has no dependency on @c Scheduler.
 	 */
-	void removeWaiting(TaskControlBlock& task)
+	void remove_waiting(TaskControlBlock& task)
 	{
 		waiting_list_.erase(task);
 	}

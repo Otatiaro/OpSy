@@ -91,7 +91,7 @@ extern "C"
  * @brief Get the system core clock in Hz
  * @return The system core clock in Hz
  */
-uint32_t inline getCoreClock()
+uint32_t inline core_clock()
 {
 	return SystemCoreClock;
 }

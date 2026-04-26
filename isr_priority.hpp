@@ -62,7 +62,7 @@ public:
 	 * @return The @c IsrPriority which has @p preempt preemption priority and @p sub sub-priority
 	 */
 	template<std::size_t PreemptBits>
-	static constexpr IsrPriority FromPreemptSub(uint8_t preempt, uint8_t sub)
+	static constexpr IsrPriority from_preempt_sub(uint8_t preempt, uint8_t sub)
 	{
 		return IsrPriority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (kMaxPreemptionBits - PreemptBits)) | (sub & (((1u << (kMaxPreemptionBits - PreemptBits)) - 1u)))));
 	}
@@ -136,7 +136,7 @@ public:
 	 * @remark Like all @c IsrPriority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PriorityBits>
-	constexpr uint8_t maskedValue() const
+	constexpr uint8_t masked_value() const
 	{
 		constexpr uint8_t mask = static_cast<uint8_t>(((1 << PriorityBits) - 1) << (kMaxPreemptionBits - PriorityBits));
 		return value() & mask;

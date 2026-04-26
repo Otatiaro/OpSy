@@ -140,7 +140,7 @@ private:
 	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	uint32_t reLockFromPendSv(CriticalSection section);
+	uint32_t relock_from_pend_sv(CriticalSection section);
 
 	/**
 	 * @brief Release the hardware portion of the lock from a service call, leaving @c locked_ untouched
@@ -148,7 +148,7 @@ private:
 	 *         release the mutex and put the task to sleep. Defined inline at the
 	 *         bottom of @c scheduler.hpp.
 	 */
-	void releaseFromServiceCall();
+	void release_from_service_call();
 
 	bool locked_ = false;
 	IsrPriority previous_lock_ = IsrPriority(0);

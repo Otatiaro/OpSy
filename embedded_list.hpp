@@ -683,7 +683,7 @@ public:
 	 * @return An @c EmbeddedIterator pointing to the @c Item inserted
 	 */
 	template<std::invocable<const_reference, const_reference> Comparator>
-	iterator insertWhen(Comparator&& predicate, Item& item)
+	iterator insert_when(Comparator&& predicate, Item& item)
 	{
 		if (empty() || predicate(item, *first_))
 		{

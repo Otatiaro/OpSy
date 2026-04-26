@@ -219,7 +219,12 @@ private:
 
 	static __attribute__((always_inline)) void trigger_hard_switch()
 	{
-		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::context_switch));
+		// "memory" clobber: the SVC enters the scheduler which may modify the
+		// task's frame on the PSP and any global it touches (current_task_,
+		// next_task_, ready_, ...). Without this clobber the compiler would be
+		// free to keep stale globals/locals in registers across the call —
+		// invisible at -Og but a real bug at -O2/-O3/LTO.
+		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::context_switch) : "memory");
 	}
 
 	static constexpr bool wakeup_after(const task_control_block& left, const task_control_block& right)

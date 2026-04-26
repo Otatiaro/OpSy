@@ -56,6 +56,9 @@ namespace opsy
 void inline sleep_for(duration t)
 {
 	const auto count = t.count();
+	// "memory" clobber: see trigger_hard_switch in scheduler.hpp. The SVC may
+	// reschedule, modify the task frame on PSP and the scheduler globals; the
+	// compiler must drop any cached state across the call.
 	asm volatile(
 			"mov r0, %[count_lo] \n\t"
 			"mov r1, %[count_hi] \n\t"
@@ -64,7 +67,7 @@ void inline sleep_for(duration t)
 			: [immediate] "I" (scheduler::service_call_number::sleep),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
-			: "r0", "r1");
+			: "r0", "r1", "memory");
 }
 
 /**

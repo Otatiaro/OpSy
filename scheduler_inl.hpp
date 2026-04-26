@@ -301,6 +301,10 @@ inline void condition_variable::wait()
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// "memory" clobber: see scheduler::trigger_hard_switch. The SVC enters the
+	// scheduler which can swap to another task and modify both the calling
+	// task's PSP frame and global scheduler state; we must invalidate every
+	// cached value the compiler holds across the call.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
@@ -309,7 +313,7 @@ inline void condition_variable::wait()
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this)
-			: "r0", "r1", "r2", "r3");
+			: "r0", "r1", "r2", "r3", "memory");
 }
 
 /**
@@ -321,6 +325,7 @@ inline void condition_variable::wait(mutex& mtx)
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
@@ -329,7 +334,7 @@ inline void condition_variable::wait(mutex& mtx)
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this), [mutex] "r" (&mtx)
-			: "r0", "r1", "r2", "r3");
+			: "r0", "r1", "r2", "r3", "memory");
 }
 
 /**
@@ -344,6 +349,7 @@ inline cv_status condition_variable::wait_for(duration timeout)
 
 	const auto count = timeout.count();
 	uint32_t result;
+	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
@@ -356,7 +362,7 @@ inline cv_status condition_variable::wait_for(duration timeout)
 			  [this_ptr] "r" (this),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
-			: "r0", "r1", "r2", "r3");
+			: "r0", "r1", "r2", "r3", "memory");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
 	return static_cast<cv_status>(result);
@@ -375,6 +381,7 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 
 	const auto count = timeout.count();
 	uint32_t result;
+	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
@@ -388,7 +395,7 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32)),
 			  [mutex] "r" (&mtx)
-			: "r0", "r1", "r2", "r3");
+			: "r0", "r1", "r2", "r3", "memory");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
 	return static_cast<cv_status>(result);
@@ -480,12 +487,13 @@ inline bool task_control_block::stop()
 	if(!is_started()) // can only stop an active task
 		return false;
 
+	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[task] \n\t"
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (scheduler::service_call_number::terminate), [task] "r" (this)
-			: "r0");
+			: "r0", "memory");
 	return true;
 }
 

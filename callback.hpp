@@ -67,7 +67,7 @@ static constexpr std::size_t default_callback_storage_size = 3;
 template<typename, std::size_t StorageSize = default_callback_storage_size>
 class callback;
 
-enum callback_validity_t
+enum class callback_validity
 {
 	invalid = 0, valid_no_destructor, valid_destructor,
 };
@@ -101,7 +101,7 @@ public:
 	 */
 	template<typename Function>
 	callback(Function&& function) :
-			valid_(std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>> ? valid_destructor : valid_no_destructor)
+			valid_(std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>> ? callback_validity::valid_destructor : callback_validity::valid_no_destructor)
 	{
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
@@ -122,7 +122,7 @@ public:
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");        
         *reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = invalid;
+		from.valid_ = callback_validity::invalid;
 	}
 
 	/**
@@ -134,13 +134,13 @@ public:
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
-		if (valid_ == valid_destructor)
+		if (valid_ == callback_validity::valid_destructor)
 			std::destroy_at(get());
 
 		valid_ = from.valid_;
-		if (valid_ != invalid)
+		if (valid_ != callback_validity::invalid)
 			*reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = invalid;
+		from.valid_ = callback_validity::invalid;
 		return *this;
 	}
 
@@ -154,7 +154,7 @@ public:
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
 
-		valid_ = (std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>>) ? valid_destructor : valid_no_destructor;
+		valid_ = (std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>>) ? callback_validity::valid_destructor : callback_validity::valid_no_destructor;
 		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;
 	}
@@ -171,12 +171,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(valid_ != invalid)
+			if(valid_ != callback_validity::invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(valid_ != invalid)
+			if(valid_ != callback_validity::invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -197,12 +197,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(valid_ != invalid)
+			if(valid_ != callback_validity::invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(valid_ != invalid)
+			if(valid_ != callback_validity::invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -217,12 +217,12 @@ public:
 	 */
 	constexpr operator bool() const
 	{
-		return valid_ != invalid;
+		return valid_ != callback_validity::invalid;
 	}
 
 	~callback()
 	{
-	if (valid_ == valid_destructor)
+	if (valid_ == callback_validity::valid_destructor)
 		std::destroy_at(get());
 	}
 
@@ -277,7 +277,7 @@ public:
 		return reinterpret_cast<const i_callback*>(&storage_);
 	}
 
-	callback_validity_t valid_{ invalid };
+	callback_validity valid_{ callback_validity::invalid };
 	storage storage_{ };
 };
 }

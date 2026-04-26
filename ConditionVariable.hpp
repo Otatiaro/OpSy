@@ -98,17 +98,22 @@ public:
 
 	/**
 	 * @brief Notify the first @c Task in the waiting list if there is any, releasing it from its wait state to the ready state
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls
+	 *         @c Scheduler::wakeUp; see the cycle-breaking note there).
 	 */
 	void notify_one();
 
 	/**
 	 * @brief Notify all @c Task in the waiting list, releasing them from their wait state to the ready state
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (see @c notify_one).
 	 */
 	void notify_all();
 
 	/**
 	 * @brief Wait on a @c ConditionVariable with no time limit nor @c Mutex synchronization
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (issues an @c SVC
+	 *         using @c Scheduler::ServiceCallNumber).
 	 */
 	void wait();
 
@@ -116,6 +121,7 @@ public:
 	 * @brief Wait on a @c ConditionVariable with no time limit with @c Mutex synchronization
 	 * @param mutex The @c Mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
 	 */
 	void wait(Mutex& mutex);
 
@@ -124,6 +130,7 @@ public:
 	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
 	 */
 	std::cv_status wait_for(duration timeout);
 
@@ -133,6 +140,7 @@ public:
 	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
 	 */
 	std::cv_status wait_for(Mutex& mutex, duration timeout);
 
@@ -141,6 +149,7 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (uses @c Scheduler::now).
 	 */
 	std::cv_status wait_until(time_point timeout_time);
 
@@ -150,6 +159,7 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (uses @c Scheduler::now).
 	 */
 	std::cv_status wait_until(Mutex& mutex, time_point timeout_time);
 
@@ -158,7 +168,24 @@ private:
 	Mutex m_mutex;
 	EmbeddedList<TaskControlBlock, TaskLists::Waiting> m_waitingList;
 
-	void addWaiting(TaskControlBlock& task);
-	void removeWaiting(TaskControlBlock& task);
+	/**
+	 * @brief Adds a @c TaskControlBlock to the waiting list, ordered by priority
+	 * @param task The @c TaskControlBlock to add
+	 * @remark Inline here because it has no dependency on @c Scheduler.
+	 */
+	void addWaiting(TaskControlBlock& task)
+	{
+		m_waitingList.insertWhen(TaskControlBlock::priorityIsLower, task);
+	}
+
+	/**
+	 * @brief Removes a @c TaskControlBlock from the waiting list
+	 * @param task The @c TaskControlBlock to remove
+	 * @remark Inline here because it has no dependency on @c Scheduler.
+	 */
+	void removeWaiting(TaskControlBlock& task)
+	{
+		m_waitingList.erase(task);
+	}
 };
 }

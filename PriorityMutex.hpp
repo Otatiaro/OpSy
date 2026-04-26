@@ -120,17 +120,34 @@ public:
 
 	/**
 	 * @brief Takes a lock on this @c Mutex
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls into
+	 *         @c Scheduler, @c Hooks and @c CortexM, see the cycle-breaking
+	 *         note there).
 	 */
 	void lock();
 
 	/**
 	 * @brief Releases the lock on this @c Mutex
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (see @c lock).
 	 */
 	void unlock();
 
 private:
 
+	/**
+	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed
+	 * @param section The @c CriticalSection ownership transferred from the scheduler
+	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
+	 */
 	uint32_t reLockFromPendSv(CriticalSection section);
+
+	/**
+	 * @brief Release the hardware portion of the lock from a service call, leaving @c m_locked untouched
+	 * @remark Used during @c ConditionVariable::wait so the scheduler can atomically
+	 *         release the mutex and put the task to sleep. Defined inline at the
+	 *         bottom of @c Scheduler.hpp.
+	 */
 	void releaseFromServiceCall();
 
 	bool m_locked = false;

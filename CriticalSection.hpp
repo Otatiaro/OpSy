@@ -98,6 +98,11 @@ public:
 
 	/**
 	 * @brief Deletes the @c CriticalSection, releasing the lock if it is active
+	 * @remark The body is defined inline at the bottom of @c Scheduler.hpp because
+	 *         it calls @c Scheduler::criticalSectionEnd, and @c Scheduler.hpp
+	 *         already includes (transitively) this header. Defining the body
+	 *         after the @c Scheduler class declaration breaks the cycle without
+	 *         requiring a translation unit.
 	 */
 	~CriticalSection();
 

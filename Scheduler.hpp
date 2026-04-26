@@ -50,6 +50,13 @@
 
 #pragma once
 
+/**
+ * @brief Token guarding @c Scheduler_inl.hpp inclusion
+ * @remark @c Scheduler_inl.hpp checks this macro to refuse direct inclusion
+ *         from anywhere other than the bottom of @c Scheduler.hpp.
+ */
+#define OPSY_SCHEDULER_HPP_INCLUDED_
+
 #include <cstdint>
 #include <ratio>
 #include <cassert>
@@ -251,4 +258,10 @@ private:
 };
 
 }
+
+// Inline definitions for CriticalSection / PriorityMutex / ConditionVariable.
+// Pulled here, AFTER the full @c Scheduler declaration is in scope, to break
+// the include cycle between Scheduler.hpp and these three primitives' headers.
+// See Scheduler_inl.hpp for details.
+#include "Scheduler_inl.hpp"
 

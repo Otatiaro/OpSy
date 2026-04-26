@@ -409,8 +409,15 @@ void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
  */
 OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
 {
+	// Note on %c[mask]: the `=expr` form of `ldr` (literal-pool load) wants
+	// a bare expression, not an immediate. With the plain `%[mask]` token,
+	// GCC and clang both substitute the value with the ARM immediate `#`
+	// prefix, giving `ldr R1, =#64` — which GAS tolerates but clang's
+	// integrated assembler rejects ("unknown token in expression"). The
+	// `%c` output modifier strips the `#` and emits the bare integer,
+	// producing `ldr R1, =64`, which both assemblers accept.
 	asm volatile(
-			"ldr R1, =%[mask]\n\t"
+			"ldr R1, =%c[mask]\n\t"
 			"msr BASEPRI, R1 \n\t"
 			"isb \n\t"
 			"mrs R0, PSP \n\t"

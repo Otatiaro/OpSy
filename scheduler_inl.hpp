@@ -435,8 +435,8 @@ inline bool task_control_block::start(callback<void(void)> && entry, const char*
 
 	stack_pointer_ -= sizeof(context) / sizeof(stack_item);
 	const auto ctx = reinterpret_cast<context*>(stack_pointer_);
-	ctx->control = 0b10;
-	ctx->lr = 0xFFFFFFFD;
+	ctx->control = cortex_m::control_thread_psp_privileged;
+	ctx->lr = cortex_m::exc_return_thread_psp_basic;
 
 	scheduler::add_task(*this);
 	return true;

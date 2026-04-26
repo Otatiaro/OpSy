@@ -52,7 +52,7 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 	});
 
 	cortex_m::set_psp(cortex_m::msp());
-	cortex_m::set_control(0b10);
+	cortex_m::set_control(cortex_m::control_thread_psp_privileged);
 	cortex_m::set_msp(cortex_m::msp_at_reset());
 
 	if(!do_switch())
@@ -341,7 +341,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 					  - sizeof(context) / sizeof(task_control_block::stack_item);
 			if constexpr (cortex_m::has_fpu)
 			{
-				const bool fpu_active = !(exc_return & task_control_block::fp_flag);
+				const bool fpu_active = !(exc_return & cortex_m::exc_return_fp_flag);
 				if (fpu_active)
 					sp -= sizeof(fp_context) / sizeof(task_control_block::stack_item);
 			}
@@ -384,7 +384,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"isb \n\t"
 			"mrs R0, PSP \n\t"
 #if defined(__ARM_FP)
-			"tst LR, #16 \n\t"
+			"tst LR, %[fp_flag] \n\t"
 			"it EQ \n\t"
 			"vstmdbeq R0!, {S16-S31} \n\t"
 #endif
@@ -396,7 +396,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"mov LR, R2\n\t"
 			"msr CONTROL, R3\n\t"
 #if defined(__ARM_FP)
-			"tst LR, #16 \n\t"
+			"tst LR, %[fp_flag] \n\t"
 			"it EQ \n\t"
 			"vldmiaeq R0!, {S16-S31} \n\t"
 #endif
@@ -405,18 +405,20 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"isb \n\t"
 			"bx LR"
 			:
-			: [handler] "g" (opsy::scheduler::pend_sv_handler), [mask]"I"(opsy::scheduler::service_call_priority.value())
+			: [handler] "g" (opsy::scheduler::pend_sv_handler),
+			  [mask] "I" (opsy::scheduler::service_call_priority.value()),
+			  [fp_flag] "I" (opsy::cortex_m::exc_return_fp_flag)
 			: "r0", "r1", "r2", "r3");
 }
 
 void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_Handler()
 {
 	asm volatile(
-			"tst LR, #0x4 \n\t"
+			"tst LR, %[psp_flag] \n\t"
 			"ite EQ \n\t"
 			"mrseq R0, MSP \n\t"
 			"mrsne R0, PSP \n\t"
-			"tst LR, #0x8 \n\t"
+			"tst LR, %[thread_flag] \n\t"
 			"ite EQ \n\t"
 			"ldreq R2, =0x0 \n\t"
 			"ldrne R2, =0x1 \n\t"
@@ -430,7 +432,9 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_H
 			"pop {LR} \n\t"
 			"bx LR"
 			:
-			:[handler] "g" (opsy::scheduler::service_call_handler)
+			: [handler] "g" (opsy::scheduler::service_call_handler),
+			  [psp_flag] "I" (opsy::cortex_m::exc_return_psp_flag),
+			  [thread_flag] "I" (opsy::cortex_m::exc_return_thread_flag)
 			: "r0", "r1", "r2", "r3");
 }
 }

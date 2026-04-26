@@ -170,6 +170,38 @@ public:
 #endif
 
 	/**
+	 * @brief Bit 4 of @c EXC_RETURN. When @b cleared on exception entry, the hardware pushed
+	 *        the extended (FP) stack frame in addition to the basic frame; when @b set, only
+	 *        the basic frame is on the stack and the FPU was inactive.
+	 */
+	static constexpr uint32_t exc_return_fp_flag = 1u << 4;
+
+	/**
+	 * @brief Bit 3 of @c EXC_RETURN. @b Set = the exception will return to Thread mode;
+	 *        @b cleared = it will return to Handler mode.
+	 */
+	static constexpr uint32_t exc_return_thread_flag = 1u << 3;
+
+	/**
+	 * @brief Bit 2 of @c EXC_RETURN. @b Set = the entry stack pointer was @c PSP (Thread mode
+	 *        was running); @b cleared = it was @c MSP (Handler mode was running).
+	 */
+	static constexpr uint32_t exc_return_psp_flag = 1u << 2;
+
+	/**
+	 * @brief @c EXC_RETURN value used to initialise a fresh task context: return to Thread
+	 *        mode, use @c PSP, basic stack frame (no FP context). Equivalent to
+	 *        @c 0xFFFFFFFD on ARMv7-M / ARMv8-M Mainline.
+	 */
+	static constexpr uint32_t exc_return_thread_psp_basic = 0xFFFFFFFDu;
+
+	/**
+	 * @brief @c CONTROL register value used to initialise a task: privileged Thread mode
+	 *        using @c PSP (@c SPSEL=1, @c nPRIV=0). Equivalent to @c 0b10.
+	 */
+	static constexpr uint32_t control_thread_psp_privileged = 0b10u;
+
+	/**
 	 * @brief Indicates whether the running target has a hardware Floating Point Unit.
 	 *
 	 *        Detected from the toolchain-predefined @c __ARM_FP macro (set by GCC when

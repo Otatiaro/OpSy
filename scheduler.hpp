@@ -109,10 +109,34 @@ public:
 
 	/**
 	 * @brief Starts the @c scheduler
-	 * @param idle The @c idle_task to use when the system goes idle. If you don't provide one, the @c scheduler will use a default one that uses @c WFI in a loop
-	 * @remark Never returns: takes control of the CPU and runs the highest-priority @c task or the idle loop. Trying to start the scheduler twice trips an assert.
+	 * @tparam IdleStackSize Stack size of the @c idle_task in @c stack_item increments
+	 * @param idle The @c idle_task to use when the system goes idle. Default is @c default_idle<IdleStackSize>
+	 * @param entry The function the idle task should run. Default is @c default_idle_loop (a @c WFI / @c NOP spin)
+	 * @remark Templated wrapper that calls @c idle.prepare(entry) and dispatches to @c start_impl.
+	 *         Going through @c prepare lets @c idle_task<N> stay zero-initialized (and therefore in @c .bss)
+	 *         until the scheduler actually launches.
+	 *         Never returns: takes control of the CPU and runs the highest-priority @c task or the idle loop.
+	 *         Trying to start the scheduler twice trips an assert.
 	 */
-	[[noreturn]] static void start(idle_task_control_block& idle = default_idle<>);
+	template<std::size_t IdleStackSize = 64>
+	[[noreturn]] static void start(idle_task<IdleStackSize>& idle = default_idle<IdleStackSize>,
+	                               code_pointer entry = default_idle_loop)
+	{
+		idle.prepare(entry);
+		start_impl(idle);
+	}
+
+private:
+
+	/**
+	 * @brief The non-template body of @c start
+	 * @remark Defined in @c scheduler.cpp; the template wrapper above is the
+	 *         single public entry point so users keep calling
+	 *         @c scheduler::start as before.
+	 */
+	[[noreturn]] static void start_impl(idle_task_control_block& idle);
+
+public:
 
 	/**
 	 * @brief Gets a read only reference to the @c embedded_list of @c task currently active

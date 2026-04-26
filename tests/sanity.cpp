@@ -26,7 +26,7 @@ using namespace std::chrono_literals;
 // One instance of every primitive — exercises all default constructors
 // and the priority-aware overloads.
 opsy::task<512>          g_task;
-opsy::idle_task<256>     g_idle{ []{ while (true) opsy::cortex_m::wfi(); } };
+opsy::idle_task<256>     g_idle;
 opsy::mutex              g_mutex_task_only;
 opsy::mutex              g_mutex_with_priority{ opsy::isr_priority{ 0x80 } };
 opsy::condition_variable g_cv;
@@ -68,6 +68,14 @@ opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 	(void) opsy::scheduler::now();
 	auto cs = opsy::scheduler::try_critical_section();
 	(void) cs;
+}
+
+[[gnu::used]] void use_idle_task()
+{
+	// Exercise both forms: explicit entry through prepare(), and the
+	// default WFI loop pulled in by scheduler::start's default arguments.
+	g_idle.prepare([]{ while (true) opsy::cortex_m::wfi(); });
+	g_idle.prepare(opsy::default_idle_loop);
 }
 
 [[gnu::used]] void use_sleep()

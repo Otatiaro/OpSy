@@ -32,7 +32,7 @@ __attribute__((section(".bss.opsy.scheduler.currenttask"))) task_control_block* 
 __attribute__((section(".bss.opsy.scheduler.nexttask"))) task_control_block* scheduler::next_task_ = nullptr;
 __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool scheduler::critical_section_ = false;
 
-[[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start(idle_task_control_block& idle)
+[[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start_impl(idle_task_control_block& idle)
 {
 	{
 		const auto running = cortex_m::type();

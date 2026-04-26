@@ -407,14 +407,35 @@ class idle_task_control_block
 public:
 
 	/**
-	 * @brief Constructs a @c idle_task_control_block giving it a stack memory area through @p stack_base and @p stack_size
-	 * @param stack_base The pointer to the base of the stack
-	 * @param stack_size The size of the stack, in @c stack_item increment
-	 * @param entry The @c code_pointer to the idle code
+	 * @brief Constructs a zero-initialized @c idle_task_control_block
+	 * @remark Same rationale as @c task_control_block: every member defaults
+	 *         to zero so a globally-declared @c idle_task<StackSize> (in
+	 *         particular @c default_idle) lands in @c .bss instead of
+	 *         @c .data, sparing the multi-hundred-byte stack buffer the
+	 *         flash + boot-time @c .data copy. The non-zero values
+	 *         (@c stack_base_, @c stack_pointer_ and the initial stack
+	 *         frame written into the bottom of the stack) are produced by
+	 *         @c prepare_impl when @c scheduler::start launches the system.
 	 */
-	idle_task_control_block(uint32_t* stack_base, std::size_t stack_size, const code_pointer entry) :
-			stack_base_(stack_base), stack_pointer_(&stack_base[stack_size])
+	constexpr idle_task_control_block() = default;
+
+protected:
+
+	/**
+	 * @brief Wires the idle stack and writes its initial Cortex-M frame
+	 * @param stack_base Base of the idle stack
+	 * @param stack_size Size of the idle stack, in @c uint32_t increments
+	 * @param entry Function the idle task should run
+	 * @remark Called by @c idle_task<StackSize>::prepare on @c scheduler::start.
+	 *         Must run before the scheduler kicks the first context switch:
+	 *         @c scheduler::start uses @c stack_base_ for @c PSPLIM and
+	 *         @c stack_pointer_ for @c PSP.
+	 */
+	void prepare_impl(uint32_t* stack_base, std::size_t stack_size, code_pointer entry)
 	{
+		stack_base_ = stack_base;
+		stack_pointer_ = &stack_base[stack_size];
+
 		stack_pointer_ -= sizeof(stack_frame) / sizeof(uint32_t);
 		const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
 
@@ -431,8 +452,10 @@ public:
 
 private:
 
-	uint32_t* const stack_base_;
-	uint32_t* stack_pointer_;
+	// Both default to nullptr so a default-constructed idle_task_control_block
+	// (and any task<N> embedding it) is BSS-eligible. Filled in by prepare_impl.
+	uint32_t* stack_base_ = nullptr;
+	uint32_t* stack_pointer_ = nullptr;
 
 	static void __attribute__((naked)) no_return()
 	{
@@ -452,25 +475,42 @@ class idle_task: private stack_storage<StackSize>, public idle_task_control_bloc
 
 public:
 
+	static_assert(StackSize >= 2* (sizeof(stack_frame) + sizeof(context)) / sizeof(uint32_t), "Stack too small");
+
 	/**
-	 * @brief Constructs a @c idle_task to run code pointed by @p entry
-	 * @param entry The code to execute when system is idle
+	 * @brief Constructs a new @c idle_task with all members zero-initialized
+	 * @remark Same shape as @c task<StackSize>::task: defaulted so that a
+	 *         globally-declared @c idle_task<StackSize> (in particular
+	 *         @c default_idle) lands in @c .bss. The actual stack and stack
+	 *         frame are produced later by @c prepare(entry), which the
+	 *         scheduler calls on launch.
 	 */
-	constexpr explicit idle_task(const code_pointer entry) :
-			stack_storage<StackSize>{},
-			idle_task_control_block(stack_storage<StackSize>::stack_.data(), StackSize, entry)
+	constexpr idle_task() = default;
+
+	/**
+	 * @brief Wires this idle task to the given @p entry function
+	 * @param entry The function to run when the system has nothing else to do
+	 * @remark Called by @c scheduler::start before the first context switch.
+	 *         Forwards the embedded @c stack_storage<StackSize> base to
+	 *         @c idle_task_control_block::prepare_impl, which lays down the
+	 *         Cortex-M stack frame entry returns to.
+	 */
+	void prepare(code_pointer entry)
 	{
-		static_assert(StackSize >= 2* (sizeof(stack_frame) + sizeof(context)) / sizeof(uint32_t), "Stack too small");
+		idle_task_control_block::prepare_impl(
+			stack_storage<StackSize>::stack_.data(), StackSize, entry);
 	}
 
 };
 
 /**
- * @brief The default implementation for @c idle_task, which runs @c WFI in a loop
- * @tparam StackSize The stack size in @c stack_item increment, 64 is enough for this default implementation
+ * @brief Default idle behaviour: spin on @c WFI (or @c NOP when @c NDEBUG is
+ *        not defined, so the debugger can step through reliably).
+ * @remark Pulled out of @c default_idle so that the latter can be a plain
+ *         zero-initialized variable. @c scheduler::start passes this as the
+ *         default @c entry argument.
  */
-template<std::size_t StackSize = 64>
-idle_task<StackSize> default_idle = idle_task<StackSize>([]()
+[[noreturn]] inline void default_idle_loop()
 {
 	while(true)
 	{
@@ -480,5 +520,15 @@ idle_task<StackSize> default_idle = idle_task<StackSize>([]()
 		cortex_m::wfi();
 #endif
 	}
-});
+}
+
+/**
+ * @brief The default @c idle_task instance used by @c scheduler::start
+ * @tparam StackSize The stack size in @c stack_item increment, 64 is enough
+ * @remark Now zero-initialized so it lives in @c .bss. The entry function is
+ *         supplied by @c scheduler::start (default @c default_idle_loop).
+ */
+template<std::size_t StackSize = 64>
+inline idle_task<StackSize> default_idle{};
+
 }

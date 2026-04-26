@@ -152,7 +152,7 @@ public:
 	 */
 	bool owns(const void* ptr) const
 	{
-		assert(reinterpret_cast<std::uintptr_t>(ptr) % std::alignment_of<element_type>::value == 0); // the pointer is necessary aligned with the slots
+		assert(reinterpret_cast<std::uintptr_t>(ptr) % alignof(element_type) == 0); // the pointer is necessary aligned with the slots
 		const auto index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
 		return index > 0 && index < static_cast<std::ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
 	}
@@ -196,7 +196,11 @@ public:
 		while (true)
 		{
 			const auto chunk_size = data_[start_indicator]; // gets the size of the first space
-			const auto end_indicator_index = start_indicator + 1U + static_cast<size_type>(std::abs(chunk_size)); // position of the end of chunk indicator
+			// Manual |chunk_size|: std::abs(int) lives in <cstdlib> and is not constexpr
+			// in libstdc++/libc++ before C++23, which would make run_check() unusable from
+			// a static_assert.
+			const auto chunk_size_abs = chunk_size < 0 ? -chunk_size : chunk_size;
+			const auto end_indicator_index = start_indicator + 1U + static_cast<size_type>(chunk_size_abs); // position of the end of chunk indicator
 
 			if ((end_indicator_index > N - 1) || data_[end_indicator_index] != chunk_size) // the allocation points outside of the data or the end indicator has a different value
 				return false;

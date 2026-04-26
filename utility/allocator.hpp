@@ -84,7 +84,12 @@ public:
 		const auto available_slots = data_[N - 1]; // the available slots
 		const auto needed_slots = static_cast<element_type>((bytes - 1) / sizeof(element_type) + 1); // the number of slots needed to allocate
 
-		if (needed_slots > available_slots) // not enough free slots to allocate, return null
+		// Splitting the trailing free chunk creates a new (smaller) free chunk
+		// after the allocation, which itself needs 2 indicator slots — so the
+		// usable headroom is `available_slots - 2`, not `available_slots`.
+		// Without this margin a maximum-sized allocation would write past the
+		// buffer end and corrupt the trailing indicator.
+		if (needed_slots + 2 > available_slots) // not enough free slots to allocate, return null
 			return nullptr;
 
 		const auto previous_index = N - 2 - static_cast<size_type>(available_slots); // this is the index of the beginning of the free space
@@ -167,22 +172,37 @@ public:
 	}
 
 	/**
-	 * Gets the currently available free memory for allocation
-	 * @return The currently available free memory for allocation
+	 * Gets the currently available free memory for allocation, in bytes.
+	 *
+	 * This is what you can actually pass to @ref allocate right now: the
+	 * size of the trailing free chunk minus the 2 slots that will be spent
+	 * on indicators when the chunk is split.
+	 *
+	 * @remark The allocator only consumes the trailing free chunk, so any
+	 *         free chunk left in the middle of the buffer by a previous
+	 *         @ref deallocate is NOT counted here until the surrounding
+	 *         allocations are freed and the regions coalesce.
+	 *
+	 * @return The currently allocatable size in bytes (0 if the trailing
+	 *         chunk is too small to host any allocation).
 	 */
 	constexpr size_type available() const
 	{
 		const auto last_slot = data_[N - 1];
-		return last_slot > 0 ? static_cast<size_type>(last_slot) * sizeof(element_type) : 0;
+		return last_slot > 2 ? static_cast<size_type>(last_slot - 2) * sizeof(element_type) : 0;
 	}
 
 	/**
-	 * Checks whether the allocator is empty (no active allocation)
+	 * Checks whether the allocator is empty (no active allocation).
+	 *
 	 * @return @c true if the allocator is empty, @c false otherwise
 	 */
 	constexpr bool empty() const
 	{
-		return available() == size();
+		// The trailing free chunk spans the whole buffer minus its own 2
+		// indicators (start at data_[0], end at data_[N-1]) iff there is no
+		// active allocation.
+		return data_[N - 1] == static_cast<element_type>(N - 2);
 	}
 
 	/**

@@ -27,7 +27,10 @@ namespace {
 // Constexpr surface: ctor, size(), available(), empty(), run_check().
 
 static_assert(opsy::utility::allocator<10, true>{}.size() == 8 * sizeof(int));
-static_assert(opsy::utility::allocator<10, true>{}.available() == 8 * sizeof(int));
+// available() now reports what allocate() will actually accept: the trailing
+// free chunk minus the 2 indicator slots that any new allocation must push
+// in for the new free chunk that follows it.
+static_assert(opsy::utility::allocator<10, true>{}.available() == 6 * sizeof(int));
 static_assert(opsy::utility::allocator<10, true>{}.empty());
 static_assert(opsy::utility::allocator<10, true>{}.run_check());
 
@@ -150,12 +153,12 @@ static_assert(v2.y() == 3.0f);
 struct mock_reg
 {
 	uint32_t v_;
-	// Real generated register-field types expose Mask so the
+	// Real generated register-field types expose `mask` so the
 	// `T value || atomic` overload of memory.hpp can route through it.
 	// We don't define operator|| on mock_reg, so that path is not
 	// exercised here — keep the member to document the contract and
 	// silence -Wunused-const-variable with [[maybe_unused]].
-	[[maybe_unused]] static constexpr uint32_t Mask = 0xFFFFFFFFu;
+	[[maybe_unused]] static constexpr uint32_t mask = 0xFFFFFFFFu;
 
 	constexpr mock_reg(uint32_t value = 0) : v_{value} {}
 	constexpr uint32_t value() const { return v_; }

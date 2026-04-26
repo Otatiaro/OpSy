@@ -35,7 +35,7 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 [[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start_impl(idle_task_control_block& idle)
 {
 	{
-		const auto running = cortex_m::type();
+		[[maybe_unused]] const auto running = cortex_m::type();
 		assert(running == cortex_m::core_type::m3
 			|| running == cortex_m::core_type::m4
 			|| running == cortex_m::core_type::m7

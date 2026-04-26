@@ -57,6 +57,11 @@ namespace opsy::utility
  * @tparam T The type of the values, by default @c float
  * @tparam Coef The type of the coefficient, by default the same as @c T
  * @warning Introduces a mean delay of N/2 samples
+ * @warning The internal sample buffer is value-initialised to @c T() so the
+ *          filter is in a defined state before the first @c feed, but the
+ *          output of @c value is only meaningful once at least @c N samples
+ *          have been fed in (until then it is the slope of a buffer that is
+ *          partly populated and partly zero).
  */
 template<std::size_t N, typename T = float, typename Coef = float>
 class slope
@@ -137,7 +142,12 @@ private:
 
 	static constexpr std::array<Coef, N / 2> coefficients = slope::coefs(std::make_index_sequence<N / 2>());
 
-	std::array<T, N> values_;
+	// Value-initialised so reading any unwritten slot returns a defined T()
+	// rather than indeterminate memory. feed() increments index_ before
+	// writing, so values_[0] is only written on the N-th feed; without this
+	// initialiser the first N-1 calls to value() would touch uninitialised
+	// memory.
+	std::array<T, N> values_{};
 	Coef sampling_frequency_;
 	std::size_t index_ = 0;
 

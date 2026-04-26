@@ -47,7 +47,7 @@
 #include <array>
 #include <cstddef>
 #include <utility>
-#include <math.h>
+#include <cmath>
 
 namespace opsy::utility
 {

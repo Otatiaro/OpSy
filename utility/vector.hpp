@@ -213,8 +213,6 @@ public:
 		return values_[I];
 	}
 
-#if __cplusplus >= 201709L
-
 	/**
 	 * Gets the @c x (first) value in the @c vector
 	 * @return The @c x value
@@ -286,90 +284,6 @@ public:
 	{
 		return values_[3];
 	}
-
-#else
-
-	/**
-	 * Gets the @c x (first) value in the @c vector
-	 * @return The @c x value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr const T& x() const
-	{
-		return values_[0];
-	}
-
-	/**
-	 * Gets the @c x (first) value in the @c vector
-	 * @return The @c x value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr T& x()
-	{
-		return values_[0];
-	}
-
-	/**
-	 * Gets the @c y (second) value in the @c vector
-	 * @return The @c y value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr const T& y() const
-	{
-		return values_[1];
-	}
-
-	/**
-	 * Gets the @c y (second) value in the @c vector
-	 * @return The @c y value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr T& y()
-	{
-		return values_[1];
-	}
-
-	/**
-	 * Gets the @c z (third) value in the @c vector
-	 * @return The @c z value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 3 || S == 4>>
-	constexpr const T& z() const
-	{
-		return values_[2];
-	}
-
-	/**
-	 * Gets the @c z (third) value in the @c vector
-	 * @return The @c z value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 3 || S == 4>>
-	constexpr T& z()
-	{
-		return values_[2];
-	}
-
-	/**
-	 * Gets the @c w (fourth) value in the @c vector
-	 * @return The @c w value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 4>>
-	constexpr const T& w() const
-	{
-		return values_[3];
-	}
-
-	/**
-	 * Gets the @c w (fourth) value in the @c vector
-	 * @return The @c w value
-	 */
-	template<std::size_t S = N, typename = std::enable_if_t<S == 4>>
-	constexpr T& w()
-	{
-		return values_[3];
-	}
-
-#endif
 
 	/**
 	 * Appends a new value to the current @c vector

@@ -1,5 +1,21 @@
 #include "scheduler.hpp"
 
+// Per-function "do not optimize this body" attribute. The exception
+// handlers below are also @c naked (no compiler-emitted prologue or
+// epilogue) so that the inline asm has full control of the stack and
+// the register set; layering an O0 attribute on top is belt-and-suspenders
+// against any later edit accidentally letting the compiler reorder or
+// fold the asm.
+//
+// GCC and Clang spell this differently:
+//   - GCC: __attribute__((optimize("O0")))   (per-function -O0)
+//   - Clang: __attribute__((optnone))        (no per-function optimize attribute)
+#if defined(__clang__)
+#define OPSY_NO_OPT __attribute__((optnone))
+#else
+#define OPSY_NO_OPT __attribute__((optimize("O0")))
+#endif
+
 namespace opsy
 {
 
@@ -376,7 +392,7 @@ void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
  *         a hardware FPU (@c __ARM_FP) so cores without an FPU (Cortex-M3) pay zero clock
  *         cycle for the absent feature.
  */
-void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
+OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
 {
 	asm volatile(
 			"ldr R1, =%[mask]\n\t"
@@ -411,7 +427,7 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			: "r0", "r1", "r2", "r3");
 }
 
-void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_Handler()
+OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.svc"))) SVC_Handler()
 {
 	asm volatile(
 			"tst LR, %[psp_flag] \n\t"

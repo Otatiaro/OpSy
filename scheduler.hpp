@@ -110,9 +110,9 @@ public:
 	/**
 	 * @brief Starts the @c scheduler
 	 * @param idle The @c idle_task to use when the system goes idle. If you don't provide one, the @c scheduler will use a default one that uses @c WFI in a loop
-	 * @return @c true if the @c scheduler started, @c false otherwise (already started)
+	 * @remark Never returns: takes control of the CPU and runs the highest-priority @c task or the idle loop. Trying to start the scheduler twice trips an assert.
 	 */
-	[[noreturn]] static bool start(idle_task_control_block& idle = default_idle<>);
+	[[noreturn]] static void start(idle_task_control_block& idle = default_idle<>);
 
 	/**
 	 * @brief Gets a read only reference to the @c embedded_list of @c task currently active

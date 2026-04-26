@@ -41,8 +41,17 @@ target_compile_options(opsy_sanity PRIVATE
     -Wall -Werror -Wpedantic -Wextra
     -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference
     -Wconversion -Wsign-conversion -Wdouble-promotion
-    -Wlogical-op -Wduplicated-cond -Wduplicated-branches
     -Wno-psabi
     -fno-exceptions -fno-rtti
     -ffunction-sections -fdata-sections
 )
+
+# GCC-only diagnostics. clang does not recognise these flags and would
+# error out on them, so add them only when the compiler is actually GCC.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(opsy_sanity PRIVATE
+        -Wlogical-op
+        -Wduplicated-cond
+        -Wduplicated-branches
+    )
+endif()

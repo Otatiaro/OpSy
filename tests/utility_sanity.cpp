@@ -150,7 +150,12 @@ static_assert(v2.y() == 3.0f);
 struct mock_reg
 {
 	uint32_t v_;
-	static constexpr uint32_t Mask = 0xFFFFFFFFu;
+	// Real generated register-field types expose Mask so the
+	// `T value || atomic` overload of memory.hpp can route through it.
+	// We don't define operator|| on mock_reg, so that path is not
+	// exercised here — keep the member to document the contract and
+	// silence -Wunused-const-variable with [[maybe_unused]].
+	[[maybe_unused]] static constexpr uint32_t Mask = 0xFFFFFFFFu;
 
 	constexpr mock_reg(uint32_t value = 0) : v_{value} {}
 	constexpr uint32_t value() const { return v_; }

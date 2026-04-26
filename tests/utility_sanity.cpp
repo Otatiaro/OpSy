@@ -16,6 +16,7 @@
 
 #include <type_traits>
 
+#include <algorithms/ellipsoid_fit.hpp>
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
 #include <utility/matrix.hpp>
@@ -502,6 +503,57 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 		0.0f, 0.0f, 0.0f, 1.0f, 4.0f
 	};
 	(void) m_sym5.eigenvalues();
+}
+
+// ============================ ellipsoid_fit ==============================
+// Online magnetometer calibration. Compile-only smoke: feed a handful of
+// well-spread samples on a known ellipsoid, run fit(), and apply the
+// returned calibration to a sample. Numerical correctness is checked by
+// the eventual host-side test harness, not here.
+
+[[gnu::used]] void use_ellipsoid_fit()
+{
+	using opsy::algorithms::ellipsoid_fit;
+	using opsy::algorithms::magnetometer_calibration;
+	using opsy::utility::vector;
+
+	// Float instantiation (the on-target one, FPU-friendly).
+	ellipsoid_fit<float> fit_f;
+	const std::array<vector<3, float>, 14> samples_f{{
+		// Six axis directions, then the eight cube corners scaled to the
+		// unit sphere — 14 well-spread points, enough to over-determine
+		// the 9-parameter ellipsoid.
+		{ 1.0f,  0.0f,  0.0f}, {-1.0f,  0.0f,  0.0f},
+		{ 0.0f,  1.0f,  0.0f}, { 0.0f, -1.0f,  0.0f},
+		{ 0.0f,  0.0f,  1.0f}, { 0.0f,  0.0f, -1.0f},
+		{ 0.5774f,  0.5774f,  0.5774f}, {-0.5774f,  0.5774f,  0.5774f},
+		{ 0.5774f, -0.5774f,  0.5774f}, { 0.5774f,  0.5774f, -0.5774f},
+		{-0.5774f, -0.5774f,  0.5774f}, {-0.5774f,  0.5774f, -0.5774f},
+		{ 0.5774f, -0.5774f, -0.5774f}, {-0.5774f, -0.5774f, -0.5774f},
+	}};
+	for (const auto& s : samples_f)
+		fit_f.feed(s);
+	auto cal_f = fit_f.fit();
+	const auto corrected_f = cal_f.correct(samples_f[0]);
+	(void) corrected_f;
+	fit_f.reset();
+
+	// Double instantiation for host-side validation. No FPU on Cortex-M
+	// for double, but we want the template to be valid for both.
+	ellipsoid_fit<double> fit_d;
+	for (const auto& s : samples_f)
+		fit_d.feed(vector<3, double>{
+			static_cast<double>(s.x()),
+			static_cast<double>(s.y()),
+			static_cast<double>(s.z())
+		});
+	(void) fit_d.fit();
+
+	// Calibration trivially copyable (also asserted in the header — this
+	// duplicates the check inside the test TU so a missing include or
+	// reordering can't silently break the contract).
+	static_assert(std::is_trivially_copyable_v<magnetometer_calibration<float>>);
+	static_assert(std::is_trivially_copyable_v<magnetometer_calibration<double>>);
 }
 
 // ============================== quaternion ==============================

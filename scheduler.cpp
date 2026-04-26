@@ -142,13 +142,30 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
 	// into the requested constraint. Relying on the AAPCS register placement
 	// works for both gcc and clang.
 	//
-	// The `nop` is intentional: `task::start()` wires this function's address
-	// (plus 2 bytes — exactly past the nop) as the task's link register, so
-	// when the task entry callable returns naturally we land here on the
-	// `svc`. The +2 offset is the "magic" that makes GDB show a sensible
-	// link return instead of pointing at the start of the function.
+	// The leading `nop` exists for one reason only: when GDB unwinds the
+	// stack of a task that is currently running its entry callable, the
+	// link register saved on entry points at the "return target" of that
+	// implicit call. Without the nop, that target would be the very start
+	// of terminate_task — GDB renders that as "terminate_task at +0",
+	// which looks weird. The nop pushes the actual return target
+	// (i.e. the SVC) one instruction back so the backtrace renders like a
+	// normal call return.
+	//
+	// Rather than computing the address of the SVC as
+	//   reinterpret_cast<uint32_t>(terminate_task) + 2
+	// — which silently breaks if the leading nop is ever emitted as a
+	// 32-bit Thumb-2 instruction, if alignment changes, or if LTO ever
+	// decides to pad the function — we expose its address directly as the
+	// global label `opsy_terminate_task_resume`. `.thumb_func` makes the
+	// linker mark the symbol as a Thumb function, so taking its address
+	// in C++ yields a value with the LSB set, exactly what `bx lr` needs
+	// for interworking. task_control_block::start_impl assigns
+	// frame->lr = &opsy_terminate_task_resume, no offset arithmetic.
 	asm volatile(
-			"nop \n\t"
+			"nop\n\t"
+			".global opsy_terminate_task_resume\n\t"
+			".thumb_func\n\t"
+			"opsy_terminate_task_resume:\n\t"
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (service_call_number::terminate)

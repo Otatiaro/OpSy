@@ -71,6 +71,14 @@ extern "C" void SysTick_Handler();
 extern "C" void PendSV_Handler();
 extern "C" void SVC_Handler();
 
+// Defined inline by the asm body of opsy::scheduler::terminate_task in
+// scheduler.cpp. Points exactly at the SVC instruction that finalizes a
+// task, so frame->lr can target it directly via &opsy_terminate_task_resume
+// without any "+ N bytes past the nop" arithmetic. We never call this
+// function — only take its address — so its signature here is purely a
+// linker-visible declaration; the [[noreturn]] attribute is documentary.
+extern "C" [[noreturn]] void opsy_terminate_task_resume();
+
 namespace opsy
 {
 

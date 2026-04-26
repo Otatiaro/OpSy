@@ -436,8 +436,11 @@ inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_t
  *         default constructor). Sets up the initial stack so the task starts in
  *         @c task_starter, with @c scheduler::terminate_task wired as the link
  *         register so the task terminates cleanly when its entry callback
- *         returns. The +2 offset on @c terminate_task skips the leading @c nop
- *         in its naked body (kept so GDB shows a sensible link return).
+ *         returns. frame->lr points at the global label
+ *         @c opsy_terminate_task_resume, exposed by the inline asm inside
+ *         @c scheduler::terminate_task right before its @c SVC — no fragile
+ *         "+ N" offset past the leading @c nop (which is kept solely so GDB
+ *         renders the link return one instruction before the SVC).
  */
 inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
                                            callback<void(void)>&& entry, const char* name)
@@ -464,7 +467,7 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 
 	frame->psr = 1 << 24;
 	frame->pc = reinterpret_cast<code_pointer>(task_starter);
-	frame->lr = reinterpret_cast<code_pointer>(reinterpret_cast<uint32_t>(scheduler::terminate_task) + 2); // the 2 byte offset is to skip the "nop" instruction at the beginning of terminate task. This is to make GDB happy about the link return ...
+	frame->lr = reinterpret_cast<code_pointer>(&opsy_terminate_task_resume); // address of the SVC instruction inside terminate_task — see the comment on terminate_task in scheduler.cpp for why this avoids a "+ 2" offset
 	frame->r0 = reinterpret_cast<uint32_t>(this);
 
 	stack_pointer_ -= sizeof(context) / sizeof(stack_item);

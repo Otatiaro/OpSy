@@ -240,6 +240,183 @@ public:
 		return result;
 	}
 
+	// ── Determinant (square matrices, sizes 1 to 4) ──────────────────────
+
+	/**
+	 * @brief Returns the determinant of this square matrix.
+	 *
+	 *        Hardcoded for sizes 1 through 4 (the dimensions this header
+	 *        targets). Larger matrices are intentionally not supported yet
+	 *        — a follow-up iteration can plug in cofactor expansion or LU
+	 *        decomposition if the need arises.
+	 */
+	[[gnu::always_inline]] constexpr T determinant() const requires (Rows == Cols)
+	{
+		static_assert(Rows < 5, "determinant only implemented for 1x1 through 4x4 matrices");
+
+		if constexpr (Rows == 1)
+		{
+			return values_[0][0];
+		}
+		else if constexpr (Rows == 2)
+		{
+			return values_[0][0] * values_[1][1] - values_[0][1] * values_[1][0];
+		}
+		else if constexpr (Rows == 3)
+		{
+			const T& a = values_[0][0]; const T& b = values_[0][1]; const T& c = values_[0][2];
+			const T& d = values_[1][0]; const T& e = values_[1][1]; const T& f = values_[1][2];
+			const T& g = values_[2][0]; const T& h = values_[2][1]; const T& i = values_[2][2];
+			return a * (e*i - f*h) - b * (d*i - f*g) + c * (d*h - e*g);
+		}
+		else if constexpr (Rows == 4)
+		{
+			const T& m00 = values_[0][0]; const T& m01 = values_[0][1]; const T& m02 = values_[0][2]; const T& m03 = values_[0][3];
+			const T& m10 = values_[1][0]; const T& m11 = values_[1][1]; const T& m12 = values_[1][2]; const T& m13 = values_[1][3];
+			const T& m20 = values_[2][0]; const T& m21 = values_[2][1]; const T& m22 = values_[2][2]; const T& m23 = values_[2][3];
+			const T& m30 = values_[3][0]; const T& m31 = values_[3][1]; const T& m32 = values_[3][2]; const T& m33 = values_[3][3];
+
+			// 2x2 sub-determinants of rows 2,3 — shared between every cofactor of row 0.
+			const T s01 = m20*m31 - m21*m30;
+			const T s02 = m20*m32 - m22*m30;
+			const T s03 = m20*m33 - m23*m30;
+			const T s12 = m21*m32 - m22*m31;
+			const T s13 = m21*m33 - m23*m31;
+			const T s23 = m22*m33 - m23*m32;
+
+			// Laplace expansion along row 0.
+			return m00 * (m11*s23 - m12*s13 + m13*s12)
+			     - m01 * (m10*s23 - m12*s03 + m13*s02)
+			     + m02 * (m10*s13 - m11*s03 + m13*s01)
+			     - m03 * (m10*s12 - m11*s02 + m12*s01);
+		}
+	}
+
+	// ── Inverse (square matrices, sizes 1 to 4) ──────────────────────────
+
+	/**
+	 * @brief Returns the inverse of this square matrix.
+	 *
+	 *        Computes @c adjugate(M) / @c determinant(M) using the closed
+	 *        form for sizes 1 through 4. The 4x4 path shares the six 2x2
+	 *        sub-determinants of every row pair across the 16 cofactors,
+	 *        which keeps the operation count near 140 mul / 70 add — about
+	 *        half what an unshared expansion would cost.
+	 *
+	 * @pre   The matrix must be invertible — @c determinant() must be
+	 *        non-zero. The result is undefined (NaN / Inf elements) on a
+	 *        singular matrix; callers that may face singular input should
+	 *        check @ref determinant first.
+	 */
+	[[gnu::always_inline]] constexpr matrix inverse() const requires (Rows == Cols)
+	{
+		static_assert(Rows < 5, "inverse only implemented for 1x1 through 4x4 matrices");
+
+		if constexpr (Rows == 1)
+		{
+			return matrix{ T{1} / values_[0][0] };
+		}
+		else if constexpr (Rows == 2)
+		{
+			const T inv_det = T{1} / determinant();
+			return matrix{
+				 values_[1][1] * inv_det, -values_[0][1] * inv_det,
+				-values_[1][0] * inv_det,  values_[0][0] * inv_det
+			};
+		}
+		else if constexpr (Rows == 3)
+		{
+			const T& a = values_[0][0]; const T& b = values_[0][1]; const T& c = values_[0][2];
+			const T& d = values_[1][0]; const T& e = values_[1][1]; const T& f = values_[1][2];
+			const T& g = values_[2][0]; const T& h = values_[2][1]; const T& i = values_[2][2];
+
+			// Cofactors with sign already applied. The inverse layout is
+			// the cofactor matrix transposed (= adjugate) divided by det.
+			const T cof00 = e*i - f*h;
+			const T cof01 = f*g - d*i;
+			const T cof02 = d*h - e*g;
+			const T cof10 = c*h - b*i;
+			const T cof11 = a*i - c*g;
+			const T cof12 = b*g - a*h;
+			const T cof20 = b*f - c*e;
+			const T cof21 = c*d - a*f;
+			const T cof22 = a*e - b*d;
+
+			const T inv_det = T{1} / (a*cof00 + b*cof01 + c*cof02);
+
+			return matrix{
+				cof00 * inv_det, cof10 * inv_det, cof20 * inv_det,
+				cof01 * inv_det, cof11 * inv_det, cof21 * inv_det,
+				cof02 * inv_det, cof12 * inv_det, cof22 * inv_det
+			};
+		}
+		else if constexpr (Rows == 4)
+		{
+			const T& m00 = values_[0][0]; const T& m01 = values_[0][1]; const T& m02 = values_[0][2]; const T& m03 = values_[0][3];
+			const T& m10 = values_[1][0]; const T& m11 = values_[1][1]; const T& m12 = values_[1][2]; const T& m13 = values_[1][3];
+			const T& m20 = values_[2][0]; const T& m21 = values_[2][1]; const T& m22 = values_[2][2]; const T& m23 = values_[2][3];
+			const T& m30 = values_[3][0]; const T& m31 = values_[3][1]; const T& m32 = values_[3][2]; const T& m33 = values_[3][3];
+
+			// 2x2 sub-determinants of rows 2,3 — shared between every cofactor of rows 0 and 1.
+			const T s23_01 = m20*m31 - m21*m30;
+			const T s23_02 = m20*m32 - m22*m30;
+			const T s23_03 = m20*m33 - m23*m30;
+			const T s23_12 = m21*m32 - m22*m31;
+			const T s23_13 = m21*m33 - m23*m31;
+			const T s23_23 = m22*m33 - m23*m32;
+
+			// 2x2 sub-determinants of rows 1,3 — shared between every cofactor of row 2.
+			const T s13_01 = m10*m31 - m11*m30;
+			const T s13_02 = m10*m32 - m12*m30;
+			const T s13_03 = m10*m33 - m13*m30;
+			const T s13_12 = m11*m32 - m12*m31;
+			const T s13_13 = m11*m33 - m13*m31;
+			const T s13_23 = m12*m33 - m13*m32;
+
+			// 2x2 sub-determinants of rows 1,2 — shared between every cofactor of row 3.
+			const T s12_01 = m10*m21 - m11*m20;
+			const T s12_02 = m10*m22 - m12*m20;
+			const T s12_03 = m10*m23 - m13*m20;
+			const T s12_12 = m11*m22 - m12*m21;
+			const T s12_13 = m11*m23 - m13*m21;
+			const T s12_23 = m12*m23 - m13*m22;
+
+			// Adjugate = cofactor matrix transposed. We build the 16 entries
+			// directly in transposed positions so the final result is just
+			// "adj * inv_det".
+			const T adj00 =  (m11*s23_23 - m12*s23_13 + m13*s23_12);
+			const T adj10 = -(m10*s23_23 - m12*s23_03 + m13*s23_02);
+			const T adj20 =  (m10*s23_13 - m11*s23_03 + m13*s23_01);
+			const T adj30 = -(m10*s23_12 - m11*s23_02 + m12*s23_01);
+
+			const T adj01 = -(m01*s23_23 - m02*s23_13 + m03*s23_12);
+			const T adj11 =  (m00*s23_23 - m02*s23_03 + m03*s23_02);
+			const T adj21 = -(m00*s23_13 - m01*s23_03 + m03*s23_01);
+			const T adj31 =  (m00*s23_12 - m01*s23_02 + m02*s23_01);
+
+			const T adj02 =  (m01*s13_23 - m02*s13_13 + m03*s13_12);
+			const T adj12 = -(m00*s13_23 - m02*s13_03 + m03*s13_02);
+			const T adj22 =  (m00*s13_13 - m01*s13_03 + m03*s13_01);
+			const T adj32 = -(m00*s13_12 - m01*s13_02 + m02*s13_01);
+
+			const T adj03 = -(m01*s12_23 - m02*s12_13 + m03*s12_12);
+			const T adj13 =  (m00*s12_23 - m02*s12_03 + m03*s12_02);
+			const T adj23 = -(m00*s12_13 - m01*s12_03 + m03*s12_01);
+			const T adj33 =  (m00*s12_12 - m01*s12_02 + m02*s12_01);
+
+			// det = expansion along row 0 = sum_j m[0][j] * cofactor[0][j].
+			//     The cofactor[0][j] sits at adj[j][0] (because adj = cof^T).
+			const T inv_det = T{1} / (m00*adj00 + m01*adj10 + m02*adj20 + m03*adj30);
+
+			return matrix{
+				adj00 * inv_det, adj01 * inv_det, adj02 * inv_det, adj03 * inv_det,
+				adj10 * inv_det, adj11 * inv_det, adj12 * inv_det, adj13 * inv_det,
+				adj20 * inv_det, adj21 * inv_det, adj22 * inv_det, adj23 * inv_det,
+				adj30 * inv_det, adj31 * inv_det, adj32 * inv_det, adj33 * inv_det
+			};
+		}
+	}
+
 private:
 
 	std::array<std::array<T, Cols>, Rows> values_;

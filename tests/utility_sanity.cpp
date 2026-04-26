@@ -250,6 +250,51 @@ static_assert(v_mv.x() == 6.0f && v_mv.y() == 15.0f);
 constexpr opsy::utility::vector<3> v_arb{1.0f, 2.0f, 3.0f};
 static_assert(i3 * v_arb == v_arb);
 
+// Determinant — closed form for 1x1 .. 4x4.
+static_assert(opsy::utility::matrix<1, 1>{ 7.0f }.determinant() == 7.0f);
+static_assert(m_l.determinant() == -2.0f); // 1*4 - 2*3 = -2
+//   ( 1 2 3 )
+//   ( 0 1 4 )    det = 1*(1*0 - 4*6) - 2*(0*0 - 4*5) + 3*(0*6 - 1*5)
+//   ( 5 6 0 )        = 1*(-24) - 2*(-20) + 3*(-5)
+//                    = -24 + 40 - 15 = 1
+constexpr opsy::utility::matrix<3, 3> m_d3{
+	1.0f, 2.0f, 3.0f,
+	0.0f, 1.0f, 4.0f,
+	5.0f, 6.0f, 0.0f
+};
+static_assert(m_d3.determinant() == 1.0f);
+
+// Identity always has determinant 1.
+static_assert(opsy::utility::identity_matrix<3>().determinant() == 1.0f);
+static_assert(opsy::utility::identity_matrix<4>().determinant() == 1.0f);
+
+// Inverse — closed form for 1x1 .. 4x4.
+//   For a 2x2 with det == 1, inverse(M) * M == opsy::utility::identity_matrix<2>().
+constexpr opsy::utility::matrix<2, 2> m_unit_det{2.0f, 1.0f, 1.0f, 1.0f}; // det = 2-1 = 1
+static_assert(m_unit_det.inverse() == opsy::utility::matrix<2, 2>{1.0f, -1.0f, -1.0f, 2.0f});
+static_assert(m_unit_det.inverse() * m_unit_det == opsy::utility::identity_matrix<2>());
+static_assert(m_unit_det * m_unit_det.inverse() == opsy::utility::identity_matrix<2>());
+
+// 3x3: inverse of identity is identity.
+static_assert(opsy::utility::identity_matrix<3>().inverse() == opsy::utility::identity_matrix<3>());
+
+// 3x3: a known invertible matrix — verify inverse(M) * M == I.
+static_assert(m_d3.inverse() * m_d3 == opsy::utility::identity_matrix<3>());
+
+// 4x4: identity inverse == identity.
+static_assert(opsy::utility::identity_matrix<4>().inverse() == opsy::utility::identity_matrix<4>());
+
+// 4x4: a non-trivial invertible matrix.
+//   Use a triangular matrix with 1s on the diagonal and known det = 1, easy to verify.
+constexpr opsy::utility::matrix<4, 4> m_d4{
+	1.0f, 2.0f, 3.0f, 4.0f,
+	0.0f, 1.0f, 5.0f, 6.0f,
+	0.0f, 0.0f, 1.0f, 7.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+};
+static_assert(m_d4.determinant() == 1.0f);
+static_assert(m_d4.inverse() * m_d4 == opsy::utility::identity_matrix<4>());
+
 [[gnu::used]] void use_matrix()
 {
 	using opsy::utility::matrix;
@@ -260,8 +305,8 @@ static_assert(i3 * v_arb == v_arb);
 		0.0f, 1.0f, 0.0f,
 		0.0f, 0.0f, 1.0f
 	};
-	m += identity_matrix<3>();
-	m -= identity_matrix<3>();
+	m += opsy::utility::identity_matrix<3>();
+	m -= opsy::utility::identity_matrix<3>();
 	m *= 2.0f;
 	m /= 2.0f;
 	(void) m.row(0);

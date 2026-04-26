@@ -45,6 +45,7 @@
 #pragma once
 
 #include <cmath>
+#include <numbers>
 #include <array>
 
 namespace opsy::utility
@@ -72,9 +73,13 @@ class biquad
 public:
 
 	/**
-	 * The Butterworth Q value
+	 * The Butterworth Q value (1/sqrt(2)).
+	 * @remark Uses @c std::numbers::sqrt2_v rather than @c 1.0/std::sqrt(2.0) :
+	 *         @c std::sqrt is constexpr in libstdc++ as a GCC extension but not
+	 *         in libc++ / newlib, so the explicit form fails under clang.
+	 *         @c std::numbers (C++20) gives a portable constexpr.
 	 */
-	static constexpr Coef butterworth_q = static_cast<Coef>(1.0 / std::sqrt(2.0));
+	static constexpr Coef butterworth_q = Coef{1} / std::numbers::sqrt2_v<Coef>;
 
 	/**
 	 * Constructs a @c biquad with the specified characteristics
@@ -160,7 +165,9 @@ private:
 	template<coeff K>
 	constexpr Coef make(const Coef& sampling, const Coef& cut, filter_type type, Coef q)
 	{
-		constexpr Coef pi = static_cast<Coef>(std::acos(-1.0));
+		// std::numbers::pi_v is constexpr by spec on every conforming standard
+		// library; std::acos is only constexpr on libstdc++ as a GCC extension.
+		constexpr Coef pi = std::numbers::pi_v<Coef>;
 		constexpr Coef two = static_cast<Coef>(2);
 
 		auto k = std::tan(pi * cut / sampling);

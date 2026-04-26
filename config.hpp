@@ -131,6 +131,24 @@ constexpr uint32_t opsy_preemption = 1;
  */
 using mutex = priority_mutex;
 
+/**
+ * @brief Trap the running task / system on an unrecoverable internal error.
+ *
+ *        OpSy invokes this from a handful of "this should never happen"
+ *        sites (for example when @c scheduler::start cannot make a first
+ *        context switch). The default uses @c __builtin_trap, which on
+ *        ARM Cortex-M emits a @c BKPT instruction — a debugger halts on
+ *        it, and otherwise the core hard-faults to a known stop.
+ *
+ *        Override by providing your own @c trap() in @c <opsy_config.hpp>
+ *        if you need to flush logs, blink an LED, reset, etc. before
+ *        halting; just make sure your replacement is @c [[noreturn]].
+ */
+[[noreturn]] inline void trap()
+{
+	__builtin_trap();
+}
+
 #endif
 
 /**

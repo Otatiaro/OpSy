@@ -4,7 +4,7 @@
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
- * @brief   Cortex-M (3-4-7) low level features and system peripherals access
+ * @brief   Cortex-M (M3/M4/M7/M33) low level features and system peripherals access
  *			These are mainly for OpSy usage, you should not directly use these
  *			but preferably use OpSy equivalent features.
  *			Especially, do not modify system interrupts configuration
@@ -132,14 +132,16 @@ public:
 
 	/**
 	 * @brief Cortex-M types
-	 * @remark There are many more but only Cortex-M4 and Cortex-M7 are officially supported
+	 * @remark Values are the @c PARTNO field of the @c CPUID register. Only the variants
+	 *         supported by OpSy (M3, M4, M7, M33) are listed.
 	 */
 	enum class core_type
 		: uint16_t
 		{
-			m4 = 0xc24, ///< Cortex-M4
-		m7 = 0xc27, ///< Cortex-M7
-		m33 = 0xd21, ///< Cortex-M33
+			m3 = 0xc23, ///< Cortex-M3 (ARMv7-M, no FPU)
+		m4 = 0xc24, ///< Cortex-M4 (ARMv7E-M)
+		m7 = 0xc27, ///< Cortex-M7 (ARMv7E-M)
+		m33 = 0xd21, ///< Cortex-M33 (ARMv8-M Mainline)
 	};
 
 	/**
@@ -168,8 +170,56 @@ public:
 #endif
 
 	/**
+	 * @brief Bit 4 of @c EXC_RETURN. When @b cleared on exception entry, the hardware pushed
+	 *        the extended (FP) stack frame in addition to the basic frame; when @b set, only
+	 *        the basic frame is on the stack and the FPU was inactive.
+	 */
+	static constexpr uint32_t exc_return_fp_flag = 1u << 4;
+
+	/**
+	 * @brief Bit 3 of @c EXC_RETURN. @b Set = the exception will return to Thread mode;
+	 *        @b cleared = it will return to Handler mode.
+	 */
+	static constexpr uint32_t exc_return_thread_flag = 1u << 3;
+
+	/**
+	 * @brief Bit 2 of @c EXC_RETURN. @b Set = the entry stack pointer was @c PSP (Thread mode
+	 *        was running); @b cleared = it was @c MSP (Handler mode was running).
+	 */
+	static constexpr uint32_t exc_return_psp_flag = 1u << 2;
+
+	/**
+	 * @brief @c EXC_RETURN value used to initialise a fresh task context: return to Thread
+	 *        mode, use @c PSP, basic stack frame (no FP context). Equivalent to
+	 *        @c 0xFFFFFFFD on ARMv7-M / ARMv8-M Mainline.
+	 */
+	static constexpr uint32_t exc_return_thread_psp_basic = 0xFFFFFFFDu;
+
+	/**
+	 * @brief @c CONTROL register value used to initialise a task: privileged Thread mode
+	 *        using @c PSP (@c SPSEL=1, @c nPRIV=0). Equivalent to @c 0b10.
+	 */
+	static constexpr uint32_t control_thread_psp_privileged = 0b10u;
+
+	/**
+	 * @brief Indicates whether the running target has a hardware Floating Point Unit.
+	 *
+	 *        Detected from the toolchain-predefined @c __ARM_FP macro (set by GCC when
+	 *        @c -mfpu / @c -mfloat-abi=hard are used). On cores without an FPU (Cortex-M3),
+	 *        @ref enable_fpu refuses to instantiate and the @c PendSV context-switch path
+	 *        skips FP register save / restore so no clock cycle is spent on an absent feature.
+	 */
+	static constexpr bool has_fpu =
+#if defined(__ARM_FP)
+		true;
+#else
+		false;
+#endif
+
+	/**
 	 * @brief Gets the current executing Cortex-M type
-	 * @return The Cortex-M type (only M4 and M7 implemented in the enumeration)
+	 * @return The Cortex-M type, read from the @c CPUID @c PARTNO field. Returns one of the
+	 *         values listed in @ref core_type if the running core is supported by OpSy.
 	 */
 	static core_type type()
 	{
@@ -703,10 +753,18 @@ public:
 	}
 
 	/**
-	 * @brief Enabled the Floating Point Unit (FPU) on devices which have the FPU coprocessor
+	 * @brief Enables the Floating Point Unit (FPU) on devices which have the FPU coprocessor
+	 * @remark Calling this on a target without an FPU (Cortex-M3 in this codebase) is a
+	 *         compile-time error: the @c CPACR register is reserved on those cores and
+	 *         writing to it is undefined behaviour. The user project is responsible for
+	 *         calling @c enable_fpu only on targets that have one.
+	 * @tparam Enable Defaulted to @ref has_fpu so the compile-time error is reported at the
+	 *         call site, not at the definition site, with a readable message.
 	 */
-	static inline void enable_fpu() __attribute__((always_inline))
+	template<bool Enable = has_fpu>
+	[[gnu::always_inline]] static void enable_fpu()
 	{
+		static_assert(Enable, "enable_fpu() requires a hardware FPU; do not call on cores without one (e.g. Cortex-M3)");
 		memory_register<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
 		data_barrier();
 		instruction_barrier();

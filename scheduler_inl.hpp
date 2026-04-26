@@ -317,9 +317,9 @@ inline void condition_variable::wait(mutex& mtx)
 /**
  * @brief Waits on this condition variable with a timeout
  * @param timeout The time limit; the task wakes up with @c cv_status::timeout if it elapses
- * @return @c std::cv_status::no_timeout if notified in time, @c std::cv_status::timeout otherwise
+ * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline std::cv_status condition_variable::wait_for(duration timeout)
+inline cv_status condition_variable::wait_for(duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
@@ -341,16 +341,16 @@ inline std::cv_status condition_variable::wait_for(duration timeout)
 			: "r0", "r1", "r2", "r3");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
-	return static_cast<std::cv_status>(result);
+	return static_cast<cv_status>(result);
 }
 
 /**
  * @brief Waits on this condition variable with a timeout and a mutex
  * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
  * @param timeout The time limit; the task wakes up with @c cv_status::timeout if it elapses
- * @return @c std::cv_status::no_timeout if notified in time, @c std::cv_status::timeout otherwise
+ * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline std::cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
+inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
@@ -373,15 +373,15 @@ inline std::cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 			: "r0", "r1", "r2", "r3");
 
 	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
-	return static_cast<std::cv_status>(result);
+	return static_cast<cv_status>(result);
 }
 
 /**
  * @brief Waits on this condition variable until an absolute time point
  * @param timeout_time The absolute time at which the wait expires
- * @return @c std::cv_status::no_timeout if notified in time, @c std::cv_status::timeout otherwise
+ * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline std::cv_status condition_variable::wait_until(time_point timeout_time)
+inline cv_status condition_variable::wait_until(time_point timeout_time)
 {
 	return wait_for(timeout_time - scheduler::now());
 }
@@ -390,9 +390,9 @@ inline std::cv_status condition_variable::wait_until(time_point timeout_time)
  * @brief Waits on this condition variable until an absolute time point, with a mutex
  * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
  * @param timeout_time The absolute time at which the wait expires
- * @return @c std::cv_status::no_timeout if notified in time, @c std::cv_status::timeout otherwise
+ * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline std::cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_time)
+inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_time)
 {
 	return wait_for(mtx, timeout_time - scheduler::now());
 }
@@ -435,8 +435,8 @@ inline bool task_control_block::start(callback<void(void)> && entry, const char*
 
 	stack_pointer_ -= sizeof(context) / sizeof(stack_item);
 	const auto ctx = reinterpret_cast<context*>(stack_pointer_);
-	ctx->control = 0b10;
-	ctx->lr = 0xFFFFFFFD;
+	ctx->control = cortex_m::control_thread_psp_privileged;
+	ctx->lr = cortex_m::exc_return_thread_psp_basic;
 
 	scheduler::add_task(*this);
 	return true;

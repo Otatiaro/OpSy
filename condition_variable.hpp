@@ -52,27 +52,22 @@
 #include "cortex_m.hpp"
 //#include "mutex.hpp"
 
-namespace std
+namespace opsy
 {
 
 /**
  * @brief Result of a timed wait operation on a @c condition_variable
- * @remark Equivalent to @c std::cv_status from @c <condition_variable>,
- *         redefined here because @c <condition_variable> is unavailable on
- *         Cortex-M targets (no OS threading support in the C++ runtime).
- *         Defined in @c namespace @c std to remain compatible with standard
- *         call sites and @c std::lock_guard usage.
+ * @remark Mirrors @c cv_status from @c <condition_variable>, but defined
+ *         in @c namespace @c opsy because @c <condition_variable> is unavailable
+ *         on bare-metal Cortex-M (no OS threading support in the C++ runtime)
+ *         and adding new types to @c namespace @c std is undefined behaviour
+ *         per [namespace.std].
  */
 enum class cv_status
 {
 	no_timeout = 0, ///< The condition variable was notified before the timeout
 	timeout    = 1  ///< The timeout elapsed before the condition variable was notified
 };
-
-} // namespace std
-
-namespace opsy
-{
 
 /**
  * @brief A condition variable.
@@ -127,41 +122,41 @@ public:
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and no @c mutex synchronization
-	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c cv_status::timeout result
+	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	std::cv_status wait_for(duration timeout);
+	[[nodiscard]] cv_status wait_for(duration timeout);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
 	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
-	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c cv_status::timeout result
+	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	std::cv_status wait_for(mutex& mtx, duration timeout);
+	[[nodiscard]] cv_status wait_for(mutex& mtx, duration timeout);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
-	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c cv_status::timeout result
+	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
-	std::cv_status wait_until(time_point timeout_time);
+	[[nodiscard]] cv_status wait_until(time_point timeout_time);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
 	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
-	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
-	 * @return @c std::cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c std::cv_status::timeout otherwise
+	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c cv_status::timeout result
+	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
-	std::cv_status wait_until(mutex& mtx, time_point timeout_time);
+	[[nodiscard]] cv_status wait_until(mutex& mtx, time_point timeout_time);
 
 private:
 

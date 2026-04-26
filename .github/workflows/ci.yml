@@ -14,19 +14,32 @@ env:
 
 jobs:
   build:
-    name: Build (cortex-${{ matrix.target }})
+    name: Build (${{ matrix.compiler }} / cortex-${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [m4, m7, m33]
+        compiler: [gcc, clang]
+        target: [m3, m4, m7, m33]
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install ARM toolchain
+      - name: Install GCC ARM toolchain
+        if: matrix.compiler == 'gcc'
         uses: carlosperate/arm-none-eabi-gcc-action@v1
         with:
           release: '14.3.Rel1'
+
+      - name: Install LLVM Embedded Toolchain for Arm
+        if: matrix.compiler == 'clang'
+        run: |
+          version=19.1.5
+          asset=LLVM-ET-Arm-${version}-Linux-x86_64.tar.xz
+          curl -L -o /tmp/${asset} \
+            https://github.com/arm/LLVM-embedded-toolchain-for-Arm/releases/download/release-${version}/${asset}
+          sudo mkdir -p /opt
+          sudo tar -xJf /tmp/${asset} -C /opt
+          echo "/opt/LLVM-ET-Arm-${version}-Linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -36,6 +49,7 @@ jobs:
           cmake -S tests -B build
           -G Ninja
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=${{ matrix.compiler }}
           -DOPSY_TARGET=${{ matrix.target }}
 
       - name: Build

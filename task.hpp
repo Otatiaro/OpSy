@@ -306,8 +306,6 @@ private:
 	condition_variable* waiting_ = nullptr;
 	mutex* mutex_ = nullptr;
 
-	static constexpr uint32_t fp_flag = 0b10000; // if this bit is NOT set in LR at exception, then the stack frame and saved context both use floating point context
-
 	/**
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c task_control_block being started
@@ -321,7 +319,7 @@ private:
 		auto ptr = stack_pointer_;
 		context* ctx = reinterpret_cast<context*>(ptr);
 
-		if ((ctx->lr & fp_flag) == 0) // there is a floating point context
+		if ((ctx->lr & cortex_m::exc_return_fp_flag) == 0) // there is a floating point context
 			ptr += (sizeof(context) + sizeof(fp_context)) / sizeof(stack_item);
 		else
 			ptr += sizeof(context) / sizeof(stack_item);
@@ -392,8 +390,8 @@ public:
 		stack_pointer_ -= sizeof(context) / sizeof(uint32_t);
 		const auto ctx = reinterpret_cast<context*>(stack_pointer_);
 
-		ctx->lr = 0xFFFFFFFD;
-		ctx->control = 0b10;
+		ctx->lr = cortex_m::exc_return_thread_psp_basic;
+		ctx->control = cortex_m::control_thread_psp_privileged;
 	}
 
 private:

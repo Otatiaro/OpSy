@@ -1,5 +1,21 @@
 #include "scheduler.hpp"
 
+// Per-function "do not optimize this body" attribute. The exception
+// handlers below are also @c naked (no compiler-emitted prologue or
+// epilogue) so that the inline asm has full control of the stack and
+// the register set; layering an O0 attribute on top is belt-and-suspenders
+// against any later edit accidentally letting the compiler reorder or
+// fold the asm.
+//
+// GCC and Clang spell this differently:
+//   - GCC: __attribute__((optimize("O0")))   (per-function -O0)
+//   - Clang: __attribute__((optnone))        (no per-function optimize attribute)
+#if defined(__clang__)
+#define OPSY_NO_OPT __attribute__((optnone))
+#else
+#define OPSY_NO_OPT __attribute__((optimize("O0")))
+#endif
+
 namespace opsy
 {
 
@@ -18,7 +34,13 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 
 [[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start(idle_task_control_block& idle)
 {
-	assert((cortex_m::type() == cortex_m::core_type::m4) || (cortex_m::type() == cortex_m::core_type::m7) || (cortex_m::type() == cortex_m::core_type::m33)); // only Cortex-M4, M7 and M33 are officially supported
+	{
+		const auto running = cortex_m::type();
+		assert(running == cortex_m::core_type::m3
+			|| running == cortex_m::core_type::m4
+			|| running == cortex_m::core_type::m7
+			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
+	}
 	assert(!is_started_);
 	is_started_ = true;
 
@@ -46,11 +68,11 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 	});
 
 	cortex_m::set_psp(cortex_m::msp());
-	cortex_m::set_control(0b10);
+	cortex_m::set_control(cortex_m::control_thread_psp_privileged);
 	cortex_m::set_msp(cortex_m::msp_at_reset());
 
 	if(!do_switch())
-		__builtin_trap();
+		opsy::trap();
 	while(true) {} // can not reach
 }
 
@@ -127,7 +149,7 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 
 	condition.remove_waiting(task);
 	task.waiting_ = nullptr;
-	task.set_return_value(static_cast<uint32_t>(std::cv_status::no_timeout)); // set the return value to no timeout
+	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
 
 	if(task.wait_until_.has_value()) // task was also waiting for a timeout
 	{
@@ -331,10 +353,14 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		// wake_up() → set_return_value() navigate to stack_frame::r0 correctly regardless
 		// of whether PendSV has already run.
 		{
-			const bool fpu_active = !(exc_return & task_control_block::fp_flag);
 			auto* sp = reinterpret_cast<task_control_block::stack_item*>(frame)
-					  - sizeof(context) / sizeof(task_control_block::stack_item)
-					  - (fpu_active ? sizeof(fp_context) / sizeof(task_control_block::stack_item) : 0u);
+					  - sizeof(context) / sizeof(task_control_block::stack_item);
+			if constexpr (cortex_m::has_fpu)
+			{
+				const bool fpu_active = !(exc_return & cortex_m::exc_return_fp_flag);
+				if (fpu_active)
+					sp -= sizeof(fp_context) / sizeof(task_control_block::stack_item);
+			}
 			reinterpret_cast<context*>(sp)->lr = exc_return; // pre-populate lr for set_return_value's FPU check
 			current_task_->stack_pointer_ = sp;
 		}
@@ -357,16 +383,27 @@ void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
 	opsy::scheduler::systick_handler();
 }
 
-void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
+/**
+ * @brief @c PendSV handler — ARMv7-M / ARMv8-M Mainline (Cortex-M3 / M4 / M7 / M33).
+ * @remark Uses @c BASEPRI to lock at the service-call priority, Thumb-2 @c stmdb / @c ldmia
+ *         to save and restore @c R4-R11 in a single instruction, and conditionally saves
+ *         the FP callee-saved registers (@c S16-S31) when the running task had the FPU
+ *         active. The FP save/restore block is compiled in only when the toolchain reports
+ *         a hardware FPU (@c __ARM_FP) so cores without an FPU (Cortex-M3) pay zero clock
+ *         cycle for the absent feature.
+ */
+OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
 {
 	asm volatile(
 			"ldr R1, =%[mask]\n\t"
 			"msr BASEPRI, R1 \n\t"
 			"isb \n\t"
 			"mrs R0, PSP \n\t"
-			"tst LR, #16 \n\t"
+#if defined(__ARM_FP)
+			"tst LR, %[fp_flag] \n\t"
 			"it EQ \n\t"
 			"vstmdbeq R0!, {S16-S31} \n\t"
+#endif
 			"mov R2, LR\n\t"
 			"mrs R3, CONTROL\n\t"
 			"stmdb R0!, {R2-R11} \n\t"
@@ -374,26 +411,30 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"ldmia R0!, {R2-R11} \n\t"
 			"mov LR, R2\n\t"
 			"msr CONTROL, R3\n\t"
-			"tst LR, #16 \n\t"
+#if defined(__ARM_FP)
+			"tst LR, %[fp_flag] \n\t"
 			"it EQ \n\t"
 			"vldmiaeq R0!, {S16-S31} \n\t"
+#endif
 			"msr PSP, R0 \n\t"
 			"msr BASEPRI, R1 \n\t"
 			"isb \n\t"
 			"bx LR"
 			:
-			: [handler] "g" (opsy::scheduler::pend_sv_handler), [mask]"I"(opsy::scheduler::service_call_priority.value())
+			: [handler] "g" (opsy::scheduler::pend_sv_handler),
+			  [mask] "I" (opsy::scheduler::service_call_priority.value()),
+			  [fp_flag] "I" (opsy::cortex_m::exc_return_fp_flag)
 			: "r0", "r1", "r2", "r3");
 }
 
-void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_Handler()
+OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.svc"))) SVC_Handler()
 {
 	asm volatile(
-			"tst LR, #0x4 \n\t"
+			"tst LR, %[psp_flag] \n\t"
 			"ite EQ \n\t"
 			"mrseq R0, MSP \n\t"
 			"mrsne R0, PSP \n\t"
-			"tst LR, #0x8 \n\t"
+			"tst LR, %[thread_flag] \n\t"
 			"ite EQ \n\t"
 			"ldreq R2, =0x0 \n\t"
 			"ldrne R2, =0x1 \n\t"
@@ -407,7 +448,9 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.svc"))) SVC_H
 			"pop {LR} \n\t"
 			"bx LR"
 			:
-			:[handler] "g" (opsy::scheduler::service_call_handler)
+			: [handler] "g" (opsy::scheduler::service_call_handler),
+			  [psp_flag] "I" (opsy::cortex_m::exc_return_psp_flag),
+			  [thread_flag] "I" (opsy::cortex_m::exc_return_thread_flag)
 			: "r0", "r1", "r2", "r3");
 }
 }

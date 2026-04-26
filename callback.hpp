@@ -101,12 +101,12 @@ public:
 	 */
 	template<typename Function>
 	Callback(Function&& function) :
-			m_valid(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? ValidDestructor : ValidNoDestructor)
+			valid_(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? ValidDestructor : ValidNoDestructor)
 	{
 		static_assert(sizeof(CallbackImpl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, Callback>, "Do not wrap Callback in a Callback, you probably meant to move it");
 
-		new (&m_storage) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
+		new (&storage_) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
 	}
 
 	Callback(const Callback&) = delete;
@@ -118,11 +118,11 @@ public:
 	 */
     template<std::size_t FromSize>
 	constexpr Callback(Callback<ReturnType(Arguments...), FromSize>&& from) :
-			m_valid(from.m_valid)
+			valid_(from.valid_)
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");        
-        *reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&m_storage) = from.m_storage; // copy only necessary data
-		from.m_valid = Invalid;
+        *reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&storage_) = from.storage_; // copy only necessary data
+		from.valid_ = Invalid;
 	}
 
 	/**
@@ -134,13 +134,13 @@ public:
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
-		if (m_valid == ValidDestructor)
+		if (valid_ == ValidDestructor)
 			std::destroy_at(get());
 
-		m_valid = from.m_valid;
-		if (m_valid != Invalid)
-			*reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&m_storage) = from.m_storage; // copy only necessary data
-		from.m_valid = Invalid;
+		valid_ = from.valid_;
+		if (valid_ != Invalid)
+			*reinterpret_cast<typename Callback<ReturnType(Arguments...), FromSize>::Storage*>(&storage_) = from.storage_; // copy only necessary data
+		from.valid_ = Invalid;
 		return *this;
 	}
 
@@ -154,8 +154,8 @@ public:
 		static_assert(sizeof(CallbackImpl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, Callback>, "Do not wrap Callback in a Callback, you probably meant to move it");
 
-		m_valid = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? ValidDestructor : ValidNoDestructor;
-		new (&m_storage) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
+		valid_ = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? ValidDestructor : ValidNoDestructor;
+		new (&storage_) CallbackImpl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;
 	}
 
@@ -171,12 +171,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(m_valid != Invalid)
+			if(valid_ != Invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(m_valid != Invalid)
+			if(valid_ != Invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -197,12 +197,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(m_valid != Invalid)
+			if(valid_ != Invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(m_valid != Invalid)
+			if(valid_ != Invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -217,12 +217,12 @@ public:
 	 */
 	constexpr operator bool() const
 	{
-		return m_valid != Invalid;
+		return valid_ != Invalid;
 	}
 
 	~Callback()
 	{
-	if (m_valid == ValidDestructor)
+	if (valid_ == ValidDestructor)
 		std::destroy_at(get());
 	}
 
@@ -246,38 +246,38 @@ public:
 	public:
 
 		constexpr explicit CallbackImpl(Function&& func) :
-				m_function(std::forward<Function>(func))
+				function_(std::forward<Function>(func))
 		{
 
 		}
 
 		ReturnType apply(Arguments&&... args) const final
 		{
-			return m_function(std::forward<Arguments>(args)...);
+			return function_(std::forward<Arguments>(args)...);
 		}
 
 		ReturnType apply(Arguments&&... args) final
 		{
-			return m_function(std::forward<Arguments>(args)...);
+			return function_(std::forward<Arguments>(args)...);
 		}
 
 		~CallbackImpl() final = default;
 
 	private:
-		Function m_function;
+		Function function_;
 	};
 
 	constexpr inline ICallback* get()
 	{
-		return reinterpret_cast<ICallback*>(&m_storage);
+		return reinterpret_cast<ICallback*>(&storage_);
 	}
 
 	constexpr inline const ICallback* get() const
 	{
-		return reinterpret_cast<const ICallback*>(&m_storage);
+		return reinterpret_cast<const ICallback*>(&storage_);
 	}
 
-	callback_validity_t m_valid{ Invalid };
-	Storage m_storage{ };
+	callback_validity_t valid_{ Invalid };
+	Storage storage_{ };
 };
 }

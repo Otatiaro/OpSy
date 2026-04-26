@@ -82,7 +82,7 @@ namespace opsy
  */
 inline CriticalSection::~CriticalSection()
 {
-	if (m_valid)
+	if (valid_)
 		Scheduler::criticalSectionEnd();
 }
 
@@ -91,7 +91,7 @@ inline CriticalSection::~CriticalSection()
 /**
  * @brief Takes a lock on this @c Mutex
  *
- * Behavior depends on @c m_priority:
+ * Behavior depends on @c priority_:
  *   - @c std::nullopt : task-only exclusion via a @c CriticalSection.
  *   - value 0         : full lock (@c PRIMASK = 1, all maskable interrupts off).
  *   - value > 0       : interrupt masking via @c BASEPRI up to that priority,
@@ -99,9 +99,9 @@ inline CriticalSection::~CriticalSection()
  */
 inline void PriorityMutex::lock()
 {
-	if (m_priority.has_value())
+	if (priority_.has_value())
 	{
-		if (m_priority.value().value() == 0)
+		if (priority_.value().value() == 0)
 		{
 			assert(!CortexM::isPrimask());
 
@@ -111,22 +111,22 @@ inline void PriorityMutex::lock()
 		else
 		{
 			if (CortexM::ipsr() == 0) // ask for critical section only when in task
-				m_criticalSection = Scheduler::criticalSection();
+				critical_section_ = Scheduler::criticalSection();
 			else
-				assert(CortexM::currentPriority().value().maskedValue<kPreemptionBits>() >= m_priority.value().maskedValue<kPreemptionBits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+				assert(CortexM::currentPriority().value().maskedValue<kPreemptionBits>() >= priority_.value().maskedValue<kPreemptionBits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
-			Hooks::enterPriorityLock(m_priority.value());
-			m_previousLock = CortexM::setBasepri(IsrPriority(m_priority.value().maskedValue<kPreemptionBits>()));
-			assert(m_previousLock.maskedValue<kPreemptionBits>() <= m_priority.value().maskedValue<kPreemptionBits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
+			Hooks::enterPriorityLock(priority_.value());
+			previous_lock_ = CortexM::setBasepri(IsrPriority(priority_.value().maskedValue<kPreemptionBits>()));
+			assert(previous_lock_.maskedValue<kPreemptionBits>() <= priority_.value().maskedValue<kPreemptionBits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
 	else
 	{
 		assert(CortexM::ipsr() == 0); // there is no reason to lock task switch from anything but a task
-		m_criticalSection = Scheduler::criticalSection();
+		critical_section_ = Scheduler::criticalSection();
 	}
 
-	m_locked = true;
+	locked_ = true;
 }
 
 /**
@@ -136,14 +136,14 @@ inline void PriorityMutex::lock()
  */
 inline void PriorityMutex::unlock()
 {
-	if (!m_locked)
+	if (!locked_)
 		return;
 
-	m_locked = false;
+	locked_ = false;
 
-	if (m_priority.has_value())
+	if (priority_.has_value())
 	{
-		if (m_priority.value().value() == 0)
+		if (priority_.value().value() == 0)
 		{
 			assert(CortexM::isPrimask());
 			CortexM::enableInterrupts();
@@ -152,19 +152,19 @@ inline void PriorityMutex::unlock()
 		else
 		{
 #ifndef NDEBUG
-			auto was = CortexM::setBasepri(m_previousLock);
-			assert(was.maskedValue<kPreemptionBits>() == m_priority.value().maskedValue<kPreemptionBits>());
+			auto was = CortexM::setBasepri(previous_lock_);
+			assert(was.maskedValue<kPreemptionBits>() == priority_.value().maskedValue<kPreemptionBits>());
 #else
-			CortexM::setBasepri(m_previousLock);
+			CortexM::setBasepri(previous_lock_);
 #endif
 			Hooks::exitPriorityLock();
-			auto tmp = std::move(m_criticalSection);
+			auto tmp = std::move(critical_section_);
 		}
 	}
 	else
 	{
 		assert(CortexM::ipsr() == 0); // there is no reason to lock task switch from anything but a task
-		auto tmp = std::move(m_criticalSection);
+		auto tmp = std::move(critical_section_);
 	}
 }
 
@@ -179,32 +179,32 @@ inline void PriorityMutex::unlock()
  */
 inline uint32_t PriorityMutex::reLockFromPendSv(CriticalSection section)
 {
-	m_criticalSection = std::move(section); // it is a task, so critical section is mandatory
+	critical_section_ = std::move(section); // it is a task, so critical section is mandatory
 
-	if (m_priority.has_value())
+	if (priority_.has_value())
 	{
-		assert(m_priority.value().value() != 0); // 0 is full mutex, can't be preempted by system
-		m_previousLock = IsrPriority(0);
+		assert(priority_.value().value() != 0); // 0 is full mutex, can't be preempted by system
+		previous_lock_ = IsrPriority(0);
 	}
 
-	m_locked = true;
-	return m_priority.value_or(IsrPriority(0)).maskedValue<kPreemptionBits>();
+	locked_ = true;
+	return priority_.value_or(IsrPriority(0)).maskedValue<kPreemptionBits>();
 }
 
 /**
  * @brief Releases the hardware portion of the lock from a service call
  * @remark Used during @c ConditionVariable::wait to atomically release the
- *         mutex and put the task to sleep. @c m_locked is left untouched on
+ *         mutex and put the task to sleep. @c locked_ is left untouched on
  *         purpose: the task still owns the logical lock and the scheduler
  *         will restore it via @c reLockFromPendSv when the task wakes up.
  */
 inline void PriorityMutex::releaseFromServiceCall()
 {
-	assert(m_locked);
+	assert(locked_);
 
-	if (m_priority.has_value())
+	if (priority_.has_value())
 	{
-		if (m_priority.value().value() == 0)
+		if (priority_.value().value() == 0)
 		{
 			assert(CortexM::isPrimask());
 			CortexM::enableInterrupts();
@@ -212,10 +212,10 @@ inline void PriorityMutex::releaseFromServiceCall()
 		else
 		{
 #ifndef NDEBUG
-			auto was = CortexM::setBasepri(m_previousLock);
-			assert(was.maskedValue<kPreemptionBits>() == m_priority.value().maskedValue<kPreemptionBits>());
+			auto was = CortexM::setBasepri(previous_lock_);
+			assert(was.maskedValue<kPreemptionBits>() == priority_.value().maskedValue<kPreemptionBits>());
 #else
-			CortexM::setBasepri(m_previousLock);
+			CortexM::setBasepri(previous_lock_);
 #endif
 		}
 	}
@@ -225,25 +225,25 @@ inline void PriorityMutex::releaseFromServiceCall()
 
 /**
  * @brief Wakes one waiting task, if any
- * @remark Synchronization is performed by locking @c m_mutex around the
+ * @remark Synchronization is performed by locking @c mutex_ around the
  *         pop+wakeup pair so notifications cannot race with @c wait.
  */
 inline void ConditionVariable::notify_one()
 {
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= CortexM::currentPriority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= CortexM::currentPriority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<Mutex> lock(m_mutex);
+		std::lock_guard<Mutex> lock(mutex_);
 
 		Hooks::conditionVariableNotifyOne(*this);
 
-		if (m_waitingList.empty())
+		if (waiting_list_.empty())
 			return;
 		else
 		{
-			TaskControlBlock& task = m_waitingList.front();
-			m_waitingList.pop_front();
+			TaskControlBlock& task = waiting_list_.front();
+			waiting_list_.pop_front();
 			Scheduler::wakeUp(task, *this);
 		}
 	}
@@ -255,18 +255,18 @@ inline void ConditionVariable::notify_one()
  */
 inline void ConditionVariable::notify_all()
 {
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= CortexM::currentPriority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= CortexM::currentPriority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<Mutex> lock(m_mutex);
+		std::lock_guard<Mutex> lock(mutex_);
 
 		Hooks::conditionVariableNotifyAll(*this);
 
-		while (!m_waitingList.empty())
+		while (!waiting_list_.empty())
 		{
-			TaskControlBlock& task = m_waitingList.front();
-			m_waitingList.pop_front();
+			TaskControlBlock& task = waiting_list_.front();
+			waiting_list_.pop_front();
 			Scheduler::wakeUp(task, *this);
 		}
 	}
@@ -281,7 +281,7 @@ inline void ConditionVariable::notify_all()
 inline void ConditionVariable::wait()
 {
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
@@ -301,7 +301,7 @@ inline void ConditionVariable::wait()
 inline void ConditionVariable::wait(Mutex& mutex)
 {
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
@@ -322,7 +322,7 @@ inline void ConditionVariable::wait(Mutex& mutex)
 inline std::cv_status ConditionVariable::wait_for(duration timeout)
 {
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	const auto count = timeout.count();
 	uint32_t result;
@@ -353,7 +353,7 @@ inline std::cv_status ConditionVariable::wait_for(duration timeout)
 inline std::cv_status ConditionVariable::wait_for(Mutex& mutex, duration timeout)
 {
 	assert(CortexM::ipsr() == 0); // cannot call in interrupt
-	assert(m_mutex.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(Scheduler::kServiceCallPriority).maskedValue<kPreemptionBits>() >= Scheduler::kServiceCallPriority.maskedValue<kPreemptionBits>()); // mutex priority can't be higher than service call
 
 	const auto count = timeout.count();
 	uint32_t result;
@@ -412,29 +412,29 @@ inline std::cv_status ConditionVariable::wait_until(Mutex& mutex, time_point tim
  */
 inline bool TaskControlBlock::start(Callback<void(void)> && entry, const char* name)
 {
-	if(m_active.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
+	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
 		return false;
 
-	m_entry = std::move(entry);
-	m_name = name;
+	entry_ = std::move(entry);
+	name_ = name;
 
 #ifndef NDEBUG
-	std::fill(m_stackBase, m_stackBase + m_stackSize, Dummy);
+	std::fill(stack_base_, stack_base_ + stack_size_, Dummy);
 #endif
 
-	m_stackPointer = &m_stackBase[m_stackSize - 1]; // this pointer is reserved to stop stack trace unwinding
-	m_stackBase[m_stackSize - 1] = 0; // keep this pointer to zero to stop stack trace
+	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
+	stack_base_[stack_size_ - 1] = 0; // keep this pointer to zero to stop stack trace
 
-	m_stackPointer -= sizeof(StackFrame) / sizeof(StackItem);
-	const auto frame = reinterpret_cast<StackFrame*>(m_stackPointer);
+	stack_pointer_ -= sizeof(StackFrame) / sizeof(StackItem);
+	const auto frame = reinterpret_cast<StackFrame*>(stack_pointer_);
 
 	frame->psr = 1 << 24;
 	frame->pc = reinterpret_cast<CodePointer>(taskStarter);
 	frame->lr = reinterpret_cast<CodePointer>(reinterpret_cast<uint32_t>(Scheduler::terminateTask) + 2); // the 2 byte offset is to skip the "nop" instruction at the beginning of terminate task. This is to make GDB happy about the link return ...
 	frame->r0 = reinterpret_cast<uint32_t>(this);
 
-	m_stackPointer -= sizeof(Context) / sizeof(StackItem);
-	const auto context = reinterpret_cast<Context*>(m_stackPointer);
+	stack_pointer_ -= sizeof(Context) / sizeof(StackItem);
+	const auto context = reinterpret_cast<Context*>(stack_pointer_);
 	context->control = 0b10;
 	context->lr = 0xFFFFFFFD;
 
@@ -471,7 +471,7 @@ inline bool TaskControlBlock::stop()
  */
 inline void TaskControlBlock::priority(Priority newPriority)
 {
-	if(newPriority == m_priority)
+	if(newPriority == priority_)
 		return;
 	else
 		Scheduler::updatePriority(*this, newPriority);
@@ -487,7 +487,7 @@ inline void TaskControlBlock::priority(Priority newPriority)
  */
 inline void TaskControlBlock::taskStarter(TaskControlBlock* thisPtr)
 {
-	thisPtr->m_entry();
+	thisPtr->entry_();
 	Scheduler::terminateTask(thisPtr);
 }
 

@@ -74,8 +74,8 @@ class EmbeddedNode
 
 private:
 
-	Item* m_previous = nullptr;
-	Item* m_next = nullptr;
+	Item* previous_ = nullptr;
+	Item* next_ = nullptr;
 };
 
 /**
@@ -127,7 +127,7 @@ public:
 	 * @param ptr The pointer to the @c Item
 	 */
 	constexpr explicit EmbeddedIterator(pointer ptr = nullptr) :
-			m_ptr(ptr)
+			ptr_(ptr)
 	{
 
 	}
@@ -138,7 +138,7 @@ public:
 	 */
 	inline self_type operator++()
 	{
-		return self_type(m_ptr = next());
+		return self_type(ptr_ = next());
 	}
 
 	/**
@@ -147,7 +147,7 @@ public:
 	 */
 	inline self_type operator--()
 	{
-		return self_type(m_ptr = previous());
+		return self_type(ptr_ = previous());
 	}
 
 	/**
@@ -156,7 +156,7 @@ public:
 	 */
 	constexpr inline reference operator*() const
 	{
-		return *m_ptr;
+		return *ptr_;
 	}
 
 	/**
@@ -166,7 +166,7 @@ public:
 	 */
 	constexpr bool operator!=(EmbeddedIterator other) const
 	{
-		return m_ptr != other.m_ptr;
+		return ptr_ != other.ptr_;
 	}
 
 	/**
@@ -176,7 +176,7 @@ public:
 	 */
 	constexpr bool operator==(EmbeddedIterator other) const
 	{
-		return m_ptr == other.m_ptr;
+		return ptr_ == other.ptr_;
 	}
 
 	/**
@@ -185,53 +185,53 @@ public:
 	 */
 	constexpr pointer operator->() const
 	{
-		return m_ptr;
+		return ptr_;
 	}
 
 private:
 
 	inline void reset() const
 	{
-		assert(m_ptr != nullptr);
-		m_ptr->Interface::m_previous = m_ptr->Interface::m_next = nullptr;
+		assert(ptr_ != nullptr);
+		ptr_->Interface::previous_ = ptr_->Interface::next_ = nullptr;
 	}
 
 	inline void next(pointer ptr)
 	{
-		assert(m_ptr != nullptr);
-		m_ptr->Interface::m_next = ptr;
+		assert(ptr_ != nullptr);
+		ptr_->Interface::next_ = ptr;
 	}
 
 	inline void previous(pointer ptr)
 	{
-		assert(m_ptr != nullptr);
-		m_ptr->Interface::m_previous = ptr;
+		assert(ptr_ != nullptr);
+		ptr_->Interface::previous_ = ptr;
 	}
 
 	inline pointer next() const
 	{
-		assert(m_ptr != nullptr);
-		return m_ptr->Interface::m_next;
+		assert(ptr_ != nullptr);
+		return ptr_->Interface::next_;
 	}
 
 	inline pointer previous() const
 	{
-		assert(m_ptr != nullptr);
-		return m_ptr->Interface::m_previous;
+		assert(ptr_ != nullptr);
+		return ptr_->Interface::previous_;
 	}
 
 	bool is_free() const
 	{
-		assert(m_ptr != nullptr);
+		assert(ptr_ != nullptr);
 		return previous() == nullptr && next() == nullptr;
 	}
 
 	Item* ptr()
 	{
-		return m_ptr;
+		return ptr_;
 	}
 
-	Item* m_ptr;
+	Item* ptr_;
 };
 
 /**
@@ -284,7 +284,7 @@ public:
 	 * @param ptr The pointer this @c EmbeddedConstIterator points to
 	 */
 	constexpr explicit EmbeddedConstIterator(pointer ptr = nullptr) :
-			m_ptr(ptr)
+			ptr_(ptr)
 	{
 
 	}
@@ -295,8 +295,8 @@ public:
 	 */
 	inline self_type operator++()
 	{
-		assert(m_ptr != nullptr);
-		return m_ptr = m_ptr->Interface::m_next;
+		assert(ptr_ != nullptr);
+		return ptr_ = ptr_->Interface::next_;
 	}
 
 	/**
@@ -305,8 +305,8 @@ public:
 	 */
 	inline self_type operator--()
 	{
-		assert(m_ptr != nullptr);
-		return self_type(m_ptr = m_ptr->Interface::m_previous);
+		assert(ptr_ != nullptr);
+		return self_type(ptr_ = ptr_->Interface::previous_);
 	}
 
 	/**
@@ -315,8 +315,8 @@ public:
 	 */
 	constexpr reference operator*() const
 	{
-		assert(m_ptr != nullptr);
-		return *m_ptr;
+		assert(ptr_ != nullptr);
+		return *ptr_;
 	}
 
 	/**
@@ -326,7 +326,7 @@ public:
 	 */
 	constexpr bool operator!=(EmbeddedConstIterator other) const
 	{
-		return m_ptr != other.m_ptr;
+		return ptr_ != other.ptr_;
 	}
 
 	/**
@@ -336,7 +336,7 @@ public:
 	 */
 	constexpr bool operator==(EmbeddedConstIterator other) const
 	{
-		return m_ptr == other.m_ptr;
+		return ptr_ == other.ptr_;
 	}
 
 	/**
@@ -345,11 +345,11 @@ public:
 	 */
 	constexpr pointer operator->() const
 	{
-		return m_ptr;
+		return ptr_;
 	}
 
 private:
-	const Item* m_ptr;
+	const Item* ptr_;
 };
 
 /**
@@ -414,10 +414,10 @@ public:
 	 * @param other The other @c EmbeddedList to move data from
 	 */
 	explicit EmbeddedList(EmbeddedList&& other) :
-			m_first(other.m_first), m_size(other.m_size)
+			first_(other.first_), size_(other.size_)
 	{
-		other.m_first = nullptr;
-		other.m_size = 0;
+		other.first_ = nullptr;
+		other.size_ = 0;
 	}
 
 	/**
@@ -427,10 +427,10 @@ public:
 	 */
 	constexpr EmbeddedList& operator=(EmbeddedList&& other)
 	{
-		m_first = other.m_first;
-		m_size = other.m_size;
-		other.m_first = nullptr;
-		other.m_size = 0;
+		first_ = other.first_;
+		size_ = other.size_;
+		other.first_ = nullptr;
+		other.size_ = 0;
 		return *this;
 	}
 
@@ -440,8 +440,8 @@ public:
 	 */
 	constexpr inline bool empty() const
 	{
-		assert((m_first == nullptr) ^ (m_size != 0));
-		return m_first == nullptr;
+		assert((first_ == nullptr) ^ (size_ != 0));
+		return first_ == nullptr;
 	}
 
 	/**
@@ -458,8 +458,8 @@ public:
 			i = next;
 		}
 
-		m_first = nullptr;
-		m_size = 0;
+		first_ = nullptr;
+		size_ = 0;
 	}
 
 	/**
@@ -468,7 +468,7 @@ public:
 	 */
 	constexpr inline iterator begin()
 	{
-		return iterator(m_first);
+		return iterator(first_);
 	}
 
 	/**
@@ -477,7 +477,7 @@ public:
 	 */
 	constexpr const inline const_iterator begin() const
 	{
-		return m_first;
+		return first_;
 	}
 
 	/**
@@ -504,7 +504,7 @@ public:
 	 */
 	constexpr inline const_iterator cbegin() const
 	{
-		return m_first;
+		return first_;
 	}
 
 	/**
@@ -533,7 +533,7 @@ public:
 	 */
 	constexpr bool operator!=(const EmbeddedList& other)
 	{
-		return m_first == nullptr || m_first != other.m_first;
+		return first_ == nullptr || first_ != other.first_;
 	}
 
 	/**
@@ -551,7 +551,7 @@ public:
 	 */
 	constexpr size_type size() const
 	{
-		return m_size;
+		return size_;
 	}
 
 	/**
@@ -562,13 +562,13 @@ public:
 	{
 		assert(iterator(&item).is_free());
 
-		iterator(&item).next(m_first);
+		iterator(&item).next(first_);
 
 		if (!empty())
 			begin().previous(&item);
 
-		m_first = &item;
-		++m_size;
+		first_ = &item;
+		++size_;
 	}
 
 	/**
@@ -577,13 +577,13 @@ public:
 	void pop_front()
 	{
 		assert(!empty());
-		assert(iterator(m_first).previous() == nullptr);
+		assert(iterator(first_).previous() == nullptr);
 
 		auto i = begin();
 
-		m_first = i.next();
+		first_ = i.next();
 		i.reset();
-		--m_size;
+		--size_;
 
 		if (!empty())
 			begin().previous(nullptr);
@@ -597,7 +597,7 @@ public:
 	Item& front()
 	{
 		assert(!empty());
-		return *m_first;
+		return *first_;
 	}
 
 	/**
@@ -616,19 +616,19 @@ public:
 		{
 			if (i.next() == nullptr) // only element or not in the list
 			{
-				if (m_first == i.ptr())
+				if (first_ == i.ptr())
 				{
-					m_first = nullptr;
-					--m_size;
+					first_ = nullptr;
+					--size_;
 				}
 				return end();
 			}
 			else // first but not last element in the list
 			{
-				m_first = i.next();
+				first_ = i.next();
 				i.next(nullptr);
-				iterator(m_first).previous(nullptr);
-				--m_size;
+				iterator(first_).previous(nullptr);
+				--size_;
 				return begin();
 			}
 		}
@@ -639,7 +639,7 @@ public:
 			if (next != nullptr)
 				iterator(next).previous(i.previous()); // stitch other side
 			i.reset();
-			--m_size;
+			--size_;
 			return iterator(next);
 		}
 	}
@@ -656,7 +656,7 @@ public:
 
 		if (empty() || previous.ptr() == nullptr) // list is empty or previous is null (before the list)
 		{
-			push_front(item); // push_front manages m_size itself
+			push_front(item); // push_front manages size_ itself
 			return iterator(&item);
 		}
 
@@ -670,7 +670,7 @@ public:
 		if (next != nullptr)
 			iterator(next).previous(i.ptr());
 
-		++m_size;
+		++size_;
 		return iterator(&item);
 	}
 
@@ -685,7 +685,7 @@ public:
 	template<std::invocable<const_reference, const_reference> Comparator>
 	iterator insertWhen(Comparator&& predicate, Item& item)
 	{
-		if (empty() || predicate(item, *m_first))
+		if (empty() || predicate(item, *first_))
 		{
 			push_front(item);
 			return begin();
@@ -708,8 +708,8 @@ public:
 
 private:
 
-	Item* m_first = nullptr;
-	size_type m_size = 0;
+	Item* first_ = nullptr;
+	size_type size_ = 0;
 
 };
 

@@ -76,7 +76,7 @@ public:
 	 * @remark use @c IsrPriority with value 0 for a full lock (@c PRIMASK = 1)
 	 */
 	constexpr explicit PriorityMutex(std::optional<IsrPriority> priority = std::nullopt) :
-			m_priority(priority)
+			priority_(priority)
 	{
 	}
 
@@ -88,7 +88,7 @@ public:
 	 * @param from The @c Mutex to move data from
 	 */
 	constexpr PriorityMutex(PriorityMutex&& from) :
-			m_locked(from.m_locked), m_previousLock(from.m_previousLock), m_criticalSection(std::move(from.m_criticalSection)), m_priority(from.m_priority)
+			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
 	{
 	}
 
@@ -100,12 +100,12 @@ public:
 	 */
 	PriorityMutex& operator=(PriorityMutex&& from)
 	{
-		assert(!m_locked); // trying to override a locked mutex !
-		m_locked = from.m_locked;
-		m_previousLock = from.m_previousLock;
-		m_criticalSection = std::move(from.m_criticalSection);
-		m_priority = from.m_priority;
-		from.m_locked = false;
+		assert(!locked_); // trying to override a locked mutex !
+		locked_ = from.locked_;
+		previous_lock_ = from.previous_lock_;
+		critical_section_ = std::move(from.critical_section_);
+		priority_ = from.priority_;
+		from.locked_ = false;
 		return *this;
 	}
 
@@ -115,7 +115,7 @@ public:
 	 */
 	constexpr std::optional<IsrPriority> priority() const
 	{
-		return m_priority;
+		return priority_;
 	}
 
 	/**
@@ -143,17 +143,17 @@ private:
 	uint32_t reLockFromPendSv(CriticalSection section);
 
 	/**
-	 * @brief Release the hardware portion of the lock from a service call, leaving @c m_locked untouched
+	 * @brief Release the hardware portion of the lock from a service call, leaving @c locked_ untouched
 	 * @remark Used during @c ConditionVariable::wait so the scheduler can atomically
 	 *         release the mutex and put the task to sleep. Defined inline at the
 	 *         bottom of @c scheduler.hpp.
 	 */
 	void releaseFromServiceCall();
 
-	bool m_locked = false;
-	IsrPriority m_previousLock = IsrPriority(0);
-	CriticalSection m_criticalSection;
-	std::optional<IsrPriority> m_priority;
+	bool locked_ = false;
+	IsrPriority previous_lock_ = IsrPriority(0);
+	CriticalSection critical_section_;
+	std::optional<IsrPriority> priority_;
 };
 
 }

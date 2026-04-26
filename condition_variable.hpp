@@ -91,7 +91,7 @@ public:
 	 * @param priority The @c Mutex priority used for @c notify and @c notify_all
 	 */
 	constexpr explicit ConditionVariable(std::optional<IsrPriority> priority = std::nullopt) :
-			m_mutex(priority)
+			mutex_(priority)
 	{
 
 	}
@@ -165,8 +165,8 @@ public:
 
 private:
 
-	Mutex m_mutex;
-	EmbeddedList<TaskControlBlock, TaskLists::Waiting> m_waitingList;
+	Mutex mutex_;
+	EmbeddedList<TaskControlBlock, TaskLists::Waiting> waiting_list_;
 
 	/**
 	 * @brief Adds a @c TaskControlBlock to the waiting list, ordered by priority
@@ -175,7 +175,7 @@ private:
 	 */
 	void addWaiting(TaskControlBlock& task)
 	{
-		m_waitingList.insertWhen(TaskControlBlock::priorityIsLower, task);
+		waiting_list_.insertWhen(TaskControlBlock::priorityIsLower, task);
 	}
 
 	/**
@@ -185,7 +185,7 @@ private:
 	 */
 	void removeWaiting(TaskControlBlock& task)
 	{
-		m_waitingList.erase(task);
+		waiting_list_.erase(task);
 	}
 };
 }

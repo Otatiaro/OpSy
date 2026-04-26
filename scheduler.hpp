@@ -120,8 +120,8 @@ public:
 	 */
 	static const EmbeddedList<TaskControlBlock, TaskLists::Handle>& allTasks()
 	{
-		assert(s_isStarted);
-		return s_allTasks;
+		assert(is_started_);
+		return all_tasks_;
 	}
 
 	/**
@@ -130,8 +130,8 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(s_isStarted && CortexM::currentPriority().value_or(CortexM::kLowestPriority).value() >= kSystickPriority.value());
-		return s_ticks;
+		assert(is_started_ && CortexM::currentPriority().value_or(CortexM::kLowestPriority).value() >= kSystickPriority.value());
+		return ticks_;
 	}
 
 	/**
@@ -141,12 +141,12 @@ public:
 	 */
 	static inline CriticalSection criticalSection()
 	{
-		if (s_criticalSection) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
+		if (critical_section_) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return CriticalSection(false);
 		else
 		{
 			Hooks::enterCriticalSection();
-			s_criticalSection = true;
+			critical_section_ = true;
 			return CriticalSection(true);
 		}
 	}
@@ -159,26 +159,26 @@ private:
 			Terminate, Sleep, Switch, Wait,
 	};
 
-	static bool s_isStarted;
-	static time_point s_ticks;
-	static EmbeddedList<TaskControlBlock, TaskLists::Handle> s_allTasks;
-	static EmbeddedList<TaskControlBlock, TaskLists::Timeout> s_timeouts;
-	static EmbeddedList<TaskControlBlock, TaskLists::Waiting> s_ready;
-	static bool s_idling;
-	static bool s_mayNeedSwitch;
-	static volatile bool s_criticalSection;
+	static bool is_started_;
+	static time_point ticks_;
+	static EmbeddedList<TaskControlBlock, TaskLists::Handle> all_tasks_;
+	static EmbeddedList<TaskControlBlock, TaskLists::Timeout> timeouts_;
+	static EmbeddedList<TaskControlBlock, TaskLists::Waiting> ready_;
+	static bool idling_;
+	static bool may_need_switch_;
+	static volatile bool critical_section_;
 
-	static IdleTaskControlBlock* s_idle;
-	static TaskControlBlock* s_previousTask;
-	static TaskControlBlock* s_currentTask;
-	static TaskControlBlock* s_nextTask;
+	static IdleTaskControlBlock* idle_;
+	static TaskControlBlock* previous_task_;
+	static TaskControlBlock* current_task_;
+	static TaskControlBlock* next_task_;
 
 	static void addTask(TaskControlBlock& task)
 	{
 		Hooks::taskAdded(task);
-		s_allTasks.push_front(task);
-		s_ready.insertWhen(TaskControlBlock::priorityIsLower, task);
-		if(s_isStarted)
+		all_tasks_.push_front(task);
+		ready_.insertWhen(TaskControlBlock::priorityIsLower, task);
+		if(is_started_)
 			triggerSoftSwitch();
 	}
 
@@ -187,7 +187,7 @@ private:
 	static void triggerSoftSwitch()
 	{
 		auto previous = CortexM::setBasepri(kServiceCallPriority);
-		s_mayNeedSwitch = false;
+		may_need_switch_ = false;
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		doSwitch(); // do the actual switch
 		CortexM::setBasepri(previous); // and restore the basepri to its previous value
@@ -200,8 +200,8 @@ private:
 
 	static constexpr bool wakeupAfter(const TaskControlBlock& left, const TaskControlBlock& right)
 	{
-		assert(left.m_waitUntil.has_value() && right.m_waitUntil.has_value());
-		return left.m_waitUntil.value_or(Startup) < right.m_waitUntil.value_or(Startup);
+		assert(left.wait_until_.has_value() && right.wait_until_.has_value());
+		return left.wait_until_.value_or(Startup) < right.wait_until_.value_or(Startup);
 	}
 
 	static bool doSwitch();
@@ -209,24 +209,24 @@ private:
 	static void __attribute__((always_inline)) SystickHandler()
 	{
 		Hooks::enterSystick();
-		s_ticks+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
+		ticks_+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
 
 		bool dirty = false;
 
 
-		while(!s_timeouts.empty() && s_timeouts.front().m_waitUntil.value() <= s_ticks)
+		while(!timeouts_.empty() && timeouts_.front().wait_until_.value() <= ticks_)
 		{
-			auto& task = s_timeouts.front();
-			s_timeouts.pop_front();
-			task.m_waitUntil = std::nullopt;
+			auto& task = timeouts_.front();
+			timeouts_.pop_front();
+			task.wait_until_ = std::nullopt;
 
-			if(task.m_waiting != nullptr)
+			if(task.waiting_ != nullptr)
 			{
-				task.m_waiting->removeWaiting(task);
+				task.waiting_->removeWaiting(task);
 				task.setReturnValue(static_cast<uint32_t>(std::cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 
-			s_ready.insertWhen(TaskControlBlock::priorityIsLower, task);
+			ready_.insertWhen(TaskControlBlock::priorityIsLower, task);
 			Hooks::taskReady(task);
 			dirty = true;
 		}
@@ -249,10 +249,10 @@ private:
 
 	static void criticalSectionEnd()
 	{
-		assert(s_criticalSection == true); // should be in critical section
-		s_criticalSection = false;
+		assert(critical_section_ == true); // should be in critical section
+		critical_section_ = false;
 		Hooks::exitCriticalSection();
-		if (s_mayNeedSwitch)
+		if (may_need_switch_)
 			triggerSoftSwitch();
 	}
 };

@@ -207,7 +207,7 @@ public:
 	 * @param stackSize The size of the stack, in @c StackItem increment
 	 */
 	constexpr TaskControlBlock(StackItem* stackBase, std::size_t stackSize) :
-			m_stackBase(stackBase), m_stackSize(stackSize)
+			stack_base_(stackBase), stack_size_(stackSize)
 	{
 
 	}
@@ -237,7 +237,7 @@ public:
 	 */
 	bool isStarted() const
 	{
-		return m_active.load(std::memory_order_relaxed);
+		return active_.load(std::memory_order_relaxed);
 	}
 
 	/**
@@ -246,7 +246,7 @@ public:
 	 */
 	constexpr inline Priority priority() const
 	{
-		return m_priority;
+		return priority_;
 	}
 
 	/**
@@ -263,7 +263,7 @@ public:
 	 */
 	constexpr const char* name() const
 	{
-		return m_name;
+		return name_;
 	}
 
 	/**
@@ -272,7 +272,7 @@ public:
 	 */
 	constexpr void setName(const char* name)
 	{
-		m_name = name;
+		name_ = name;
 	}
 
 	/**
@@ -287,24 +287,24 @@ public:
 			return false;
 		if (left.priority() < right.priority())
 			return true;
-		return left.m_lastStarted < right.m_lastStarted;
+		return left.last_started_ < right.last_started_;
 	}
 
 private:
 
 	static constexpr uint32_t Dummy = 0xDEADBEEF;
 
-	StackItem* const m_stackBase;
-	const std::size_t m_stackSize;
-	std::atomic_bool m_active { false };
-	StackItem* m_stackPointer = nullptr;
-	Priority m_priority = Priority::Lowest;
-	time_point m_lastStarted = Startup;
-	std::optional<time_point> m_waitUntil;
-	const char* m_name = nullptr;
-	Callback<void(void)> m_entry;
-	ConditionVariable* m_waiting = nullptr;
-	Mutex* m_mutex = nullptr;
+	StackItem* const stack_base_;
+	const std::size_t stack_size_;
+	std::atomic_bool active_ { false };
+	StackItem* stack_pointer_ = nullptr;
+	Priority priority_ = Priority::Lowest;
+	time_point last_started_ = Startup;
+	std::optional<time_point> wait_until_;
+	const char* name_ = nullptr;
+	Callback<void(void)> entry_;
+	ConditionVariable* waiting_ = nullptr;
+	Mutex* mutex_ = nullptr;
 
 	static constexpr uint32_t kFpFlag = 0b10000; // if this bit is NOT set in LR at exception, then the stack frame and saved context both use floating point context
 
@@ -312,13 +312,13 @@ private:
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c TaskControlBlock being started
 	 * @remark Defined inline in @c scheduler_inl.hpp because it terminates the
-	 *         task via @c Scheduler::terminateTask once @c m_entry returns.
+	 *         task via @c Scheduler::terminateTask once @c entry_ returns.
 	 */
 	static void taskStarter(TaskControlBlock* thisPtr);
 
 	void setReturnValue(uint32_t value)
 	{
-		auto ptr = m_stackPointer;
+		auto ptr = stack_pointer_;
 		Context* context = reinterpret_cast<Context*>(ptr);
 
 		if ((context->lr & kFpFlag) == 0) // there is a floating point context
@@ -339,7 +339,7 @@ private:
  */
 template<std::size_t N>
 struct StackStorage {
-	std::array<uint32_t, N> m_stack{};
+	std::array<uint32_t, N> stack_{};
 };
 
 /**
@@ -358,7 +358,7 @@ public:
 	 */
 	constexpr Task() :
 			StackStorage<StackSize>{},
-			TaskControlBlock(StackStorage<StackSize>::m_stack.data(), StackSize)
+			TaskControlBlock(StackStorage<StackSize>::stack_.data(), StackSize)
 	{
 	}
 
@@ -380,17 +380,17 @@ public:
 	 * @param entry The @c CodePointer to the idle code
 	 */
 	IdleTaskControlBlock(uint32_t* stackBase, std::size_t stackSize, const CodePointer entry) :
-			m_stackBase(stackBase), m_stackPointer(&stackBase[stackSize])
+			stack_base_(stackBase), stack_pointer_(&stackBase[stackSize])
 	{
-		m_stackPointer -= sizeof(StackFrame) / sizeof(uint32_t);
-		const auto frame = reinterpret_cast<StackFrame*>(m_stackPointer);
+		stack_pointer_ -= sizeof(StackFrame) / sizeof(uint32_t);
+		const auto frame = reinterpret_cast<StackFrame*>(stack_pointer_);
 
 		frame->psr = 1 << 24;
 		frame->pc = entry;
 		frame->lr = reinterpret_cast<CodePointer>(reinterpret_cast<uint32_t>(noReturn) + 2);
 
-		m_stackPointer -= sizeof(Context) / sizeof(uint32_t);
-		const auto context = reinterpret_cast<Context*>(m_stackPointer);
+		stack_pointer_ -= sizeof(Context) / sizeof(uint32_t);
+		const auto context = reinterpret_cast<Context*>(stack_pointer_);
 
 		context->lr = 0xFFFFFFFD;
 		context->control = 0b10;
@@ -398,8 +398,8 @@ public:
 
 private:
 
-	uint32_t* const m_stackBase;
-	uint32_t* m_stackPointer;
+	uint32_t* const stack_base_;
+	uint32_t* stack_pointer_;
 
 	static void __attribute__((naked)) noReturn()
 	{
@@ -425,7 +425,7 @@ public:
 	 */
 	constexpr explicit IdleTask(const CodePointer entry) :
 			StackStorage<StackSize>{},
-			IdleTaskControlBlock(StackStorage<StackSize>::m_stack.data(), StackSize, entry)
+			IdleTaskControlBlock(StackStorage<StackSize>::stack_.data(), StackSize, entry)
 	{
 		static_assert(StackSize >= 2* (sizeof(StackFrame) + sizeof(Context)) / sizeof(uint32_t), "Stack too small");
 	}

@@ -73,7 +73,7 @@ public:
 	 * @remark The default value is @c 0xFF which is the lowest priority available in the Cortex-M
 	 */
 	constexpr explicit IsrPriority(uint8_t value = 0xFF) :
-			m_value(value)
+			value_(value)
 	{
 
 	}
@@ -83,7 +83,7 @@ public:
 	 * @param other The other @c IsrPriority
 	 */
 	constexpr IsrPriority(const IsrPriority& other) :
-			m_value(other.m_value)
+			value_(other.value_)
 	{
 	}
 
@@ -94,7 +94,7 @@ public:
 	 */
 	constexpr IsrPriority& operator=(const IsrPriority& other)
 	{
-		m_value = other.m_value;
+		value_ = other.value_;
 		return *this;
 	}
 
@@ -106,7 +106,7 @@ public:
 	template<std::size_t PreemptBits>
 	constexpr uint8_t preempt() const
 	{
-		return m_value >> (kMaxPreemptionBits - PreemptBits);
+		return value_ >> (kMaxPreemptionBits - PreemptBits);
 	}
 
 	/**
@@ -117,7 +117,7 @@ public:
 	template<std::size_t PreemptBits>
 	constexpr uint8_t sub() const
 	{
-		return m_value & ((1 << (kMaxPreemptionBits - PreemptBits)) - 1);
+		return value_ & ((1 << (kMaxPreemptionBits - PreemptBits)) - 1);
 	}
 
 	/**
@@ -127,7 +127,7 @@ public:
 	 */
 	constexpr uint8_t value() const
 	{
-		return m_value;
+		return value_;
 	}
 
 	/**
@@ -143,7 +143,7 @@ public:
 	}
 
 private:
-	uint8_t m_value;
+	uint8_t value_;
 };
 
 }

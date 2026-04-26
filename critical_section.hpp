@@ -65,7 +65,7 @@ public:
 	 * @brief Constructs an invalid @c CriticalSection handle (only @c Scheduler can create valid ones)
 	 */
 	constexpr CriticalSection() :
-			m_valid(false)
+			valid_(false)
 	{
 
 	}
@@ -80,9 +80,9 @@ public:
 	 */
 	constexpr CriticalSection& operator=(CriticalSection&& other)
 	{
-		assert(!m_valid);
-		m_valid = other.m_valid;
-		other.m_valid = false;
+		assert(!valid_);
+		valid_ = other.valid_;
+		other.valid_ = false;
 		return *this;
 	}
 
@@ -91,9 +91,9 @@ public:
 	 * @param other The @c CriticalSection to move data from
 	 */
 	constexpr CriticalSection(CriticalSection&& other) :
-			m_valid(other.m_valid)
+			valid_(other.valid_)
 	{
-		other.m_valid = false;
+		other.valid_ = false;
 	}
 
 	/**
@@ -109,18 +109,18 @@ public:
 private:
 
 	constexpr explicit CriticalSection(bool valid) :
-			m_valid(valid)
+			valid_(valid)
 	{
 
 	}
 
 	constexpr void disable()
 	{
-		assert(m_valid);
-		m_valid = false;
+		assert(valid_);
+		valid_ = false;
 	}
 
-	bool m_valid;
+	bool valid_;
 
 };
 }

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags:     ['v*']
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Build (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: >
+          cmake -S tests -B build
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+  release:
+    name: Release zip
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build archive
+        run: |
+          version="${GITHUB_REF#refs/tags/}"
+          git archive --format=zip --prefix=opsy-${version}/ HEAD -o opsy-${version}.zip
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: opsy-*.zip
+          generate_release_notes: true

@@ -18,10 +18,13 @@ of hours in commercial flight controllers.
 
 ## Supported targets
 
-- Cortex-M3, Cortex-M4, Cortex-M7 (ARMv7-M)
+- Cortex-M4, Cortex-M7 (ARMv7-M)
 - Cortex-M33 (ARMv8-M, with TrustZone disabled / non-secure)
 
-The scheduler asserts at startup that the running core is one of the above.
+All three have an FPU; the `PendSV` context-switch path saves and restores
+the floating-point registers unconditionally, so OpSy currently requires a
+core with VFP. Cortex-M3 (no FPU) is not supported. The scheduler asserts
+at startup that the running core is one of the above.
 
 ## Requirements
 

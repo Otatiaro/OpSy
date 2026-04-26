@@ -100,13 +100,13 @@ uint32_t inline core_clock()
 /**
  * @brief The number of priority bits implemented in the system
  */
-constexpr uint32_t kPriorityBits = __NVIC_PRIO_BITS;
+constexpr uint32_t priority_bits = __NVIC_PRIO_BITS;
 #else
 
 /**
  * @brief The number of priority bits implemented in the system
  */
-constexpr uint32_t kPriorityBits = 4;
+constexpr uint32_t priority_bits = 4;
 
 #endif
 
@@ -118,13 +118,13 @@ using duration = std::chrono::duration<int64_t, std::milli>; // by default the t
 /**
  * @brief The number of preemption bits OpSy will set in the system
  */
-constexpr uint32_t kPreemptionBits = 2;
+constexpr uint32_t preemption_bits = 2;
 
 /**
  * @brief The preemption level OpSy will run at
  * @warning Any interrupt service routine running at priority above or equal to OpSy MUST NOT use any of OpSy features
  */
-constexpr uint32_t kOpsyPreemption = 1;
+constexpr uint32_t opsy_preemption = 1;
 
 /**
  * @brief Defines the concrete implementation of @c mutex used in this project.
@@ -158,10 +158,10 @@ using time_point = opsy_clock::time_point;
 /**
  * @brief The @c time_point used as a reference when the @c scheduler starts
  */
-static constexpr time_point Startup = time_point{ duration{ 0 } };
+static constexpr time_point startup = time_point{ duration{ 0 } };
 
 }
 
-static_assert(opsy::kPreemptionBits<=opsy::kPriorityBits, "Required preemption bits is more than what is available in the system");
-static_assert(opsy::kOpsyPreemption < (1<<opsy::kPreemptionBits), "OpSy preemption level mismatch with requested preemption bits");
+static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption bits is more than what is available in the system");
+static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
 

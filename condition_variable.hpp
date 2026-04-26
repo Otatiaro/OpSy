@@ -166,7 +166,7 @@ public:
 private:
 
 	mutex mutex_;
-	embedded_list<task_control_block, task_lists::Waiting> waiting_list_;
+	embedded_list<task_control_block, task_lists::waiting> waiting_list_;
 
 	/**
 	 * @brief Adds a @c task_control_block to the waiting list, ordered by priority

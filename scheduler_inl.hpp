@@ -113,11 +113,11 @@ inline void priority_mutex::lock()
 			if (cortex_m::ipsr() == 0) // ask for critical section only when in task
 				critical_section_ = scheduler::try_critical_section();
 			else
-				assert(cortex_m::current_priority().value().masked_value<kPreemptionBits>() >= priority_.value().masked_value<kPreemptionBits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+				assert(cortex_m::current_priority().value().masked_value<preemption_bits>() >= priority_.value().masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
 			hooks::enter_priority_lock(priority_.value());
-			previous_lock_ = cortex_m::set_basepri(isr_priority(priority_.value().masked_value<kPreemptionBits>()));
-			assert(previous_lock_.masked_value<kPreemptionBits>() <= priority_.value().masked_value<kPreemptionBits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
+			previous_lock_ = cortex_m::set_basepri(isr_priority(priority_.value().masked_value<preemption_bits>()));
+			assert(previous_lock_.masked_value<preemption_bits>() <= priority_.value().masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
 	else
@@ -153,7 +153,7 @@ inline void priority_mutex::unlock()
 		{
 #ifndef NDEBUG
 			auto was = cortex_m::set_basepri(previous_lock_);
-			assert(was.masked_value<kPreemptionBits>() == priority_.value().masked_value<kPreemptionBits>());
+			assert(was.masked_value<preemption_bits>() == priority_.value().masked_value<preemption_bits>());
 #else
 			cortex_m::set_basepri(previous_lock_);
 #endif
@@ -188,7 +188,7 @@ inline uint32_t priority_mutex::relock_from_pend_sv(critical_section section)
 	}
 
 	locked_ = true;
-	return priority_.value_or(isr_priority(0)).masked_value<kPreemptionBits>();
+	return priority_.value_or(isr_priority(0)).masked_value<preemption_bits>();
 }
 
 /**
@@ -213,7 +213,7 @@ inline void priority_mutex::release_from_service_call()
 		{
 #ifndef NDEBUG
 			auto was = cortex_m::set_basepri(previous_lock_);
-			assert(was.masked_value<kPreemptionBits>() == priority_.value().masked_value<kPreemptionBits>());
+			assert(was.masked_value<preemption_bits>() == priority_.value().masked_value<preemption_bits>());
 #else
 			cortex_m::set_basepri(previous_lock_);
 #endif
@@ -230,8 +230,8 @@ inline void priority_mutex::release_from_service_call()
  */
 inline void condition_variable::notify_one()
 {
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= cortex_m::current_priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
 		std::lock_guard<mutex> lock(mutex_);
@@ -255,8 +255,8 @@ inline void condition_variable::notify_one()
  */
 inline void condition_variable::notify_all()
 {
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= cortex_m::current_priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
 		std::lock_guard<mutex> lock(mutex_);
@@ -281,7 +281,7 @@ inline void condition_variable::notify_all()
 inline void condition_variable::wait()
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
@@ -290,7 +290,7 @@ inline void condition_variable::wait()
 			"mov r3, #0 \n\t"   // no mutex
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (scheduler::service_call_number::Wait), [this_ptr] "r" (this)
+			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this)
 			: "r0", "r1", "r2", "r3");
 }
 
@@ -301,7 +301,7 @@ inline void condition_variable::wait()
 inline void condition_variable::wait(mutex& mtx)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
@@ -310,7 +310,7 @@ inline void condition_variable::wait(mutex& mtx)
 			"mov r3, %[mutex] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (scheduler::service_call_number::Wait), [this_ptr] "r" (this), [mutex] "r" (&mtx)
+			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this), [mutex] "r" (&mtx)
 			: "r0", "r1", "r2", "r3");
 }
 
@@ -322,7 +322,7 @@ inline void condition_variable::wait(mutex& mtx)
 inline std::cv_status condition_variable::wait_for(duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	const auto count = timeout.count();
 	uint32_t result;
@@ -334,7 +334,7 @@ inline std::cv_status condition_variable::wait_for(duration timeout)
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
-			: [immediate] "I" (scheduler::service_call_number::Wait),
+			: [immediate] "I" (scheduler::service_call_number::wait),
 			  [this_ptr] "r" (this),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
@@ -353,7 +353,7 @@ inline std::cv_status condition_variable::wait_for(duration timeout)
 inline std::cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::kServiceCallPriority).masked_value<kPreemptionBits>() >= scheduler::kServiceCallPriority.masked_value<kPreemptionBits>()); // mutex priority can't be higher than service call
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	const auto count = timeout.count();
 	uint32_t result;
@@ -365,7 +365,7 @@ inline std::cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
-			: [immediate] "I" (scheduler::service_call_number::Wait),
+			: [immediate] "I" (scheduler::service_call_number::wait),
 			  [this_ptr] "r" (this),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32)),
@@ -419,7 +419,7 @@ inline bool task_control_block::start(callback<void(void)> && entry, const char*
 	name_ = name;
 
 #ifndef NDEBUG
-	std::fill(stack_base_, stack_base_ + stack_size_, Dummy);
+	std::fill(stack_base_, stack_base_ + stack_size_, dummy_pattern);
 #endif
 
 	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
@@ -445,7 +445,7 @@ inline bool task_control_block::start(callback<void(void)> && entry, const char*
 /**
  * @brief Stops the task immediately
  * @return @c true if the task was running and has been signalled to terminate, @c false if it was already inactive
- * @remark Issues an @c SVC carrying @c service_call_number::Terminate; the actual
+ * @remark Issues an @c SVC carrying @c service_call_number::terminate; the actual
  *         teardown happens in @c scheduler::service_call_handler.
  */
 inline bool task_control_block::stop()
@@ -457,24 +457,24 @@ inline bool task_control_block::stop()
 			"mov r0, %[task] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (scheduler::service_call_number::Terminate), [task] "r" (this)
+			: [immediate] "I" (scheduler::service_call_number::terminate), [task] "r" (this)
 			: "r0");
 	return true;
 }
 
 /**
  * @brief Updates the task priority
- * @param newPriority The new priority value
+ * @param new_priority The new priority value
  * @remark No-op if the priority is unchanged. Otherwise delegates to
  *         @c scheduler::update_priority which may re-order ready/waiting lists
  *         and request a context switch.
  */
-inline void task_control_block::priority(task_priority newPriority)
+inline void task_control_block::priority(task_priority new_priority)
 {
-	if(newPriority == priority_)
+	if(new_priority == priority_)
 		return;
 	else
-		scheduler::update_priority(*this, newPriority);
+		scheduler::update_priority(*this, new_priority);
 }
 
 /**

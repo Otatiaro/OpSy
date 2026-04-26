@@ -53,7 +53,7 @@ public:
 	/**
 	 * @brief The maximum number of preemption priority bits
 	 */
-	static constexpr uint8_t kMaxPreemptionBits = 8;
+	static constexpr uint8_t max_preemption_bits = 8;
 
 	/**
 	 * @brief Constructs the @c isr_priority from preemption priority and sub-priority based on number of preemption bits
@@ -64,7 +64,7 @@ public:
 	template<std::size_t PreemptBits>
 	static constexpr isr_priority from_preempt_sub(uint8_t preempt, uint8_t sub)
 	{
-		return isr_priority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (kMaxPreemptionBits - PreemptBits)) | (sub & (((1u << (kMaxPreemptionBits - PreemptBits)) - 1u)))));
+		return isr_priority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (max_preemption_bits - PreemptBits)) | (sub & (((1u << (max_preemption_bits - PreemptBits)) - 1u)))));
 	}
 
 	/**
@@ -106,7 +106,7 @@ public:
 	template<std::size_t PreemptBits>
 	constexpr uint8_t preempt() const
 	{
-		return value_ >> (kMaxPreemptionBits - PreemptBits);
+		return value_ >> (max_preemption_bits - PreemptBits);
 	}
 
 	/**
@@ -117,7 +117,7 @@ public:
 	template<std::size_t PreemptBits>
 	constexpr uint8_t sub() const
 	{
-		return value_ & ((1 << (kMaxPreemptionBits - PreemptBits)) - 1);
+		return value_ & ((1 << (max_preemption_bits - PreemptBits)) - 1);
 	}
 
 	/**
@@ -138,7 +138,7 @@ public:
 	template<std::size_t PriorityBits>
 	constexpr uint8_t masked_value() const
 	{
-		constexpr uint8_t mask = static_cast<uint8_t>(((1 << PriorityBits) - 1) << (kMaxPreemptionBits - PriorityBits));
+		constexpr uint8_t mask = static_cast<uint8_t>(((1 << PriorityBits) - 1) << (max_preemption_bits - PriorityBits));
 		return value() & mask;
 	}
 

@@ -62,10 +62,10 @@ namespace opsy
 		/**
 		 * @brief Called when the scheduler is starting
 		 * @param idle The idle task
-		 * @param coreClock The core clock
-		 * @param foreachTask A @c callback used to iterate over all @c task
+		 * @param core_clock_value The core clock
+		 * @param foreach_task A @c callback used to iterate over all @c task
 		 */
-		static void starting([[maybe_unused]] idle_task_control_block& idle, [[maybe_unused]] uint32_t coreClock, [[maybe_unused]] callback<void(callback<void(const task_control_block&)>)> foreachTask)
+		static void starting([[maybe_unused]] idle_task_control_block& idle, [[maybe_unused]] uint32_t core_clock_value, [[maybe_unused]] callback<void(callback<void(const task_control_block&)>)> foreach_task)
 		{}
 
 		/**
@@ -88,9 +88,9 @@ namespace opsy
 
 		/**
 		 * @brief Called when exiting Systick handler
-		 * @param taskSwitch @c true if a @c task switch is requested, @c false otherwise
+		 * @param task_switch @c true if a @c task switch is requested, @c false otherwise
 		 */
-		static constexpr void exit_systick([[maybe_unused]] bool taskSwitch)
+		static constexpr void exit_systick([[maybe_unused]] bool task_switch)
 		{}
 
 		/**
@@ -101,9 +101,9 @@ namespace opsy
 
 		/**
 		 * @brief Called when exiting Service Call handler
-		 * @param taskSwitch @c true if a @c task switch is requested, @c false otherwise
+		 * @param task_switch @c true if a @c task switch is requested, @c false otherwise
 		 */
-		static constexpr void exit_service_call([[maybe_unused]] bool taskSwitch)
+		static constexpr void exit_service_call([[maybe_unused]] bool task_switch)
 		{}
 
 		/**
@@ -272,9 +272,9 @@ namespace opsy
 
 		/**
 		 * @brief This is a placeholder that you can use to call code before @c main starts, it is not called by OpSy
-		 * @param coreClock The core clock in hertz
+		 * @param core_clock_value The core clock in hertz
 		 */
-		static constexpr void boot([[maybe_unused]] uint32_t coreClock)
+		static constexpr void boot([[maybe_unused]] uint32_t core_clock_value)
 		{}
 
 		template<void(*Routine)()>

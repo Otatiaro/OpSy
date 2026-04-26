@@ -91,7 +91,7 @@ namespace opsy
  * The maximum value of the @c PRIGROUP register
  * @warning It is the maximum value, not the total number of values, with is this value + 1 (ending up at 8)
  */
-static constexpr std::size_t kPrigroupMax = 7;
+static constexpr std::size_t prigroup_max = 7;
 
 /**
  * @brief Contains all addresses and static methods to access Cortex-M low level features and system peripherals (NVIC, Systick, etc.)
@@ -108,12 +108,12 @@ public:
 	/**
 	 * @brief Number of system interrupt requests in the Cortex-M
 	 */
-	static constexpr uint32_t kSystemIrqs = 16;
+	static constexpr uint32_t system_irqs_count = 16;
 
 	/**
 	 * @brief Alignment of the SCB VTOR register. This alignment is MANDATORY to declare a RAM interrupt vector.
 	 */
-	static constexpr uint32_t kVtorAlignment = 0x200;
+	static constexpr uint32_t vtor_alignment = 0x200;
 
 	/**
 	 * @brief System interrupt requests
@@ -121,13 +121,13 @@ public:
 	enum class system_irq
 		: uint32_t
 		{
-			InitialSp = 0, ///< Value set to MSP at startup (it is not an isr_handler_t but a memory pointer)
-		Reset = 1, ///< First code to be executed at system reset
-		NonMaskableInterrupt = 2, ///< Non maskable interrupt
-		HardFault = 3, ///< Hard Fault
-		ServiceCall = 11, ///< Service Call, used by OpSy for precise calls and automatic interrupt masking
-		PendSV = 14, ///< PendSV, used by OpSy for task switch
-		Systick = 15, ///< Systick, used by OpSy as main clock source
+			initial_sp = 0, ///< Value set to MSP at startup (it is not an isr_handler_t but a memory pointer)
+		reset = 1, ///< First code to be executed at system reset
+		non_maskable_interrupt = 2, ///< Non maskable interrupt
+		hard_fault = 3, ///< Hard Fault
+		service_call = 11, ///< Service Call, used by OpSy for precise calls and automatic interrupt masking
+		pend_sv = 14, ///< PendSV, used by OpSy for task switch
+		systick = 15, ///< Systick, used by OpSy as main clock source
 	};
 
 	/**
@@ -137,21 +137,21 @@ public:
 	enum class core_type
 		: uint16_t
 		{
-			M4 = 0xc24, ///< Cortex-M4
-		M7 = 0xc27, ///< Cortex-M7
-		M33 = 0xd21, ///< Cortex-M33
+			m4 = 0xc24, ///< Cortex-M4
+		m7 = 0xc27, ///< Cortex-M7
+		m33 = 0xd21, ///< Cortex-M33
 	};
 
 	/**
 	 * @brief Lowest priority available in the system
 	 * @remark Still an ISR priority, a task runs at no priority, so an ISR with this priority still preempts tasks
 	 */
-	static constexpr isr_priority kLowestPriority = isr_priority(0xFF);
+	static constexpr isr_priority lowest_priority = isr_priority(0xFF);
 
 	/**
 	 * @brief Highest priority available in the system
 	 */
-	static constexpr isr_priority kHighestPriority = isr_priority(0);
+	static constexpr isr_priority highest_priority = isr_priority(0);
 
 	/**
 	 * @brief Indicates whether the target architecture provides hardware stack-limit registers (MSPLIM / PSPLIM).
@@ -160,7 +160,7 @@ public:
 	 *        Detected at compile time from the toolchain-predefined architecture macro so that
 	 *        callers can use @c if @c constexpr and pay no runtime cost on architectures without the registers.
 	 */
-	static constexpr bool kHasStackLimitRegs =
+	static constexpr bool has_stack_limit_regs =
 #if defined(__ARM_ARCH_8M_MAIN__) || defined(__ARM_ARCH_8M_BASE__)
 		true;
 #else
@@ -183,7 +183,7 @@ public:
 	 */
 	static uint8_t preempt_bits()
 	{
-		return static_cast<uint8_t>(kPrigroupMax + 1u - priority_grouping());
+		return static_cast<uint8_t>(prigroup_max + 1u - priority_grouping());
 	}
 
 	/**
@@ -193,7 +193,7 @@ public:
 	 */
 	static void preempt_bits(uint8_t value)
 	{
-		priority_grouping(static_cast<uint8_t>(kPrigroupMax + 1u - value));
+		priority_grouping(static_cast<uint8_t>(prigroup_max + 1u - value));
 	}
 
 	/**
@@ -325,21 +325,21 @@ public:
 	 * @brief Sets the priority for a system interrupt
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
-	 * @warning Only @c system_irq::NonMaskableInterrupt, @c system_irq::HardFault, @c system_irq::ServiceCall, @c system_irq::PendSV and @c system_irq::Systick are configurable
+	 * @warning Only @c system_irq::non_maskable_interrupt, @c system_irq::hard_fault, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable
 	 */
 	static void set_priority(system_irq irq, isr_priority priority)
 	{
 		switch (irq)
 		{
-		case system_irq::NonMaskableInterrupt:
-		case system_irq::HardFault:
-		case system_irq::ServiceCall:
-		case system_irq::PendSV:
-		case system_irq::Systick:
+		case system_irq::non_maskable_interrupt:
+		case system_irq::hard_fault:
+		case system_irq::service_call:
+		case system_irq::pend_sv:
+		case system_irq::systick:
 			memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
 			break;
-		case system_irq::InitialSp:
-		case system_irq::Reset:
+		case system_irq::initial_sp:
+		case system_irq::reset:
 		default:
 			assert(false);
 			break;
@@ -350,21 +350,21 @@ public:
 	 * @brief Gets the current priority for a system interrupt
 	 * @param irq The interrupt request to get priority for
 	 * @return The current priority
-	 * @warning Only @c system_irq::NonMaskableInterrupt, @c system_irq::HardFault, @c system_irq::ServiceCall, @c system_irq::PendSV and @c system_irq::Systick are configurable
+	 * @warning Only @c system_irq::non_maskable_interrupt, @c system_irq::hard_fault, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable
 	 */
 	static isr_priority priority(system_irq irq)
 	{
 		switch (irq)
 		{
-		case system_irq::NonMaskableInterrupt:
-		case system_irq::HardFault:
-		case system_irq::ServiceCall:
-		case system_irq::PendSV:
-		case system_irq::Systick:
+		case system_irq::non_maskable_interrupt:
+		case system_irq::hard_fault:
+		case system_irq::service_call:
+		case system_irq::pend_sv:
+		case system_irq::systick:
 			return isr_priority(memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
 			break;
-		case system_irq::InitialSp:
-		case system_irq::Reset:
+		case system_irq::initial_sp:
+		case system_irq::reset:
 		default:
 			assert(false);
 			return isr_priority(0);
@@ -376,10 +376,10 @@ public:
 	 * @tparam PreemptBits Number of preemption bits
 	 * @return The minimum (lowest) preemption priority available
 	 */
-	template<std::size_t PreemptBits = kPreemptionBits>
+	template<std::size_t PreemptBits = preemption_bits>
 	static constexpr uint8_t min_sub()
 	{
-		return (1 << (kPrigroupMax + 1 - PreemptBits)) - 1;
+		return (1 << (prigroup_max + 1 - PreemptBits)) - 1;
 	}
 
 	/**
@@ -387,7 +387,7 @@ public:
 	 * @tparam PreemptBits Number of preemption bits
 	 * @return The minimum (lowest) sub-priority available
 	 */
-	template<std::size_t PreemptBits = kPreemptionBits>
+	template<std::size_t PreemptBits = preemption_bits>
 	static constexpr uint8_t min_preempt()
 	{
 		return (1 << PreemptBits) - 1;
@@ -414,15 +414,15 @@ public:
 	/**
 	 * @brief Moves the interrupt handler vector to a new location
 	 * @param new_vtor The new interrupt handler vector
-	 * @param copySize Number of handlers to copy from the previous to the new one
+	 * @param copy_size Number of handlers to copy from the previous to the new one
 	 * @remark It is most preferable to move interrupt handler vector at system startup before any interrupt is active
 	 */
-	static void move_vtor(isr_handler_t* new_vtor, std::size_t copySize = 0)
+	static void move_vtor(isr_handler_t* new_vtor, std::size_t copy_size = 0)
 	{
-		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % kVtorAlignment == 0)); // check vtor is not null and correctly aligned
-		assert(copySize <= MaxIrq + kSystemIrqs);
+		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % vtor_alignment == 0)); // check vtor is not null and correctly aligned
+		assert(copy_size <= MaxIrq + system_irqs_count);
 
-		for (auto i = 0u; i < copySize; ++i)
+		for (auto i = 0u; i < copy_size; ++i)
 			new_vtor[i] = vtor()[i];
 
 		memory_register<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
@@ -437,16 +437,16 @@ public:
 	{
 		switch (irq)
 		{
-		case system_irq::NonMaskableInterrupt:
-		case system_irq::HardFault:
-		case system_irq::ServiceCall:
-		case system_irq::PendSV:
-		case system_irq::Systick:
-		case system_irq::Reset:
+		case system_irq::non_maskable_interrupt:
+		case system_irq::hard_fault:
+		case system_irq::service_call:
+		case system_irq::pend_sv:
+		case system_irq::systick:
+		case system_irq::reset:
 		{
 			return vtor()[static_cast<std::size_t>(irq)];
 		}
-		case system_irq::InitialSp:
+		case system_irq::initial_sp:
 		default:
 			assert(false);
 			return 0;
@@ -461,7 +461,7 @@ public:
 	static isr_handler_t isr_handler(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return vtor()[irq + kSystemIrqs];
+		return vtor()[irq + system_irqs_count];
 	}
 
 	/**
@@ -497,7 +497,7 @@ public:
 	{
 		assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
-			vtor()[irq + kSystemIrqs] = handler;
+			vtor()[irq + system_irqs_count] = handler;
 	}
 
 	/**
@@ -511,10 +511,10 @@ public:
 		if (ipsrValue == 0)
 			return std::nullopt;
 
-		if (ipsrValue < kSystemIrqs)
+		if (ipsrValue < system_irqs_count)
 			return priority(static_cast<system_irq>(ipsrValue));
 		else
-			return priority(ipsrValue - kSystemIrqs);
+			return priority(ipsrValue - system_irqs_count);
 	}
 
 	/**
@@ -579,7 +579,7 @@ public:
 	 */
 	static void set_msplim(uint32_t* limit) __attribute__((always_inline))
 	{
-		if constexpr (kHasStackLimitRegs)
+		if constexpr (has_stack_limit_regs)
 			asm volatile("msr msplim, %0" : : "r"(limit));
 	}
 
@@ -610,7 +610,7 @@ public:
 	 */
 	static void set_psplim(uint32_t* limit) __attribute__((always_inline))
 	{
-		if constexpr (kHasStackLimitRegs)
+		if constexpr (has_stack_limit_regs)
 			asm volatile("msr psplim, %0" : : "r"(limit));
 	}
 
@@ -830,7 +830,7 @@ private:
 	static constexpr uint32_t NvicIrqRegisterMask = (1 << NvicIrqRegisterBits) - 1;
 
 	static constexpr std::size_t AircrPrigroupPos = 8;
-	static constexpr uint32_t AircrPrigroupMsk = kPrigroupMax << AircrPrigroupPos;
+	static constexpr uint32_t AircrPrigroupMsk = prigroup_max << AircrPrigroupPos;
 	static constexpr std::size_t AircrVectkeyPos = 16;
 	static constexpr uint32_t AircrVectkeyMsk = 0xFFFFu << AircrVectkeyPos;
 	static constexpr uint32_t AircrVectkeyValue = 0x5FA << AircrVectkeyPos;
@@ -869,7 +869,7 @@ private:
 
 	static void priority_grouping(uint8_t value)
 	{
-		assert(value <= kPrigroupMax);
+		assert(value <= prigroup_max);
 		memory_register<uint32_t>(AircrAddress).set((memory_register<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
 	}
 };

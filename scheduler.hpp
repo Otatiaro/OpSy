@@ -93,32 +93,32 @@ public:
 	/**
 	 * @brief The Service Call @c isr_priority, it is set to system preemption and most important sub-priority
 	 */
-	static constexpr auto kServiceCallPriority = isr_priority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, 0);
+	static constexpr auto service_call_priority = isr_priority::from_preempt_sub<preemption_bits>(opsy_preemption, 0);
 
 	/**
 	 * @brief The Systick @c isr_priority, it is set to system preemption and least important sub-priority
 	 * @remark Any interrupt service routine with priority above this one, or @c mutex locks that locks higher priority, will NOT be able to use any of OpSy features
 	 */
-	static constexpr auto kSystickPriority = isr_priority::from_preempt_sub<kPreemptionBits>(kOpsyPreemption, cortex_m::min_sub());
+	static constexpr auto systick_priority = isr_priority::from_preempt_sub<preemption_bits>(opsy_preemption, cortex_m::min_sub());
 
 	/**
 	 * @brief The PendSV @c isr_priority, is it set to the minimum preemption and sub-priority possible
 	 * @remark But as soon as it starts, it will lock anything up to the Service Call
 	 */
-	static constexpr auto kPendSvPriority = isr_priority::from_preempt_sub<kPreemptionBits>(cortex_m::min_preempt(), cortex_m::min_sub());
+	static constexpr auto pend_sv_priority = isr_priority::from_preempt_sub<preemption_bits>(cortex_m::min_preempt(), cortex_m::min_sub());
 
 	/**
 	 * @brief Starts the @c scheduler
 	 * @param idle The @c idle_task to use when the system goes idle. If you don't provide one, the @c scheduler will use a default one that uses @c WFI in a loop
 	 * @return @c true if the @c scheduler started, @c false otherwise (already started)
 	 */
-	[[noreturn]] static bool start(idle_task_control_block& idle = DefaultIdle<>);
+	[[noreturn]] static bool start(idle_task_control_block& idle = default_idle<>);
 
 	/**
 	 * @brief Gets a read only reference to the @c embedded_list of @c task currently active
 	 * @return A read only reference to the @c embedded_list of @c task currently active
 	 */
-	static const embedded_list<task_control_block, task_lists::Handle>& all_tasks()
+	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
 		assert(is_started_);
 		return all_tasks_;
@@ -130,7 +130,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(is_started_ && cortex_m::current_priority().value_or(cortex_m::kLowestPriority).value() >= kSystickPriority.value());
+		assert(is_started_ && cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 		return ticks_;
 	}
 
@@ -156,14 +156,14 @@ private:
 	enum class service_call_number
 		: uint8_t
 		{
-			Terminate, Sleep, Switch, Wait,
+			terminate, sleep, context_switch, wait,
 	};
 
 	static bool is_started_;
 	static time_point ticks_;
-	static embedded_list<task_control_block, task_lists::Handle> all_tasks_;
-	static embedded_list<task_control_block, task_lists::Timeout> timeouts_;
-	static embedded_list<task_control_block, task_lists::Waiting> ready_;
+	static embedded_list<task_control_block, task_lists::handle> all_tasks_;
+	static embedded_list<task_control_block, task_lists::timeout> timeouts_;
+	static embedded_list<task_control_block, task_lists::waiting> ready_;
 	static bool idling_;
 	static bool may_need_switch_;
 	static volatile bool critical_section_;
@@ -186,7 +186,7 @@ private:
 
 	static void trigger_soft_switch()
 	{
-		auto previous = cortex_m::set_basepri(kServiceCallPriority);
+		auto previous = cortex_m::set_basepri(service_call_priority);
 		may_need_switch_ = false;
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
@@ -195,13 +195,13 @@ private:
 
 	static __attribute__((always_inline)) void trigger_hard_switch()
 	{
-		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::Switch));
+		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::context_switch));
 	}
 
 	static constexpr bool wakeup_after(const task_control_block& left, const task_control_block& right)
 	{
 		assert(left.wait_until_.has_value() && right.wait_until_.has_value());
-		return left.wait_until_.value_or(Startup) < right.wait_until_.value_or(Startup);
+		return left.wait_until_.value_or(startup) < right.wait_until_.value_or(startup);
 	}
 
 	static bool do_switch();
@@ -238,9 +238,9 @@ private:
 	}
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
-	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool isThread, uint32_t excReturn);
+	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
 	static void wake_up(task_control_block& task, condition_variable& initiator);
-	static void update_priority(task_control_block& task, task_priority newPriority);
+	static void update_priority(task_control_block& task, task_priority new_priority);
 
 	static void update_name(task_control_block& task)
 	{

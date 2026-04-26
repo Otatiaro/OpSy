@@ -64,28 +64,28 @@ namespace opsy
 enum class task_priority
 	: uint8_t
 	{
-		Lowest = 0xFF, ///< Lowest priority
-	Low = 0x40,  ///< Low priority
-	Normal = 0x80, ///< Normal priority
-	High = 0xC0,  ///< High priority
-	Highest = 0x0, ///< Highest priority
+		lowest = 0xFF, ///< Lowest priority
+	low = 0x40,  ///< Low priority
+	normal = 0x80, ///< Normal priority
+	high = 0xC0,  ///< High priority
+	highest = 0x0, ///< Highest priority
 };
 
 class task_control_block;
 
 namespace task_lists
 {
-class Timeout: public embedded_node<task_control_block>
+class timeout: public embedded_node<task_control_block>
 {
 
 };
 
-class Handle: public embedded_node<task_control_block>
+class handle: public embedded_node<task_control_block>
 {
 
 };
 
-class Waiting: public embedded_node<task_control_block>
+class waiting: public embedded_node<task_control_block>
 {
 
 };
@@ -185,7 +185,7 @@ class condition_variable;
  * @brief A @c task control block, that contains all the necessary data to manipulate it
  * @remark You should normally not manipulate this type, only create and manipulate @c task which inherit from @c task_control_block
  */
-class task_control_block: private task_lists::Timeout, private task_lists::Waiting, private task_lists::Handle
+class task_control_block: private task_lists::timeout, private task_lists::waiting, private task_lists::handle
 {
 	template<typename T, typename I>
 	friend class embedded_iterator;
@@ -202,12 +202,12 @@ public:
 	using stack_item = uint32_t;
 
 	/**
-	 * @brief Constructs a @c task_control_block giving it a stack memory area through @p stackBase and @p stackSize
-	 * @param stackBase The pointer to the base of the stack
-	 * @param stackSize The size of the stack, in @c stack_item increment
+	 * @brief Constructs a @c task_control_block giving it a stack memory area through @p stack_base and @p stack_size
+	 * @param stack_base The pointer to the base of the stack
+	 * @param stack_size The size of the stack, in @c stack_item increment
 	 */
-	constexpr task_control_block(stack_item* stackBase, std::size_t stackSize) :
-			stack_base_(stackBase), stack_size_(stackSize)
+	constexpr task_control_block(stack_item* stack_base, std::size_t stack_size) :
+			stack_base_(stack_base), stack_size_(stack_size)
 	{
 
 	}
@@ -251,11 +251,11 @@ public:
 
 	/**
 	 * @brief Dynamically change the @c task_priority of the @c task_control_block
-	 * @param newPriority the new @c task_priority
+	 * @param new_priority the new @c task_priority
 	 * @remark This may trigger a @c task_control_block switch from the system to make sure the most important @c task_control_block is always executed
 	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c scheduler::update_priority).
 	 */
-	void priority(task_priority newPriority);
+	void priority(task_priority new_priority);
 
 	/**
 	 * @brief Gets the current name of the @c task_control_block
@@ -292,21 +292,21 @@ public:
 
 private:
 
-	static constexpr uint32_t Dummy = 0xDEADBEEF;
+	static constexpr uint32_t dummy_pattern = 0xDEADBEEF;
 
 	stack_item* const stack_base_;
 	const std::size_t stack_size_;
 	std::atomic_bool active_ { false };
 	stack_item* stack_pointer_ = nullptr;
-	task_priority priority_ = task_priority::Lowest;
-	time_point last_started_ = Startup;
+	task_priority priority_ = task_priority::lowest;
+	time_point last_started_ = startup;
 	std::optional<time_point> wait_until_;
 	const char* name_ = nullptr;
 	callback<void(void)> entry_;
 	condition_variable* waiting_ = nullptr;
 	mutex* mutex_ = nullptr;
 
-	static constexpr uint32_t kFpFlag = 0b10000; // if this bit is NOT set in LR at exception, then the stack frame and saved context both use floating point context
+	static constexpr uint32_t fp_flag = 0b10000; // if this bit is NOT set in LR at exception, then the stack frame and saved context both use floating point context
 
 	/**
 	 * @brief Trampoline used as the initial PC of every task
@@ -321,7 +321,7 @@ private:
 		auto ptr = stack_pointer_;
 		context* ctx = reinterpret_cast<context*>(ptr);
 
-		if ((ctx->lr & kFpFlag) == 0) // there is a floating point context
+		if ((ctx->lr & fp_flag) == 0) // there is a floating point context
 			ptr += (sizeof(context) + sizeof(fp_context)) / sizeof(stack_item);
 		else
 			ptr += sizeof(context) / sizeof(stack_item);
@@ -374,13 +374,13 @@ class idle_task_control_block
 public:
 
 	/**
-	 * @brief Constructs a @c idle_task_control_block giving it a stack memory area through @p stackBase and @p stackSize
-	 * @param stackBase The pointer to the base of the stack
-	 * @param stackSize The size of the stack, in @c stack_item increment
+	 * @brief Constructs a @c idle_task_control_block giving it a stack memory area through @p stack_base and @p stack_size
+	 * @param stack_base The pointer to the base of the stack
+	 * @param stack_size The size of the stack, in @c stack_item increment
 	 * @param entry The @c code_pointer to the idle code
 	 */
-	idle_task_control_block(uint32_t* stackBase, std::size_t stackSize, const code_pointer entry) :
-			stack_base_(stackBase), stack_pointer_(&stackBase[stackSize])
+	idle_task_control_block(uint32_t* stack_base, std::size_t stack_size, const code_pointer entry) :
+			stack_base_(stack_base), stack_pointer_(&stack_base[stack_size])
 	{
 		stack_pointer_ -= sizeof(stack_frame) / sizeof(uint32_t);
 		const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
@@ -437,7 +437,7 @@ public:
  * @tparam StackSize The stack size in @c stack_item increment, 64 is enough for this default implementation
  */
 template<std::size_t StackSize = 64>
-idle_task<StackSize> DefaultIdle = idle_task<StackSize>([]()
+idle_task<StackSize> default_idle = idle_task<StackSize>([]()
 {
 	while(true)
 	{

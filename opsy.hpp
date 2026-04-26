@@ -61,7 +61,7 @@ void inline sleep_for(duration t)
 			"mov r1, %[count_hi] \n\t"
 			"svc %[immediate]"
 			:
-			: [immediate] "I" (scheduler::service_call_number::Sleep),
+			: [immediate] "I" (scheduler::service_call_number::sleep),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
 			: "r0", "r1");

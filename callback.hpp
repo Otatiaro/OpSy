@@ -59,17 +59,17 @@ namespace opsy
 /**
  * Defines the default storage size for callback data
  */
-static constexpr std::size_t kDefaultCallbackStorageSize = 3;
+static constexpr std::size_t default_callback_storage_size = 3;
 
 /**
  * @brief The base definition of a @c callback, which will be specialized by @c callback<ReturnType(Arguments...), StorageSize> for concrete implementation
  */
-template<typename, std::size_t StorageSize = kDefaultCallbackStorageSize>
+template<typename, std::size_t StorageSize = default_callback_storage_size>
 class callback;
 
 enum callback_validity_t
 {
-	Invalid = 0, ValidNoDestructor, ValidDestructor,
+	invalid = 0, valid_no_destructor, valid_destructor,
 };
 
 /**
@@ -101,7 +101,7 @@ public:
 	 */
 	template<typename Function>
 	callback(Function&& function) :
-			valid_(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? ValidDestructor : ValidNoDestructor)
+			valid_(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? valid_destructor : valid_no_destructor)
 	{
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
@@ -122,7 +122,7 @@ public:
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");        
         *reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = Invalid;
+		from.valid_ = invalid;
 	}
 
 	/**
@@ -134,13 +134,13 @@ public:
 	{
         static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
-		if (valid_ == ValidDestructor)
+		if (valid_ == valid_destructor)
 			std::destroy_at(get());
 
 		valid_ = from.valid_;
-		if (valid_ != Invalid)
+		if (valid_ != invalid)
 			*reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = Invalid;
+		from.valid_ = invalid;
 		return *this;
 	}
 
@@ -154,7 +154,7 @@ public:
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
 
-		valid_ = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? ValidDestructor : ValidNoDestructor;
+		valid_ = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? valid_destructor : valid_no_destructor;
 		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;
 	}
@@ -171,12 +171,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(valid_ != Invalid)
+			if(valid_ != invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(valid_ != Invalid)
+			if(valid_ != invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -197,12 +197,12 @@ public:
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(valid_ != Invalid)
+			if(valid_ != invalid)
 			get()->apply(std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(valid_ != Invalid)
+			if(valid_ != invalid)
 			return std::optional<ReturnType>
 			{	get()->apply(std::forward<Args>(args)...)};
 			else
@@ -217,12 +217,12 @@ public:
 	 */
 	constexpr operator bool() const
 	{
-		return valid_ != Invalid;
+		return valid_ != invalid;
 	}
 
 	~callback()
 	{
-	if (valid_ == ValidDestructor)
+	if (valid_ == valid_destructor)
 		std::destroy_at(get());
 	}
 
@@ -277,7 +277,7 @@ public:
 		return reinterpret_cast<const i_callback*>(&storage_);
 	}
 
-	callback_validity_t valid_{ Invalid };
+	callback_validity_t valid_{ invalid };
 	storage storage_{ };
 };
 }

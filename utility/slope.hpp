@@ -105,6 +105,36 @@ private:
 	static constexpr Coef twelve = static_cast<Coef>(12);
 	static constexpr Coef six = static_cast<Coef>(6);
 	static constexpr Coef denominator = (N * (N * N - 1));
+
+	/**
+	 * Calculate the i-th coefficient for the slope filter
+	 * @param index The index of the coefficient
+	 * @return The value of the i-th coefficient
+	 */
+	static constexpr Coef coef(std::size_t index)
+	{
+		return (six * (N - 1) - twelve * static_cast<Coef>(index)) / denominator;
+	}
+
+	/**
+	 * Creates the list of coefficients for the slope filter
+	 * @param An index sequence
+	 * @return The array containing the slope filter coefficients
+	 * @remark Declared before @c coefficients so clang's two-phase name
+	 *         lookup resolves the call in @c coefficients's initializer.
+	 *         GCC was lenient enough to accept the call site preceding
+	 *         the declaration, but [basic.scope.class] requires the
+	 *         in-class member to be declared first.
+	 */
+	template<std::size_t ... Is>
+	static constexpr auto coefs(std::index_sequence<Is...>) -> std::array<Coef, sizeof...(Is)>
+	{
+		return
+		{
+			{	coef(Is)...}};
+
+	}
+
 	static constexpr std::array<Coef, N / 2> coefficients = slope::coefs(std::make_index_sequence<N / 2>());
 
 	std::array<T, N> values_;
@@ -130,30 +160,6 @@ private:
 	{
 		const auto tmp = index_ + offset + 1;
 		return values_[tmp < N ? tmp : tmp - N];
-	}
-
-	/**
-	 * Calculate the i-th coefficient for the slope filter
-	 * @param index The index of the coefficient
-	 * @return The value of the i-th coefficient
-	 */
-	static constexpr Coef coef(std::size_t index)
-	{
-		return (six * (N - 1) - twelve * static_cast<Coef>(index)) / denominator;
-	}
-
-	/**
-	 * Creates the list of coefficients for the slope filter
-	 * @param An index sequence
-	 * @return The array containing the slope filter coefficients
-	 */
-	template<std::size_t ... Is>
-	static constexpr auto coefs(std::index_sequence<Is...>) -> std::array<Coef, sizeof...(Is)>
-	{
-		return
-		{
-			{	coef(Is)...}};
-
 	}
 
 };

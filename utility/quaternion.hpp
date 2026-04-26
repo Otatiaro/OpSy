@@ -60,6 +60,7 @@
 #pragma once
 
 #include <cmath>
+#include <numbers>
 
 #include "vector.hpp"
 
@@ -98,6 +99,71 @@ public:
 	 */
 	explicit constexpr quaternion(const vector<4, T>& v) : v_{ v } {}
 
+	/**
+	 * @brief Build a unit quaternion from a rotation vector.
+	 *
+	 *        The rotation vector encodes a rotation as @c axis @c * @c
+	 *        angle : direction = unit rotation axis, length = angle in
+	 *        radians. A zero-length input maps to the identity rotation
+	 *        (no NaN). This is the continuous form used by gyroscope
+	 *        integrators.
+	 *
+	 * @remark Explicit on purpose: a @c vector<3> can hold anything (a
+	 *         position, a velocity, ...) and treating it as a rotation is
+	 *         an opt-in, not a free conversion.
+	 */
+	explicit quaternion(const vector<3, T>& rotation_vector)
+	{
+		const auto angle = rotation_vector.length();
+		if (angle == T{0})
+		{
+			v_ = vector<4, T>{ T{}, T{}, T{}, T{1} };  // identity, no division by zero
+			return;
+		}
+		const auto half = angle / T{2};
+		const auto s    = std::sin(half) / angle;      // sin(angle/2) / angle scales the rotation vector to the imaginary part
+		v_ = vector<4, T>{
+			rotation_vector.x() * s,
+			rotation_vector.y() * s,
+			rotation_vector.z() * s,
+			std::cos(half)
+		};
+	}
+
+	/**
+	 * @brief Build the shortest-arc rotation that takes @p from to @p to.
+	 *
+	 *        Both inputs must be unit-length. The result rotates @p from
+	 *        onto @p to along the great-circle arc between them. The
+	 *        antiparallel case ( @p from @c == @c -@p to , so the rotation
+	 *        is 180° but the axis is undetermined) is handled by picking
+	 *        any axis perpendicular to @p from .
+	 *
+	 *        Math: with @c r @c = @c 1 @c + @c dot(from, @c to) and @c v
+	 *        @c = @c cross(from, @c to), the unnormalised quaternion @c
+	 *        (v.x, @c v.y, @c v.z, @c r) is the half-angle form. After
+	 *        normalisation, @c xyz @c = @c sin(theta/2) @c * @c axis and
+	 *        @c w @c = @c cos(theta/2) .
+	 *
+	 * @pre   @p from and @p to must be unit-length.
+	 */
+	quaternion(const vector<3, T>& from, const vector<3, T>& to)
+	{
+		const T r = dot_product(from, to) + T{1};
+		if (r < static_cast<T>(1e-6))  // antiparallel: pick any axis perpendicular to from
+		{
+			vector<3, T> perp = (std::abs(from.x()) > std::abs(from.z()))
+				? vector<3, T>{ -from.y(),  from.x(), T{0}     }
+				: vector<3, T>{  T{0},     -from.z(), from.y() };
+			perp.normalize();
+			v_ = vector<4, T>{ perp.x(), perp.y(), perp.z(), T{0} };  // 180° rotation, already unit length
+			return;
+		}
+		const auto v = cross_product(from, to);
+		v_ = vector<4, T>{ v.x(), v.y(), v.z(), r };
+		v_.normalize();
+	}
+
 	// ── Component accessors ──────────────────────────────────────────────
 	constexpr const T& x() const { return v_.x(); }
 	constexpr       T& x()       { return v_.x(); }
@@ -116,6 +182,40 @@ public:
 	constexpr T          length()     const { return v_.length(); }
 	constexpr quaternion normalized() const { return quaternion(v_.normalized()); }
 	constexpr void       normalize()        { v_.normalize(); }
+
+	// ── Euler angle extraction (Tait-Bryan ZYX) ──────────────────────────
+	//
+	// Roll = rotation around X (last applied), pitch = around Y, yaw =
+	// around Z (first applied) in an aerospace ZYX convention. The
+	// inverse, building a quaternion from Euler angles, is intentionally
+	// not provided here: there are too many possible conventions and the
+	// caller is better off composing two @ref from_axis_angle products.
+
+	/** Roll (rotation around the X axis), in radians. */
+	T roll() const
+	{
+		return std::atan2(T{2} * (w()*x() + y()*z()), T{1} - T{2} * (x()*x() + y()*y()));
+	}
+
+	/**
+	 * Pitch (rotation around the Y axis), in radians.
+	 * Clamped to ±π/2 at the singularity (gimbal lock) to avoid @c NaN
+	 * when the input quaternion is slightly non-unit and @c sin_p falls
+	 * just outside @c [-1, 1] .
+	 */
+	T pitch() const
+	{
+		const T sin_p = T{2} * (w()*y() - z()*x());
+		if (sin_p >= T{ 1}) return  std::numbers::pi_v<T> / T{2};
+		if (sin_p <= T{-1}) return -std::numbers::pi_v<T> / T{2};
+		return std::asin(sin_p);
+	}
+
+	/** Yaw (rotation around the Z axis), in radians. */
+	T yaw() const
+	{
+		return std::atan2(T{2} * (w()*z() + x()*y()), T{1} - T{2} * (y()*y() + z()*z()));
+	}
 
 	// ── Element-wise ops on the underlying vector ────────────────────────
 	constexpr quaternion operator+(const quaternion& other) const { return quaternion(v_ + other.v_); }

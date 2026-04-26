@@ -463,6 +463,34 @@ static_assert((q_arb / 2.0f).w()  == 0.45f);
 	(void) slerp(q1, q2, 0.5f);
 	(void) slerp(q1, q2, 1.0f);
 	(void) slerp(q1, q1 + quaternion<float>{1e-5f, 0.0f, 0.0f, 0.0f}, 0.5f);
+
+	// Rotation-vector ctor: axis * angle. Zero vector hits the identity path.
+	auto q_from_rotvec_zero = quaternion<float>{opsy::utility::vector<3>{0.0f, 0.0f, 0.0f}};
+	(void) q_from_rotvec_zero;
+	auto q_from_rotvec_z90  = quaternion<float>{opsy::utility::vector<3>{0.0f, 0.0f, 1.5707963f}};
+	(void) q_from_rotvec_z90;
+
+	// Shortest-arc ctor: nominal (90° from x to y), antiparallel (x to -x).
+	const opsy::utility::vector<3> ux{ 1.0f,  0.0f, 0.0f};
+	const opsy::utility::vector<3> uy{ 0.0f,  1.0f, 0.0f};
+	const opsy::utility::vector<3> uxn{-1.0f, 0.0f, 0.0f};
+	auto q_arc      = quaternion<float>{ux, uy};
+	auto q_arc_anti = quaternion<float>{ux, uxn};
+	(void) q_arc;
+	(void) q_arc_anti;
+
+	// Tait-Bryan extraction. Pure rotation around each axis isolates one angle.
+	(void) q1.roll();
+	(void) q1.pitch();
+	(void) q1.yaw();
+
+	auto q_pitch = from_axis_angle(opsy::utility::vector<3>{0.0f, 1.0f, 0.0f}, 0.5f);
+	(void) q_pitch.pitch();
+
+	// Pitch clamp at the singularity: build a quaternion that puts the
+	// pitch right at the edge so asin would otherwise fall outside [-1,1].
+	auto q_gimbal = quaternion<float>{0.0f, std::sin(0.7853981f), 0.0f, std::cos(0.7853981f)};  // 90° around y
+	(void) q_gimbal.pitch();
 }
 
 // ================================ memory ================================

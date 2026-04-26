@@ -248,7 +248,7 @@ public:
 	using storage = struct alignas(std::alignment_of_v<i_callback>) { std::byte data[FullSize]; };
 
 	template<typename Function>
-	class callback_impl: i_callback
+	class callback_impl final : i_callback
 	{
 
 	public:

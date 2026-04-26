@@ -18,7 +18,7 @@
  *
  *          Example:
  *          @code
- *          constexpr auto g_vectors = opsy::utility::interrupt_vector<IrqCount>(
+ *          constexpr auto g_vectors = opsy::utility::interrupt_vector<irq_count>(
  *              &_estack,
  *              Reset_Handler,
  *              SysTick_Handler,
@@ -77,7 +77,7 @@ namespace opsy::utility
  * @tparam PeripheralIrqs Number of peripheral IRQs the chip exposes
  *         (excluding the 16 system exception slots). The chip vendor's
  *         CMSIS header usually defines a matching constant
- *         (e.g. @c IrqCount, @c MAX_IRQn).
+ *         (e.g. @c irq_count, @c MAX_IRQn).
  */
 template<std::size_t PeripheralIrqs>
 class interrupt_vector

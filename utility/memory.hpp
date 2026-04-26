@@ -142,7 +142,7 @@ constexpr auto operator||(clear_set<T> cs, [[maybe_unused]] atomic_tag ato)
 template<typename T>
 constexpr auto operator||(T value, [[maybe_unused]] atomic_tag ato)
 {
-	return atomic_t<decltype(value || value)>{ decltype(value || value){ T::Mask, value } };
+	return atomic_t<decltype(value || value)>{ decltype(value || value){ T::mask, value } };
 }
 
 /**

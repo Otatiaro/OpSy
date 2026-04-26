@@ -223,7 +223,7 @@ private:
 			if(task.waiting_ != nullptr)
 			{
 				task.waiting_->remove_waiting(task);
-				task.set_return_value(static_cast<uint32_t>(std::cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
+				task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 
 			ready_.insert_when(task_control_block::priority_is_lower, task);

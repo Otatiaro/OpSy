@@ -55,7 +55,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `scheduler_inl.hpp` | Inline definitions for the header-only primitives, included from the bottom of `scheduler.hpp`. Never include this directly. |
 | `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
 | `priority_mutex.hpp` | `priority_mutex` (the default `mutex` alias). |
-| `condition_variable.hpp` | `condition_variable`, plus a `cv_status` enum redefined in `namespace std` because `<condition_variable>` is not available on bare-metal Cortex-M. |
+| `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
@@ -196,10 +196,10 @@ void from_isr()
 
 `condition_variable::wait` exists in four flavours: with or without a
 mutex, and with or without a timeout (`wait_for(duration)` /
-`wait_until(time_point)`). The timed variants return a `std::cv_status`,
-matching `<condition_variable>`. Unlike the standard, OpSy does **not**
-emit spurious wakeups, so the predicate-checking overloads are
-intentionally absent.
+`wait_until(time_point)`). The timed variants return an
+`opsy::cv_status`, mirroring `std::cv_status` from `<condition_variable>`.
+Unlike the standard, OpSy does **not** emit spurious wakeups, so the
+predicate-checking overloads are intentionally absent.
 
 ### `opsy::critical_section`
 

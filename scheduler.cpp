@@ -133,7 +133,7 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 
 	condition.remove_waiting(task);
 	task.waiting_ = nullptr;
-	task.set_return_value(static_cast<uint32_t>(std::cv_status::no_timeout)); // set the return value to no timeout
+	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
 
 	if(task.wait_until_.has_value()) // task was also waiting for a timeout
 	{

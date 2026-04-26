@@ -54,6 +54,8 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <type_traits>
+#include <utility>
 
 #include "vector.hpp"
 
@@ -238,6 +240,88 @@ public:
 			for (std::size_t j = 0; j < Cols; ++j)
 				result(j, i) = values_[i][j];
 		return result;
+	}
+
+	// ── Row operations (in place) ────────────────────────────────────────
+	//
+	// Building blocks for Gaussian elimination and similar algorithms.
+	// Names follow BLAS conventions ( @c scale_row , @c add_scaled_row )
+	// so the intent reads at a glance to anyone with linear algebra
+	// background.
+
+	/**
+	 * @brief Swap rows @p i and @p j in place.
+	 *
+	 *        No-op when @p i == @p j .
+	 */
+	constexpr void swap_rows(std::size_t i, std::size_t j)
+	{
+		if (i == j)
+			return;
+		std::swap(values_[i], values_[j]);
+	}
+
+	/**
+	 * @brief Multiply every element of row @p i by @p factor in place.
+	 */
+	constexpr void scale_row(std::size_t i, const T& factor)
+	{
+		for (std::size_t j = 0; j < Cols; ++j)
+			values_[i][j] *= factor;
+	}
+
+	/**
+	 * @brief Add @p factor * row[ @p src ] to row[ @p dst ] in place.
+	 *
+	 *        This is the @c daxpy step on a single row pair: the third row
+	 *        operation needed by Gauss-Jordan elimination.
+	 */
+	constexpr void add_scaled_row(std::size_t src, std::size_t dst, const T& factor)
+	{
+		for (std::size_t j = 0; j < Cols; ++j)
+			values_[dst][j] += factor * values_[src][j];
+	}
+
+	// ── Sub-matrix extraction ────────────────────────────────────────────
+
+	/**
+	 * @brief Returns the @c SubRows x @c SubCols block starting at row
+	 *        @p top and column @p left.
+	 *
+	 *        The block dimensions are template parameters so the result has
+	 *        a fixed type known at compile time. Out-of-bounds offsets are
+	 *        the caller's responsibility (no run-time check; @c top + @c
+	 *        SubRows must be @c <= Rows and similarly for the columns).
+	 */
+	template<std::size_t SubRows, std::size_t SubCols>
+	constexpr matrix<SubRows, SubCols, T> sub_matrix(std::size_t top, std::size_t left) const
+	{
+		static_assert(SubRows <= Rows, "sub_matrix row count exceeds source");
+		static_assert(SubCols <= Cols, "sub_matrix column count exceeds source");
+		matrix<SubRows, SubCols, T> result;
+		for (std::size_t i = 0; i < SubRows; ++i)
+			for (std::size_t j = 0; j < SubCols; ++j)
+				result(i, j) = values_[top + i][left + j];
+		return result;
+	}
+
+	// ── Element-wise function application ────────────────────────────────
+
+	/**
+	 * @brief Apply @p f to every element in place.
+	 *
+	 *        @p f must be invocable with @c T and return something
+	 *        convertible to @c T. Equivalent to @c std::transform(begin,
+	 *        end, begin, f) over a flat view of the storage.
+	 */
+	template<typename F>
+		requires std::invocable<F&, T>
+		      && std::convertible_to<std::invoke_result_t<F&, T>, T>
+	constexpr void apply(F&& f)
+	{
+		for (std::size_t i = 0; i < Rows; ++i)
+			for (std::size_t j = 0; j < Cols; ++j)
+				values_[i][j] = static_cast<T>(f(values_[i][j]));
 	}
 
 	// ── Determinant (square matrices, sizes 1 to 4) ──────────────────────

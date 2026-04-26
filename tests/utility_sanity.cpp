@@ -295,6 +295,75 @@ constexpr opsy::utility::matrix<4, 4> m_d4{
 static_assert(m_d4.determinant() == 1.0f);
 static_assert(m_d4.inverse() * m_d4 == opsy::utility::identity_matrix<4>());
 
+// ── Row operations (constexpr — exercise mutation in a constexpr lambda).
+constexpr auto m_swapped = []{
+	opsy::utility::matrix<3, 3> m{
+		1.0f, 2.0f, 3.0f,
+		4.0f, 5.0f, 6.0f,
+		7.0f, 8.0f, 9.0f
+	};
+	m.swap_rows(0, 2);
+	return m;
+}();
+static_assert(m_swapped(0, 0) == 7.0f && m_swapped(0, 2) == 9.0f);
+static_assert(m_swapped(2, 0) == 1.0f && m_swapped(2, 2) == 3.0f);
+static_assert(m_swapped(1, 1) == 5.0f);   // middle row untouched
+
+constexpr auto m_self_swap = []{
+	opsy::utility::matrix<2, 2> m{1.0f, 2.0f, 3.0f, 4.0f};
+	m.swap_rows(1, 1);  // no-op path
+	return m;
+}();
+static_assert(m_self_swap == opsy::utility::matrix<2, 2>{1.0f, 2.0f, 3.0f, 4.0f});
+
+constexpr auto m_scaled = []{
+	opsy::utility::matrix<2, 3> m{
+		1.0f, 2.0f, 3.0f,
+		4.0f, 5.0f, 6.0f
+	};
+	m.scale_row(1, 0.5f);
+	return m;
+}();
+static_assert(m_scaled(0, 0) == 1.0f && m_scaled(0, 2) == 3.0f);
+static_assert(m_scaled(1, 0) == 2.0f && m_scaled(1, 1) == 2.5f && m_scaled(1, 2) == 3.0f);
+
+// add_scaled_row: row[1] -= 4 * row[0] kills the leading 4 in row[1].
+constexpr auto m_axpy = []{
+	opsy::utility::matrix<2, 3> m{
+		1.0f, 2.0f, 3.0f,
+		4.0f, 5.0f, 6.0f
+	};
+	m.add_scaled_row(0, 1, -4.0f);
+	return m;
+}();
+static_assert(m_axpy(1, 0) == 0.0f);
+static_assert(m_axpy(1, 1) == -3.0f);
+static_assert(m_axpy(1, 2) == -6.0f);
+static_assert(m_axpy(0, 0) == 1.0f);  // row 0 unchanged
+
+// sub_matrix: extract a 2x2 block at (1, 1) from a 3x3.
+constexpr opsy::utility::matrix<3, 3> m_for_sub{
+	1.0f, 2.0f, 3.0f,
+	4.0f, 5.0f, 6.0f,
+	7.0f, 8.0f, 9.0f
+};
+constexpr auto m_block = m_for_sub.sub_matrix<2, 2>(1, 1);
+static_assert(m_block.row_count == 2 && m_block.column_count == 2);
+static_assert(m_block(0, 0) == 5.0f && m_block(0, 1) == 6.0f);
+static_assert(m_block(1, 0) == 8.0f && m_block(1, 1) == 9.0f);
+// Whole-matrix sub == itself.
+static_assert(m_for_sub.sub_matrix<3, 3>(0, 0) == m_for_sub);
+// 1x1 view of a single element.
+static_assert(m_for_sub.sub_matrix<1, 1>(2, 0)(0, 0) == 7.0f);
+
+// apply: square every element in place.
+constexpr auto m_squared = []{
+	opsy::utility::matrix<2, 2> m{1.0f, 2.0f, 3.0f, 4.0f};
+	m.apply([](float x) { return x * x; });
+	return m;
+}();
+static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f});
+
 [[gnu::used]] void use_matrix()
 {
 	using opsy::utility::matrix;

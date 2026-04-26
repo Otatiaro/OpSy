@@ -6,7 +6,7 @@
  * @date    26-April-2026
  * @brief   A fixed-size, heap-free memory allocator
  *
- * 			Manages a single contiguous storage area of @c Size slots and hands
+ * 			Manages a single contiguous storage area of @c N slots and hands
  * 			out aligned blocks from it. Free space is tracked in-band with
  * 			boundary tags, so adjacent free blocks are coalesced on
  * 			@c deallocate. Optionally fills freed memory with a sentinel
@@ -50,7 +50,7 @@
 namespace opsy::utility
 {
 
-template<std::size_t Size, bool UseDummy = false, int Dummy = 0xBAADF00D>
+template<std::size_t N, bool UseDummy = false, int Dummy = 0xBAADF00D>
 class allocator
 {
 public:
@@ -58,7 +58,7 @@ public:
 	using size_type = std::size_t;
 	using element_type = int;
 
-	static_assert(Size > 3, "Size must be at least 3 to be able to allocate");
+	static_assert(N > 3, "N must be at least 3 to be able to allocate");
 	static_assert(sizeof(element_type) == sizeof(void*), "Mismatch of size between pointer and element size");
 
 	constexpr allocator()
@@ -66,7 +66,7 @@ public:
 		if constexpr (UseDummy)
 			data_.fill(Dummy);
 
-		data_[0] = data_[Size - 1] = Size - 2;
+		data_[0] = data_[N - 1] = N - 2;
 	}
 
 	/**
@@ -79,16 +79,16 @@ public:
 		if (bytes == 0) // cannot allocate zero bytes
 			return nullptr;
 
-		const auto available_slots = data_[Size - 1]; // the available slots
+		const auto available_slots = data_[N - 1]; // the available slots
 		const auto needed_slots = static_cast<element_type>((bytes - 1) / sizeof(element_type) + 1); // the number of slots needed to allocate
 
 		if (needed_slots > available_slots) // not enough free slots to allocate, return null
 			return nullptr;
 
-		const auto previous_index = Size - 2 - available_slots; // this is the index of the beginning of the free space
+		const auto previous_index = N - 2 - available_slots; // this is the index of the beginning of the free space
 		const auto new_index = previous_index + needed_slots + 2; // this is the index of the end of the new allocation
 		data_[previous_index] = data_[new_index - 1] = -needed_slots; // creates the new allocation
-		data_[new_index] = data_[Size - 1] = available_slots - needed_slots - 2; // and update the remaining slots
+		data_[new_index] = data_[N - 1] = available_slots - needed_slots - 2; // and update the remaining slots
 		return reinterpret_cast<void*>(&data_[previous_index + 1]);
 	}
 
@@ -130,7 +130,7 @@ public:
 			}
 		}
 
-		if (static_cast<size_type>(ptr_index + allocated_slots + 1) < Size - 2) // the allocation was not the last one, check if next if also free
+		if (static_cast<size_type>(ptr_index + allocated_slots + 1) < N - 2) // the allocation was not the last one, check if next if also free
 		{
 			const auto next_allocation_slots = data_[ptr_index + allocated_slots + 1];
 			if (next_allocation_slots > 0) // next slot is free, merge the two
@@ -152,7 +152,7 @@ public:
 	{
 		assert(reinterpret_cast<unsigned int>(ptr) % std::alignment_of<element_type>::value == 0); // the pointer is necessary aligned with the slots
 		const auto index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
-		return index > 0 && index < static_cast<ptrdiff_t>(Size - 1); // ptr in owned if between the allocator boundaries minus indicators
+		return index > 0 && index < static_cast<ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
 	}
 
 	/**
@@ -161,7 +161,7 @@ public:
 	 */
 	constexpr size_type size() const
 	{
-		return (Size - 2) * sizeof(element_type);
+		return (N - 2) * sizeof(element_type);
 	}
 
 	/**
@@ -170,7 +170,7 @@ public:
 	 */
 	constexpr size_type available() const
 	{
-		const auto last_slot = data_[Size - 1];
+		const auto last_slot = data_[N - 1];
 		return last_slot > 0 ? last_slot * sizeof(element_type) : 0;
 	}
 
@@ -196,7 +196,7 @@ public:
 			const auto size = data_[start_indicator]; // gets the size of the first space
 			const auto end_indicator_index = static_cast<size_type>(start_indicator + 1 + std::abs(size)); // position of the end of chunk indicator
 
-			if ((end_indicator_index > Size - 1) || data_[end_indicator_index] != size) // the allocation points outside of the data or the end indicator has a different value
+			if ((end_indicator_index > N - 1) || data_[end_indicator_index] != size) // the allocation points outside of the data or the end indicator has a different value
 				return false;
 
 			if constexpr (UseDummy)
@@ -207,14 +207,14 @@ public:
 
 			start_indicator = end_indicator_index + 1;
 
-			if (start_indicator == Size) // reached the end of the data
+			if (start_indicator == N) // reached the end of the data
 				return true;
 		}
 	}
 
 private:
 
-	std::array<element_type, Size> data_;
+	std::array<element_type, N> data_;
 };
 
 }

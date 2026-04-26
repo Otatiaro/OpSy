@@ -52,12 +52,12 @@
 namespace opsy::utility
 {
 
-template<std::size_t Size, typename ItemType = float>
+template<std::size_t N, typename T = float>
 class vector
 {
-	static_assert(Size != 0, "Cannot make a zero sized vector");
-	static_assert(Size != 1, "A one sized vector is a value");
-	template<std::size_t S, typename I> friend class vector; // vectors of all sizes are friend between them
+	static_assert(N != 0, "Cannot make a zero sized vector");
+	static_assert(N != 1, "A one sized vector is a value");
+	template<std::size_t S, typename U> friend class vector; // vectors of all sizes are friend between them
 
 public:
 
@@ -67,16 +67,16 @@ public:
 	 * @param values The remaining values in the list
 	 */
 	template<typename ... Args>
-	constexpr vector(ItemType value, Args&&... values) : values_{{value, values...}}
+	constexpr vector(T value, Args&&... values) : values_{{value, values...}}
 	{
-		static_assert(sizeof...(Args) + 1 == Size, "Wrong number of values for vector initialization");
+		static_assert(sizeof...(Args) + 1 == N, "Wrong number of values for vector initialization");
 	}
 
 	/**
 	 * Creates a @c vector from an array of values
 	 * @param items The array containing the @c vector values
 	 */
-	constexpr vector(const std::array<ItemType, Size>& items) : values_{items}
+	constexpr vector(const std::array<T, N>& items) : values_{items}
 	{
 
 	}
@@ -94,15 +94,15 @@ public:
 	 * Creates a @c vector with a specified value at each rank
 	 * @param value
 	 */
-	constexpr vector(const ItemType& value) : values_{construct([&](std::size_t) {return value;})}
+	constexpr vector(const T& value) : values_{construct([&](std::size_t) {return value;})}
 	{
 
 	}
 
 	/**
-	 * Creates a default @c vector initialized with @c ItemType default value
+	 * Creates a default @c vector initialized with @c T default value
 	 */
-	constexpr vector() : vector(ItemType())
+	constexpr vector() : vector(T())
 	{
 
 	}
@@ -123,7 +123,7 @@ public:
 	 * @param index The index of the value to get by const reference
 	 * @return The n-th value of the @c vector
 	 */
-	constexpr inline const ItemType& operator[](std::size_t index) const
+	constexpr inline const T& operator[](std::size_t index) const
 	{
 		return values_[index];
 	}
@@ -133,7 +133,7 @@ public:
 	 * @param index The index of the value to get by reference
 	 * @return The n-th value of the @c vector
 	 */
-	constexpr inline ItemType& operator[](std::size_t index)
+	constexpr inline T& operator[](std::size_t index)
 	{
 		return values_[index];
 	}
@@ -144,20 +144,20 @@ public:
 	 */
 	constexpr inline std::size_t size() const
 	{
-		return Size;
+		return N;
 	}
 
 	/**
 	 * Gets the norm of the @c vector (squared length)
 	 * @return The norm of the @c vector
 	 */
-	constexpr ItemType norm() const
+	constexpr T norm() const
 	{
 		// should use return std::transform_reduce here but not yet available in the library
 
-		auto result = ItemType();
+		auto result = T();
 
-		for (auto i = 0U; i < Size; ++i)
+		for (auto i = 0U; i < N; ++i)
 			result += this->operator[](i) * this->operator[](i);
 
 		return result;
@@ -167,7 +167,7 @@ public:
 	 * Gets the length of the @c vector (square root of the norm)
 	 * @return The length of the @c vector
 	 */
-	constexpr ItemType length() const
+	constexpr T length() const
 	{
 		return std::sqrt(norm());
 	}
@@ -190,27 +190,27 @@ public:
 	}
 
 	/**
-	 * Gets the item at rank @c Index by constant reference
-	 * @tparam Index The index of the item to get
+	 * Gets the item at rank @c I by constant reference
+	 * @tparam I The index of the item to get
 	 * @return A const reference to the n-th item
 	 */
-	template<std::size_t Index>
-	constexpr const ItemType& at() const
+	template<std::size_t I>
+	constexpr const T& at() const
 	{
-		static_assert(Index < Size, "Index out of bounds");
-		return values_[Index];
+		static_assert(I < N, "index out of bounds");
+		return values_[I];
 	}
 
 	/**
-	 * Gets the item at rank @c Index by reference
-	 * @tparam Index The index of the item to get
+	 * Gets the item at rank @c I by reference
+	 * @tparam I The index of the item to get
 	 * @return A reference to the n-th item
 	 */
-	template<std::size_t Index>
-	constexpr ItemType& at()
+	template<std::size_t I>
+	constexpr T& at()
 	{
-		static_assert(Index < Size, "Index out of bounds");
-		return values_[Index];
+		static_assert(I < N, "index out of bounds");
+		return values_[I];
 	}
 
 #if __cplusplus >= 201709L
@@ -219,7 +219,7 @@ public:
 	 * Gets the @c x (first) value in the @c vector
 	 * @return The @c x value
 	 */
-	constexpr const ItemType& x() const requires (Size == 2 || Size == 3 || Size == 4)
+	constexpr const T& x() const requires (N == 2 || N == 3 || N == 4)
 	{
 		return values_[0];
 	}
@@ -228,7 +228,7 @@ public:
 	 * Gets the @c x (first) value in the @c vector
 	 * @return The @c x value
 	 */
-	constexpr ItemType& x() requires (Size == 2 || Size == 3 || Size == 4)
+	constexpr T& x() requires (N == 2 || N == 3 || N == 4)
 	{
 		return values_[0];
 	}
@@ -237,7 +237,7 @@ public:
 	 * Gets the @c y (second) value in the @c vector
 	 * @return The @c y value
 	 */
-	constexpr const ItemType& y() const requires (Size == 2 || Size == 3 || Size == 4)
+	constexpr const T& y() const requires (N == 2 || N == 3 || N == 4)
 	{
 		return values_[1];
 	}
@@ -246,7 +246,7 @@ public:
 	 * Gets the @c y (second) value in the @c vector
 	 * @return The @c y value
 	 */
-	constexpr ItemType& y() requires (Size == 2 || Size == 3 || Size == 4)
+	constexpr T& y() requires (N == 2 || N == 3 || N == 4)
 	{
 		return values_[1];
 	}
@@ -255,7 +255,7 @@ public:
 	 * Gets the @c z (third) value in the @c vector
 	 * @return The @c z value
 	 */
-	constexpr const ItemType& z() const requires (Size == 3 || Size == 4)
+	constexpr const T& z() const requires (N == 3 || N == 4)
 	{
 		return values_[2];
 	}
@@ -264,7 +264,7 @@ public:
 	 * Gets the @c z (third) value in the @c vector
 	 * @return The @c z value
 	 */
-	constexpr ItemType& z() requires (Size == 3 || Size == 4)
+	constexpr T& z() requires (N == 3 || N == 4)
 	{
 		return values_[2];
 	}
@@ -273,7 +273,7 @@ public:
 	 * Gets the @c w (fourth) value in the @c vector
 	 * @return The @c w value
 	 */
-	constexpr const ItemType& w() const requires (Size == 4)
+	constexpr const T& w() const requires (N == 4)
 	{
 		return values_[3];
 	}
@@ -282,7 +282,7 @@ public:
 	 * Gets the @c w (fourth) value in the @c vector
 	 * @return The @c w value
 	 */
-	constexpr ItemType& w() requires (Size == 4)
+	constexpr T& w() requires (N == 4)
 	{
 		return values_[3];
 	}
@@ -293,8 +293,8 @@ public:
 	 * Gets the @c x (first) value in the @c vector
 	 * @return The @c x value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr const ItemType& x() const
+	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
+	constexpr const T& x() const
 	{
 		return values_[0];
 	}
@@ -303,8 +303,8 @@ public:
 	 * Gets the @c x (first) value in the @c vector
 	 * @return The @c x value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr ItemType& x()
+	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
+	constexpr T& x()
 	{
 		return values_[0];
 	}
@@ -313,8 +313,8 @@ public:
 	 * Gets the @c y (second) value in the @c vector
 	 * @return The @c y value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr const ItemType& y() const
+	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
+	constexpr const T& y() const
 	{
 		return values_[1];
 	}
@@ -323,8 +323,8 @@ public:
 	 * Gets the @c y (second) value in the @c vector
 	 * @return The @c y value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
-	constexpr ItemType& y()
+	template<std::size_t S = N, typename = std::enable_if_t<S == 2 || S == 3 || S == 4>>
+	constexpr T& y()
 	{
 		return values_[1];
 	}
@@ -333,8 +333,8 @@ public:
 	 * Gets the @c z (third) value in the @c vector
 	 * @return The @c z value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 3 || S == 4>>
-	constexpr const ItemType& z() const
+	template<std::size_t S = N, typename = std::enable_if_t<S == 3 || S == 4>>
+	constexpr const T& z() const
 	{
 		return values_[2];
 	}
@@ -343,8 +343,8 @@ public:
 	 * Gets the @c z (third) value in the @c vector
 	 * @return The @c z value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 3 || S == 4>>
-	constexpr ItemType& z()
+	template<std::size_t S = N, typename = std::enable_if_t<S == 3 || S == 4>>
+	constexpr T& z()
 	{
 		return values_[2];
 	}
@@ -353,8 +353,8 @@ public:
 	 * Gets the @c w (fourth) value in the @c vector
 	 * @return The @c w value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 4>>
-	constexpr const ItemType& w() const
+	template<std::size_t S = N, typename = std::enable_if_t<S == 4>>
+	constexpr const T& w() const
 	{
 		return values_[3];
 	}
@@ -363,8 +363,8 @@ public:
 	 * Gets the @c w (fourth) value in the @c vector
 	 * @return The @c w value
 	 */
-	template<std::size_t S = Size, typename = std::enable_if_t<S == 4>>
-	constexpr ItemType& w()
+	template<std::size_t S = N, typename = std::enable_if_t<S == 4>>
+	constexpr T& w()
 	{
 		return values_[3];
 	}
@@ -376,9 +376,9 @@ public:
 	 * @param value The value to append to the current @c vector
 	 * @return A new @c vector as a concatenation of the current @c vector and the specified value
 	 */
-	constexpr vector<Size + 1, ItemType> append(const ItemType& value) const
+	constexpr vector<N + 1, T> append(const T& value) const
 	{
-		return append_impl(value, values_, std::make_index_sequence<Size>());
+		return append_impl(value, values_, std::make_index_sequence<N>());
 	}
 
 	/**
@@ -386,9 +386,9 @@ public:
 	 * @param value The value to prepend to the current @c vector
 	 * @return A new @c vector as a concatenation of the specified value and the current @c vector
 	 */
-	constexpr vector<Size + 1, ItemType> prepend(const ItemType& value) const
+	constexpr vector<N + 1, T> prepend(const T& value) const
 	{
-		return prepend_impl(value, values_, std::make_index_sequence<Size>());
+		return prepend_impl(value, values_, std::make_index_sequence<N>());
 	}
 
 	/**
@@ -398,9 +398,9 @@ public:
 	 * @return The sub-vector starting at @c Offset and with length @c Length
 	 */
 	template<std::size_t Length, std::size_t Offset = 0>
-	constexpr vector<Length, ItemType> sub() const
+	constexpr vector<Length, T> sub() const
 	{
-		static_assert(Length + Offset <= Size, "Sub vector out of range");
+		static_assert(Length + Offset <= N, "Sub vector out of range");
 		return extract_impl<Length, Offset>(values_, std::make_index_sequence<Length>());
 	}
 
@@ -409,9 +409,9 @@ public:
 	 * @param factor The multiplying factor
 	 * @return A reference to the current @c vector
 	 */
-	constexpr vector& operator*=(const ItemType& factor)
+	constexpr vector& operator*=(const T& factor)
 	{
-		for (auto i = 0U; i < Size; ++i)
+		for (auto i = 0U; i < N; ++i)
 			values_[i] *= factor;
 
 		return *this;
@@ -422,9 +422,9 @@ public:
 	 * @param factor The dividing factor
 	 * @return A reference to the current @c vector
 	 */
-	constexpr vector& operator/=(const ItemType& factor)
+	constexpr vector& operator/=(const T& factor)
 	{
-		for (auto i = 0U; i < Size; ++i)
+		for (auto i = 0U; i < N; ++i)
 			values_[i] /= factor;
 
 		return *this;
@@ -437,7 +437,7 @@ public:
 	 */
 	constexpr vector& operator+=(const vector& right)
 	{
-		for (auto i = 0U; i < Size; ++i)
+		for (auto i = 0U; i < N; ++i)
 			values_[i] += right[i];
 
 		return *this;
@@ -450,7 +450,7 @@ public:
 	 */
 	constexpr vector& operator-=(const vector& right)
 	{
-		for (auto i = 0U; i < Size; ++i)
+		for (auto i = 0U; i < N; ++i)
 			values_[i] -= right[i];
 
 		return *this;
@@ -462,7 +462,7 @@ public:
 	 */
 	constexpr vector operator-() const
 	{
-		return construct([](const ItemType& l, const ItemType& r) {return l * r;}, values_, static_cast<ItemType>(-1));
+		return construct([](const T& l, const T& r) {return l * r;}, values_, static_cast<T>(-1));
 	}
 
 	/**
@@ -472,7 +472,7 @@ public:
 	 */
 	constexpr vector operator+(const vector& right) const
 	{
-		return construct([](const ItemType& l, const ItemType& r) {return l + r;}, values_, right.values_);
+		return construct([](const T& l, const T& r) {return l + r;}, values_, right.values_);
 	}
 
 	/**
@@ -482,7 +482,7 @@ public:
 	 */
 	constexpr vector operator-(const vector& right) const
 	{
-		return construct([](const ItemType& l, const ItemType& r) {return l - r;}, values_, right.values_);
+		return construct([](const T& l, const T& r) {return l - r;}, values_, right.values_);
 	}
 
 
@@ -491,9 +491,9 @@ public:
 	 * @param factor The multiplying factor
 	 * @return The current @c vector multiplied by the factor
 	 */
-	constexpr vector operator*(const ItemType& factor) const
+	constexpr vector operator*(const T& factor) const
 	{
-		return construct([](const ItemType& l, const ItemType& r) {return l * r;}, values_, factor);
+		return construct([](const T& l, const T& r) {return l * r;}, values_, factor);
 	}
 
 	/**
@@ -501,9 +501,9 @@ public:
 	 * @param factor The dividing factor
 	 * @return The current @c vector divided by the factor
 	 */
-	constexpr vector operator/(const ItemType& factor) const
+	constexpr vector operator/(const T& factor) const
 	{
-		return construct([](const ItemType& l, const ItemType& r) {return l / r;}, values_, factor);
+		return construct([](const T& l, const T& r) {return l / r;}, values_, factor);
 	}
 
 	/**
@@ -518,67 +518,67 @@ public:
 
 private:
 
-	std::array<ItemType, Size> values_;
+	std::array<T, N> values_;
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<ItemType, Size> construct_impl(F func, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, std::index_sequence<Is...>)
 	{
 		return {func(Is)...};
 	}
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<ItemType, Size> construct_impl(F func, const std::array<ItemType, Size>& values, const ItemType& param, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const T& param, std::index_sequence<Is...>)
 	{
 		return {func(values[Is], param)...};
 	}
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<ItemType, Size> construct_impl(F func, const std::array<ItemType, Size>& values, const std::array<ItemType, Size>& param, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const std::array<T, N>& param, std::index_sequence<Is...>)
 	{
 		return {func(values[Is], param[Is])...};
 	}
 
 	template<std::size_t... Is>
-	static constexpr std::array<ItemType, Size + 1> append_impl(const ItemType& value, const std::array<ItemType, Size>& values, std::index_sequence<Is...>)
+	static constexpr std::array<T, N + 1> append_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...>)
 	{
 		return {values[Is]..., value};
 	}
 
 	template<std::size_t... Is>
-	static constexpr std::array<ItemType, Size + 1> prepend_impl(const ItemType& value, const std::array<ItemType, Size>& values, std::index_sequence<Is...>)
+	static constexpr std::array<T, N + 1> prepend_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...>)
 	{
 		return {value, values[Is]...};
 	}
 
 	template <std::size_t Length, std::size_t Offset, std::size_t... Is>
-	static constexpr vector<Length, ItemType> extract_impl(const std::array<ItemType, Size>& values, std::index_sequence<Is...>)
+	static constexpr vector<Length, T> extract_impl(const std::array<T, N>& values, std::index_sequence<Is...>)
 	{
 		return { values[Is + Offset]... };
 	}
 
 	template<typename F>
-	static constexpr std::array<ItemType, Size> construct(F func)
+	static constexpr std::array<T, N> construct(F func)
 	{
-		return construct_impl(func, std::make_index_sequence<Size>());
+		return construct_impl(func, std::make_index_sequence<N>());
 	}
 
 	template<typename F>
-	static constexpr std::array<ItemType, Size> construct(F func, const std::array<ItemType, Size>& values, const ItemType& value)
+	static constexpr std::array<T, N> construct(F func, const std::array<T, N>& values, const T& value)
 	{
-		return construct_impl(func, values, value, std::make_index_sequence<Size>());
+		return construct_impl(func, values, value, std::make_index_sequence<N>());
 	}
 
 	template<typename F>
-	static constexpr std::array<ItemType, Size> construct(F func, const std::array<ItemType, Size>& values, const std::array<ItemType, Size>& param)
+	static constexpr std::array<T, N> construct(F func, const std::array<T, N>& values, const std::array<T, N>& param)
 	{
-		return construct_impl(func, values, param, std::make_index_sequence<Size>());
+		return construct_impl(func, values, param, std::make_index_sequence<N>());
 	}
 
 };
 
 
-template<std::size_t Size, typename ItemType>
-constexpr auto operator*(const ItemType& factor, const vector<Size, ItemType>& v)
+template<std::size_t N, typename T>
+constexpr auto operator*(const T& factor, const vector<N, T>& v)
 {
 	return v * factor;
 }
@@ -589,8 +589,8 @@ constexpr auto operator*(const ItemType& factor, const vector<Size, ItemType>& v
  * @param angle The angle of rotation
  * @return The image of v by the rotation of angle radian
  */
-template<typename ItemType>
-auto rotate(const vector<2, ItemType>& v, ItemType angle) -> vector<2, ItemType>
+template<typename T>
+auto rotate(const vector<2, T>& v, T angle) -> vector<2, T>
 {
 	auto sin = std::sin(angle);
 	auto cos = std::cos(angle);
@@ -604,10 +604,10 @@ auto rotate(const vector<2, ItemType>& v, ItemType angle) -> vector<2, ItemType>
  * @param right The second vector
  * @return The cross product of left and right
  */
-template<typename ItemType>
-auto cross_product(const vector<3, ItemType>& left, const vector<3, ItemType>& right) -> vector<3, ItemType>
+template<typename T>
+auto cross_product(const vector<3, T>& left, const vector<3, T>& right) -> vector<3, T>
 {
-	return vector<3, ItemType>{
+	return vector<3, T>{
 		left.y() * right.z() - left.z() * right.y(),
 		left.z() * right.x() - left.x() * right.z(),
 		left.x() * right.y() - left.y() * right.x()
@@ -620,12 +620,12 @@ auto cross_product(const vector<3, ItemType>& left, const vector<3, ItemType>& r
  * @param right The second vector
  * @return The dot product of left and right
  */
-template<std::size_t Size, typename ItemType>
-auto dot_product(const vector<Size, ItemType>& left, const vector<Size, ItemType>& right) -> ItemType
+template<std::size_t N, typename T>
+auto dot_product(const vector<N, T>& left, const vector<N, T>& right) -> T
 {
-	ItemType result = ItemType();
+	T result = T();
 
-	for (auto i = 0U; i < Size; ++i)
+	for (auto i = 0U; i < N; ++i)
 		result += left[i] * right[i];
 
 	return result;

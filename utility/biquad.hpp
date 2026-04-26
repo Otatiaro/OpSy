@@ -63,10 +63,10 @@ enum class filter_type
 
 /**
  * A biquad filter class
- * @tparam ValueType The type of the values to filter
- * @tparam CoefficientType The type of the coefficients (usually float or double)
+ * @tparam T The type of the values to filter
+ * @tparam Coef The type of the coefficients (usually float or double)
  */
-template<typename ValueType = float, typename CoefficientType = float>
+template<typename T = float, typename Coef = float>
 class biquad
 {
 public:
@@ -74,7 +74,7 @@ public:
 	/**
 	 * The Butterworth Q value
 	 */
-	static constexpr CoefficientType butterworth_q = static_cast<CoefficientType>(1.0 / std::sqrt(2.0));
+	static constexpr Coef butterworth_q = static_cast<Coef>(1.0 / std::sqrt(2.0));
 
 	/**
 	 * Constructs a @c biquad with the specified characteristics
@@ -85,11 +85,11 @@ public:
 	 * @param initial_value The initial value of the filter
 	 */
 	constexpr biquad(
-			const CoefficientType& sampling_frequency,
-			const CoefficientType& cut_frequency,
+			const Coef& sampling_frequency,
+			const Coef& cut_frequency,
 			filter_type type,
-			CoefficientType q = butterworth_q,
-			const ValueType& initial_value = ValueType()) :
+			Coef q = butterworth_q,
+			const T& initial_value = T()) :
 					b_({
 							make<coeff::b0>(sampling_frequency, cut_frequency, type, q),
 							make<coeff::b1>(sampling_frequency, cut_frequency, type, q),
@@ -109,7 +109,7 @@ public:
 	 * Feeds a new value to the filter
 	 * @param value The new value of the signal (should be called at sampling frequency)
 	 */
-	constexpr void feed(const ValueType& value)
+	constexpr void feed(const T& value)
 	{
 		auto w = value - delay_[0] * a_[0] - delay_[1] * a_[1];
 		delay_[2] = delay_[1];
@@ -121,7 +121,7 @@ public:
 	 * Computes the current value of the filter
 	 * @return The current value of the filter
 	 */
-	constexpr ValueType value() const
+	constexpr T value() const
 	{
 		return delay_[0] * b_[0] + delay_[1] * b_[1] + delay_[2] * b_[2];
 	}
@@ -130,19 +130,19 @@ public:
 	 * Resets the filter to a known value if possible
 	 * @param value The expected new output value of the filter.
 	 */
-	constexpr void reset(const ValueType& value)
+	constexpr void reset(const T& value)
 	{
 		delay_[0] = delay_[1] = delay_[2] = init(value);
 	}
 
 private:
 
-	static constexpr CoefficientType zero = static_cast<CoefficientType>(0);
-	static constexpr CoefficientType one = static_cast<CoefficientType>(1);
+	static constexpr Coef zero = static_cast<Coef>(0);
+	static constexpr Coef one = static_cast<Coef>(1);
 
-	std::array<CoefficientType, 3> b_;
-	std::array<CoefficientType, 2> a_;
-	std::array<ValueType, 3> delay_;
+	std::array<Coef, 3> b_;
+	std::array<Coef, 2> a_;
+	std::array<T, 3> delay_;
 
 	enum class coeff
 	{
@@ -157,16 +157,16 @@ private:
 	 * @param q The quality factor
 	 * @return The value of the coefficient
 	 */
-	template<coeff Which>
-	constexpr CoefficientType make(const CoefficientType& sampling, const CoefficientType& cut, filter_type type, CoefficientType q)
+	template<coeff K>
+	constexpr Coef make(const Coef& sampling, const Coef& cut, filter_type type, Coef q)
 	{
-		constexpr CoefficientType pi = static_cast<CoefficientType>(std::acos(-1.0));
-		constexpr CoefficientType two = static_cast<CoefficientType>(2);
+		constexpr Coef pi = static_cast<Coef>(std::acos(-1.0));
+		constexpr Coef two = static_cast<Coef>(2);
 
 		auto k = std::tan(pi * cut / sampling);
 		[[maybe_unused]] auto norm = one / (one + k / q + k * k);
 
-		switch (Which)
+		switch (K)
 		{
 		case coeff::b0:
 		{
@@ -238,7 +238,7 @@ private:
 	 * @param value The expected filter output
 	 * @return The value to put in delay_ to get the expected filter output
 	 */
-	constexpr ValueType init(const ValueType& value)
+	constexpr T init(const T& value)
 	{
 		auto denom = one + a_[0] + a_[1];
 		return denom == zero ? value : value / denom;

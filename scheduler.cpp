@@ -56,7 +56,7 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 	cortex_m::set_msp(cortex_m::msp_at_reset());
 
 	if(!do_switch())
-		__builtin_trap();
+		opsy::trap();
 	while(true) {} // can not reach
 }
 

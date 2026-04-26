@@ -179,57 +179,44 @@ private:
 		{
 			switch (type)
 			{
-			default:
-			case filter_type::low_pass:
-				return k * k * norm;
-			case filter_type::high_pass:
-				return norm;
-			case filter_type::band_pass:
-				return k / q * norm;
-			case filter_type::notch:
-				return (one + k * k) * norm;
+			default:                       [[fallthrough]];
+			case filter_type::low_pass:    return k * k * norm;
+			case filter_type::high_pass:   return norm;
+			case filter_type::band_pass:   return k / q * norm;
+			case filter_type::notch:       return (one + k * k) * norm;
 			}
 		}
 		case coeff::b1:
 		{
 			switch (type)
 			{
-			default:
-			case filter_type::low_pass:
-				return two * b_[0];
-			case filter_type::high_pass:
-				return -two * b_[0];
-			case filter_type::band_pass:
-				return zero;
-			case filter_type::notch:
-				return two * (k * k - one) * norm;
+			default:                       [[fallthrough]];
+			case filter_type::low_pass:    return two * b_[0];
+			case filter_type::high_pass:   return -two * b_[0];
+			case filter_type::band_pass:   return zero;
+			case filter_type::notch:       return two * (k * k - one) * norm;
 			}
 		}
 		case coeff::b2:
 		{
 			switch (type)
 			{
-			default:
-			case filter_type::low_pass:
-			case filter_type::high_pass:
-			case filter_type::notch:
-				return b_[0];
-
-			case filter_type::band_pass:
-				return -b_[0];
+			default:                       [[fallthrough]];
+			case filter_type::low_pass:    [[fallthrough]];
+			case filter_type::high_pass:   [[fallthrough]];
+			case filter_type::notch:       return b_[0];
+			case filter_type::band_pass:   return -b_[0];
 			}
 		}
 		case coeff::a1:
 		{
 			switch (type)
 			{
-			default:
-			case filter_type::low_pass:
-			case filter_type::high_pass:
-			case filter_type::band_pass:
-				return two * (k * k - one) * norm;
-			case filter_type::notch:
-				return b_[1];
+			default:                       [[fallthrough]];
+			case filter_type::low_pass:    [[fallthrough]];
+			case filter_type::high_pass:   [[fallthrough]];
+			case filter_type::band_pass:   return two * (k * k - one) * norm;
+			case filter_type::notch:       return b_[1];
 			}
 		}
 		case coeff::a2:

@@ -17,6 +17,7 @@
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
 #include <utility/memory.hpp>
+#include <utility/quaternion.hpp>
 #include <utility/slope.hpp>
 #include <utility/vector.hpp>
 
@@ -149,6 +150,73 @@ static_assert(ez.z() == 1.0f);
 
 	opsy::utility::vector<2> v2d{1.0f, 0.0f};
 	(void) opsy::utility::rotate(v2d, 1.0f);
+}
+
+// ============================== quaternion ==============================
+// hamilton_product, conjugate, inverse and rotate(v3, q) are constexpr
+// (no transcendental). from_axis_angle and slerp call sin/cos/acos so
+// they only get exercised at runtime via [[gnu::used]].
+
+constexpr auto q_id = opsy::utility::identity_quaternion<float>();
+static_assert(q_id.x() == 0.0f && q_id.y() == 0.0f && q_id.z() == 0.0f && q_id.w() == 1.0f);
+
+// hamilton(identity, q) == q  and  hamilton(q, identity) == q.
+constexpr opsy::utility::quaternion<float> q_arb{0.1f, 0.2f, 0.3f, 0.9f};
+constexpr auto q_left  = opsy::utility::hamilton_product(q_id, q_arb);
+constexpr auto q_right = opsy::utility::hamilton_product(q_arb, q_id);
+static_assert(q_left  == q_arb);
+static_assert(q_right == q_arb);
+
+// conjugate negates xyz, leaves w.
+constexpr auto q_conj = opsy::utility::conjugate(q_arb);
+static_assert(q_conj.x() == -0.1f);
+static_assert(q_conj.y() == -0.2f);
+static_assert(q_conj.z() == -0.3f);
+static_assert(q_conj.w() ==  0.9f);
+// involution
+static_assert(opsy::utility::conjugate(q_conj) == q_arb);
+
+// 180° rotation around z is the unit quaternion (0, 0, 1, 0).
+// rotate((1, 0, 0), q_180_z) must give (-1, 0, 0).
+constexpr opsy::utility::quaternion<float> q_180_z{0.0f, 0.0f, 1.0f, 0.0f};
+constexpr opsy::utility::vector<3> v_x{1.0f, 0.0f, 0.0f};
+constexpr auto v_rotated = opsy::utility::rotate(v_x, q_180_z);
+static_assert(v_rotated.x() == -1.0f);
+static_assert(v_rotated.y() ==  0.0f);
+static_assert(v_rotated.z() ==  0.0f);
+
+// rotate(v, identity) returns v unchanged.
+constexpr auto v_unchanged = opsy::utility::rotate(v_x, q_id);
+static_assert(v_unchanged == v_x);
+
+[[gnu::used]] void use_quaternion()
+{
+	using opsy::utility::quaternion;
+	using opsy::utility::from_axis_angle;
+	using opsy::utility::hamilton_product;
+	using opsy::utility::inverse;
+	using opsy::utility::slerp;
+
+	// from_axis_angle (sin/cos — runtime only).
+	const opsy::utility::vector<3> z_axis{0.0f, 0.0f, 1.0f};
+	auto q1 = from_axis_angle(z_axis, 1.5707963f);   // 90° around z
+	auto q2 = from_axis_angle(z_axis, 3.1415926f);   // 180° around z
+
+	// Composition (gyroscope-style accumulation: orientation = orientation * delta).
+	auto orientation = q1;
+	orientation = hamilton_product(orientation, q2);
+	orientation.normalize();
+
+	// Inverse on a non-unit quaternion exercises the divide-by-norm path.
+	auto q_inv = inverse(quaternion<float>{1.0f, 2.0f, 3.0f, 4.0f});
+	(void) q_inv;
+
+	// Slerp at the endpoints, in the middle, and on a near-aligned pair
+	// to hit the lerp fall-back.
+	(void) slerp(q1, q2, 0.0f);
+	(void) slerp(q1, q2, 0.5f);
+	(void) slerp(q1, q2, 1.0f);
+	(void) slerp(q1, q1 + quaternion<float>{1e-5f, 0.0f, 0.0f, 0.0f}, 0.5f);
 }
 
 // ================================ memory ================================

@@ -101,7 +101,7 @@ public:
 	 */
 	template<typename Function>
 	callback(Function&& function) :
-			valid_(std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value ? valid_destructor : valid_no_destructor)
+			valid_(std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>> ? valid_destructor : valid_no_destructor)
 	{
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
@@ -154,7 +154,7 @@ public:
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 		static_assert(!std::is_same_v<std::remove_cv_t<std::remove_reference_t<Function>>, callback>, "Do not wrap callback in a callback, you probably meant to move it");
 
-		valid_ = (std::is_destructible<std::decay_t<Function>>::value && !std::is_trivially_destructible<std::decay_t<Function>>::value) ? valid_destructor : valid_no_destructor;
+		valid_ = (std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>>) ? valid_destructor : valid_no_destructor;
 		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;
 	}

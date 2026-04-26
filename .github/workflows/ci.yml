@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [master]
 
+# Force Node.js 24 for any JavaScript actions that still ship with a
+# Node.js 20 manifest. Node.js 20 is deprecated on GitHub Actions and
+# scheduled for removal in September 2026.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build:
     name: Build (cortex-${{ matrix.target }})
@@ -16,7 +22,7 @@ jobs:
       matrix:
         target: [m4, m7, m33]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install ARM toolchain
         uses: carlosperate/arm-none-eabi-gcc-action@v1
@@ -44,7 +50,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

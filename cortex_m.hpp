@@ -806,7 +806,7 @@ public:
 		}
 		else
 		{
-	        static_assert("Wrong template parameter size for load_exclusive");
+	        static_assert(false, "Wrong template parameter size for load_exclusive");
 		}
 
 	    return result;
@@ -843,7 +843,7 @@ public:
 			}
 	    else
 	    {
-	        static_assert("Wrong template parameter size for store_exclusive");
+	        static_assert(false, "Wrong template parameter size for store_exclusive");
 	    }
 
 	    return result;

@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    Hooks.hpp
+ * @file    hooks.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -12,7 +12,7 @@
  * 			the compiler.
  *
  * 			You can redirect these calls to a custom implementation by creating
- * 			a file OpsyHooks.hpp in one of the include directory of the project.
+ * 			a file opsy_hooks.hpp in one of the include directory of the project.
  *
  * 			You can then add custom checks and code, e.g. for integration of a
  * 			monitoring tool like SEGGER SystemView.
@@ -47,8 +47,8 @@
 
 #pragma once
 
-#if __has_include(<OpsyHooks.hpp>)
-#include <OpsyHooks.hpp>
+#if __has_include(<opsy_hooks.hpp>)
+#include <opsy_hooks.hpp>
 #else
 
 namespace opsy

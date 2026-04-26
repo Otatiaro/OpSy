@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    PriorityMutex.hpp
+ * @file    priority_mutex.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -53,8 +53,8 @@
 #include <cassert>
 #include <optional>
 
-#include "IsrPriority.hpp"
-#include "CriticalSection.hpp"
+#include "isr_priority.hpp"
+#include "critical_section.hpp"
 
 namespace opsy
 {
@@ -120,7 +120,7 @@ public:
 
 	/**
 	 * @brief Takes a lock on this @c Mutex
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls into
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls into
 	 *         @c Scheduler, @c Hooks and @c CortexM, see the cycle-breaking
 	 *         note there).
 	 */
@@ -128,7 +128,7 @@ public:
 
 	/**
 	 * @brief Releases the lock on this @c Mutex
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (see @c lock).
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (see @c lock).
 	 */
 	void unlock();
 
@@ -138,7 +138,7 @@ private:
 	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed
 	 * @param section The @c CriticalSection ownership transferred from the scheduler
 	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
+	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	uint32_t reLockFromPendSv(CriticalSection section);
 
@@ -146,7 +146,7 @@ private:
 	 * @brief Release the hardware portion of the lock from a service call, leaving @c m_locked untouched
 	 * @remark Used during @c ConditionVariable::wait so the scheduler can atomically
 	 *         release the mutex and put the task to sleep. Defined inline at the
-	 *         bottom of @c Scheduler.hpp.
+	 *         bottom of @c scheduler.hpp.
 	 */
 	void releaseFromServiceCall();
 

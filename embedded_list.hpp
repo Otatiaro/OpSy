@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    EmbeddedList.hpp
+ * @file    embedded_list.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019

@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    ConditionVariable.hpp
+ * @file    condition_variable.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -46,10 +46,10 @@
 
 #include <optional>
 
-#include "Config.hpp"
-#include "EmbeddedList.hpp"
-#include "Task.hpp"
-#include "CortexM.hpp"
+#include "config.hpp"
+#include "embedded_list.hpp"
+#include "task.hpp"
+#include "cortex_m.hpp"
 //#include "Mutex.hpp"
 
 namespace std
@@ -98,21 +98,21 @@ public:
 
 	/**
 	 * @brief Notify the first @c Task in the waiting list if there is any, releasing it from its wait state to the ready state
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
 	 *         @c Scheduler::wakeUp; see the cycle-breaking note there).
 	 */
 	void notify_one();
 
 	/**
 	 * @brief Notify all @c Task in the waiting list, releasing them from their wait state to the ready state
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (see @c notify_one).
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (see @c notify_one).
 	 */
 	void notify_all();
 
 	/**
 	 * @brief Wait on a @c ConditionVariable with no time limit nor @c Mutex synchronization
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (issues an @c SVC
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (issues an @c SVC
 	 *         using @c Scheduler::ServiceCallNumber).
 	 */
 	void wait();
@@ -121,7 +121,7 @@ public:
 	 * @brief Wait on a @c ConditionVariable with no time limit with @c Mutex synchronization
 	 * @param mutex The @c Mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
+	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	void wait(Mutex& mutex);
 
@@ -130,7 +130,7 @@ public:
 	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
+	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	std::cv_status wait_for(duration timeout);
 
@@ -140,7 +140,7 @@ public:
 	 * @param timeout The time limit of the wait. If the @c ConditionVariable has not been notified for @p timeout then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp.
+	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	std::cv_status wait_for(Mutex& mutex, duration timeout);
 
@@ -149,7 +149,7 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (uses @c Scheduler::now).
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c Scheduler::now).
 	 */
 	std::cv_status wait_until(time_point timeout_time);
 
@@ -159,7 +159,7 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c ConditionVariable has not been notified before @p timeout_time then the task will be released with @c std::cv_status::timeout result
 	 * @return @c std::cv_status::no_timeout if the @c ConditionVariable has been notified before @p timeout, @c std::cv_status::timeout otherwise
 	 * @warning Can only be called from a @c Task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (uses @c Scheduler::now).
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c Scheduler::now).
 	 */
 	std::cv_status wait_until(Mutex& mutex, time_point timeout_time);
 

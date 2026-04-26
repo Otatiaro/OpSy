@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    IsrPriority.hpp
+ * @file    isr_priority.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019

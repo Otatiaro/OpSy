@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    Scheduler.hpp
+ * @file    scheduler.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -51,9 +51,9 @@
 #pragma once
 
 /**
- * @brief Token guarding @c Scheduler_inl.hpp inclusion
- * @remark @c Scheduler_inl.hpp checks this macro to refuse direct inclusion
- *         from anywhere other than the bottom of @c Scheduler.hpp.
+ * @brief Token guarding @c scheduler_inl.hpp inclusion
+ * @remark @c scheduler_inl.hpp checks this macro to refuse direct inclusion
+ *         from anywhere other than the bottom of @c scheduler.hpp.
  */
 #define OPSY_SCHEDULER_HPP_INCLUDED_
 
@@ -62,10 +62,10 @@
 #include <cassert>
 #include <atomic>
 
-#include "Config.hpp"
-#include "Task.hpp"
-#include "ConditionVariable.hpp"
-#include "Hooks.hpp"
+#include "config.hpp"
+#include "task.hpp"
+#include "condition_variable.hpp"
+#include "hooks.hpp"
 
 extern "C" void SysTick_Handler();
 extern "C" void PendSV_Handler();
@@ -261,7 +261,7 @@ private:
 
 // Inline definitions for CriticalSection / PriorityMutex / ConditionVariable.
 // Pulled here, AFTER the full @c Scheduler declaration is in scope, to break
-// the include cycle between Scheduler.hpp and these three primitives' headers.
-// See Scheduler_inl.hpp for details.
-#include "Scheduler_inl.hpp"
+// the include cycle between scheduler.hpp and these three primitives' headers.
+// See scheduler_inl.hpp for details.
+#include "scheduler_inl.hpp"
 

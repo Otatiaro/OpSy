@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    Task.hpp
+ * @file    task.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -48,10 +48,10 @@
 #include <atomic>
 #include <optional>
 
-#include "Config.hpp"
-#include "EmbeddedList.hpp"
-#include "CortexM.hpp"
-#include "Callback.hpp"
+#include "config.hpp"
+#include "embedded_list.hpp"
+#include "cortex_m.hpp"
+#include "callback.hpp"
 //#include "Mutex.hpp"
 
 namespace opsy
@@ -217,16 +217,16 @@ public:
 	 * @param entry The @c Callback that will be execute by the @c TaskControlBlock
 	 * @param name The new name of the @c TaskControlBlock (optional)
 	 * @return @c true if the @c TaskControlBlock successfully started, @c false otherwise (already started)
-	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls
+	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
 	 *         @c Scheduler::addTask and references @c Scheduler::terminateTask;
-	 *         see the cycle-breaking note in @c Scheduler_inl.hpp).
+	 *         see the cycle-breaking note in @c scheduler_inl.hpp).
 	 */
 	[[nodiscard]] bool start(Callback<void(void)> && entry, const char* name = nullptr);
 
 	/**
 	 * @brief Stops the @c TaskControlBlock whatever its state
 	 * @return @c true is the @c TaskControlBlock has been stopped, @c false otherwise (not started)
-	 * @remark Defined inline in @c Scheduler_inl.hpp (issues an @c SVC using
+	 * @remark Defined inline in @c scheduler_inl.hpp (issues an @c SVC using
 	 *         @c Scheduler::ServiceCallNumber).
 	 */
 	[[nodiscard]] bool stop();
@@ -253,7 +253,7 @@ public:
 	 * @brief Dynamically change the @c Priority of the @c TaskControlBlock
 	 * @param newPriority the new @c Priority
 	 * @remark This may trigger a @c TaskControlBlock switch from the system to make sure the most important @c TaskControlBlock is always executed
-	 * @remark Defined inline in @c Scheduler_inl.hpp (calls @c Scheduler::updatePriority).
+	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c Scheduler::updatePriority).
 	 */
 	void priority(Priority newPriority);
 
@@ -311,7 +311,7 @@ private:
 	/**
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c TaskControlBlock being started
-	 * @remark Defined inline in @c Scheduler_inl.hpp because it terminates the
+	 * @remark Defined inline in @c scheduler_inl.hpp because it terminates the
 	 *         task via @c Scheduler::terminateTask once @c m_entry returns.
 	 */
 	static void taskStarter(TaskControlBlock* thisPtr);

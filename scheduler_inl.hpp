@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    Scheduler_inl.hpp
+ * @file    scheduler_inl.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -12,20 +12,20 @@
  *          @c Scheduler (and conversely @c Scheduler holds them by value or
  *          as friends), which creates a header cycle:
  *
- *              CriticalSection.hpp  <-+
- *              PriorityMutex.hpp    <-|-- Scheduler.hpp
- *              ConditionVariable.hpp<-+   (transitively includes them all)
+ *              critical_section.hpp  <-+
+ *              priority_mutex.hpp    <-|-- scheduler.hpp
+ *              condition_variable.hpp<-+   (transitively includes them all)
  *
  *          Defining the bodies inside their own headers is therefore
  *          impossible: the @c Scheduler class declaration must be visible
  *          first. We break the cycle by declaring the member functions in
  *          their respective headers and defining them HERE, in a file that
- *          @c Scheduler.hpp includes at the very end (after the @c Scheduler
+ *          @c scheduler.hpp includes at the very end (after the @c Scheduler
  *          class declaration is in scope).
  *
  *          Constraints / invariants this file relies on:
  *           - This file MUST only ever be included from the bottom of
- *             @c Scheduler.hpp (it expects the full @c Scheduler declaration
+ *             @c scheduler.hpp (it expects the full @c Scheduler declaration
  *             and all transitive includes to be visible).
  *           - All definitions are @c inline so the One Definition Rule holds
  *             across translation units.
@@ -65,7 +65,7 @@
 #pragma once
 
 #ifndef OPSY_SCHEDULER_HPP_INCLUDED_
-#error "Scheduler_inl.hpp must only be included from the bottom of Scheduler.hpp"
+#error "scheduler_inl.hpp must only be included from the bottom of scheduler.hpp"
 #endif
 
 #include <algorithm>

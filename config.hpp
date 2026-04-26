@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    Config.hpp
+ * @file    config.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -36,7 +36,7 @@
  * 			sleep durations.
  *
  * 			You can easily override this configuration by creating a file
- * 			named OpsyConfig.hpp in any of the include directory.
+ * 			named opsy_config.hpp in any of the include directory.
  *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
@@ -68,7 +68,7 @@
 
 #pragma once
 
-#include "PriorityMutex.hpp"
+#include "priority_mutex.hpp"
 #include <cstdint>
 #include <chrono>
 #include <ratio>
@@ -77,8 +77,8 @@
 namespace opsy
 {
 
-#if __has_include(<OpsyConfig.hpp>)
-#include <OpsyConfig.hpp>
+#if __has_include(<opsy_config.hpp>)
+#include <opsy_config.hpp>
 #else
 
 

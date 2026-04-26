@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    CortexM.hpp
+ * @file    cortex_m.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -45,8 +45,8 @@
 #include <cassert>
 #include <optional>
 
-#include "Config.hpp"
-#include "IsrPriority.hpp"
+#include "config.hpp"
+#include "isr_priority.hpp"
 
 namespace
 {

@@ -39,11 +39,11 @@
 
 #pragma once
 
-#include "Config.hpp"
-#include "Task.hpp"
-#include "Scheduler.hpp"
-#include "PriorityMutex.hpp"
-#include "ConditionVariable.hpp"
+#include "config.hpp"
+#include "task.hpp"
+#include "scheduler.hpp"
+#include "priority_mutex.hpp"
+#include "condition_variable.hpp"
 
 namespace opsy
 {

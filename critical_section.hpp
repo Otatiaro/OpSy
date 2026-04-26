@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    CriticalSection.hpp
+ * @file    critical_section.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -98,8 +98,8 @@ public:
 
 	/**
 	 * @brief Deletes the @c CriticalSection, releasing the lock if it is active
-	 * @remark The body is defined inline at the bottom of @c Scheduler.hpp because
-	 *         it calls @c Scheduler::criticalSectionEnd, and @c Scheduler.hpp
+	 * @remark The body is defined inline at the bottom of @c scheduler.hpp because
+	 *         it calls @c Scheduler::criticalSectionEnd, and @c scheduler.hpp
 	 *         already includes (transitively) this header. Defining the body
 	 *         after the @c Scheduler class declaration breaks the cycle without
 	 *         requiring a translation unit.

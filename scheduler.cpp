@@ -340,7 +340,9 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		{
 			current_task_->wait_until_ = ticks_ + timeout;
 			timeouts_.insert_when(wakeup_after, *current_task_);
-			hooks::task_wait_timeout(*current_task_, *condition, current_task_->wait_until_.value());
+			// Just engaged on the previous line; use * not .value() to avoid
+			// the bad_optional_access -> abort path under -fno-exceptions.
+			hooks::task_wait_timeout(*current_task_, *condition, *current_task_->wait_until_);
 			hooks::condition_variable_start_waiting(*condition, *current_task_, timeout);
 		}
 		else

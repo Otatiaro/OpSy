@@ -97,11 +97,21 @@ inline critical_section::~critical_section()
  *   - value > 0       : interrupt masking via @c BASEPRI up to that priority,
  *                       plus a @c critical_section if called from a task.
  */
+// All accesses below use the unchecked dereference (operator* / operator->) on
+// std::optional<isr_priority>, NOT optional::value(). value() throws
+// bad_optional_access on an empty optional, which under -fno-exceptions is
+// lowered to a call to abort() — and through it the whole newlib raise +
+// _impure_ptr + __sf chain (~700 B of flash + 312 B of BSS for the static
+// FILE pool that we never use). The compiler can't elide that branch even
+// when value() is inside an if (priority_.has_value()) guard, because it
+// doesn't correlate has_value() with the subsequent value() across function
+// calls. Operator* / operator-> have a precondition (the optional is engaged)
+// and emit nothing for the empty case, so the abort branch goes away.
 inline void priority_mutex::lock()
 {
 	if (priority_.has_value())
 	{
-		if (priority_.value().value() == 0)
+		if (priority_->value() == 0)
 		{
 			assert(!cortex_m::is_primask());
 
@@ -113,11 +123,13 @@ inline void priority_mutex::lock()
 			if (cortex_m::ipsr() == 0) // ask for critical section only when in task
 				critical_section_ = scheduler::try_critical_section();
 			else
-				assert(cortex_m::current_priority().value().masked_value<preemption_bits>() >= priority_.value().masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
+				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
+				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
-			hooks::enter_priority_lock(priority_.value());
-			previous_lock_ = cortex_m::set_basepri(isr_priority(priority_.value().masked_value<preemption_bits>()));
-			assert(previous_lock_.masked_value<preemption_bits>() <= priority_.value().masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
+			hooks::enter_priority_lock(*priority_);
+			previous_lock_ = cortex_m::set_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
+			assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
 	else
@@ -143,7 +155,9 @@ inline void priority_mutex::unlock()
 
 	if (priority_.has_value())
 	{
-		if (priority_.value().value() == 0)
+		// See comment on lock(): * / -> avoids the abort path that
+		// optional::value() would emit under -fno-exceptions.
+		if (priority_->value() == 0)
 		{
 			assert(cortex_m::is_primask());
 			cortex_m::enable_interrupts();
@@ -153,7 +167,7 @@ inline void priority_mutex::unlock()
 		{
 #ifndef NDEBUG
 			auto was = cortex_m::set_basepri(previous_lock_);
-			assert(was.masked_value<preemption_bits>() == priority_.value().masked_value<preemption_bits>());
+			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
 			cortex_m::set_basepri(previous_lock_);
 #endif
@@ -183,7 +197,9 @@ inline uint32_t priority_mutex::relock_from_pend_sv(critical_section section)
 
 	if (priority_.has_value())
 	{
-		assert(priority_.value().value() != 0); // 0 is full mutex, can't be preempted by system
+		// See comment on lock(): * / -> avoids the abort path that
+		// optional::value() would emit under -fno-exceptions.
+		assert(priority_->value() != 0); // 0 is full mutex, can't be preempted by system
 		previous_lock_ = isr_priority(0);
 	}
 
@@ -204,7 +220,9 @@ inline void priority_mutex::release_from_service_call()
 
 	if (priority_.has_value())
 	{
-		if (priority_.value().value() == 0)
+		// See comment on lock(): * / -> avoids the abort path that
+		// optional::value() would emit under -fno-exceptions.
+		if (priority_->value() == 0)
 		{
 			assert(cortex_m::is_primask());
 			cortex_m::enable_interrupts();
@@ -213,7 +231,7 @@ inline void priority_mutex::release_from_service_call()
 		{
 #ifndef NDEBUG
 			auto was = cortex_m::set_basepri(previous_lock_);
-			assert(was.masked_value<preemption_bits>() == priority_.value().masked_value<preemption_bits>());
+			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
 			cortex_m::set_basepri(previous_lock_);
 #endif

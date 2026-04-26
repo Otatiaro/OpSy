@@ -238,7 +238,10 @@ private:
 		bool dirty = false;
 
 
-		while(!timeouts_.empty() && timeouts_.front().wait_until_.value() <= ticks_)
+		// Tasks on the timeouts_ list always have wait_until_ engaged (it is set
+		// before insertion and cleared after pop). Use * not .value() to avoid
+		// the bad_optional_access -> abort path under -fno-exceptions.
+		while(!timeouts_.empty() && *timeouts_.front().wait_until_ <= ticks_)
 		{
 			auto& task = timeouts_.front();
 			timeouts_.pop_front();

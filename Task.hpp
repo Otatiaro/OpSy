@@ -217,12 +217,17 @@ public:
 	 * @param entry The @c Callback that will be execute by the @c TaskControlBlock
 	 * @param name The new name of the @c TaskControlBlock (optional)
 	 * @return @c true if the @c TaskControlBlock successfully started, @c false otherwise (already started)
+	 * @remark Defined inline at the bottom of @c Scheduler.hpp (calls
+	 *         @c Scheduler::addTask and references @c Scheduler::terminateTask;
+	 *         see the cycle-breaking note in @c Scheduler_inl.hpp).
 	 */
 	[[nodiscard]] bool start(Callback<void(void)> && entry, const char* name = nullptr);
 
 	/**
 	 * @brief Stops the @c TaskControlBlock whatever its state
 	 * @return @c true is the @c TaskControlBlock has been stopped, @c false otherwise (not started)
+	 * @remark Defined inline in @c Scheduler_inl.hpp (issues an @c SVC using
+	 *         @c Scheduler::ServiceCallNumber).
 	 */
 	[[nodiscard]] bool stop();
 
@@ -248,6 +253,7 @@ public:
 	 * @brief Dynamically change the @c Priority of the @c TaskControlBlock
 	 * @param newPriority the new @c Priority
 	 * @remark This may trigger a @c TaskControlBlock switch from the system to make sure the most important @c TaskControlBlock is always executed
+	 * @remark Defined inline in @c Scheduler_inl.hpp (calls @c Scheduler::updatePriority).
 	 */
 	void priority(Priority newPriority);
 
@@ -302,6 +308,12 @@ private:
 
 	static constexpr uint32_t kFpFlag = 0b10000; // if this bit is NOT set in LR at exception, then the stack frame and saved context both use floating point context
 
+	/**
+	 * @brief Trampoline used as the initial PC of every task
+	 * @param thisPtr Pointer to the @c TaskControlBlock being started
+	 * @remark Defined inline in @c Scheduler_inl.hpp because it terminates the
+	 *         task via @c Scheduler::terminateTask once @c m_entry returns.
+	 */
 	static void taskStarter(TaskControlBlock* thisPtr);
 
 	void setReturnValue(uint32_t value)

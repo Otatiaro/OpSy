@@ -68,6 +68,8 @@
 #error "Scheduler_inl.hpp must only be included from the bottom of Scheduler.hpp"
 #endif
 
+#include <algorithm>
+
 namespace opsy
 {
 
@@ -393,6 +395,100 @@ inline std::cv_status ConditionVariable::wait_until(time_point timeout_time)
 inline std::cv_status ConditionVariable::wait_until(Mutex& mutex, time_point timeout_time)
 {
 	return wait_for(mutex, timeout_time - Scheduler::now());
+}
+
+// --- TaskControlBlock -------------------------------------------------------
+
+/**
+ * @brief Starts the task with the given @p entry callback
+ * @param entry The @c Callback the task will execute
+ * @param name Optional name for the task
+ * @return @c true if the task was successfully started, @c false if it was already active
+ * @remark Sets up the initial stack so the task starts in @c taskStarter, with
+ *         @c Scheduler::terminateTask wired as the link register so the task
+ *         terminates cleanly when its entry callback returns. The +2 offset
+ *         on @c terminateTask skips the leading @c nop in its naked body
+ *         (kept so GDB shows a sensible link return).
+ */
+inline bool TaskControlBlock::start(Callback<void(void)> && entry, const char* name)
+{
+	if(m_active.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
+		return false;
+
+	m_entry = std::move(entry);
+	m_name = name;
+
+#ifndef NDEBUG
+	std::fill(m_stackBase, m_stackBase + m_stackSize, Dummy);
+#endif
+
+	m_stackPointer = &m_stackBase[m_stackSize - 1]; // this pointer is reserved to stop stack trace unwinding
+	m_stackBase[m_stackSize - 1] = 0; // keep this pointer to zero to stop stack trace
+
+	m_stackPointer -= sizeof(StackFrame) / sizeof(StackItem);
+	const auto frame = reinterpret_cast<StackFrame*>(m_stackPointer);
+
+	frame->psr = 1 << 24;
+	frame->pc = reinterpret_cast<CodePointer>(taskStarter);
+	frame->lr = reinterpret_cast<CodePointer>(reinterpret_cast<uint32_t>(Scheduler::terminateTask) + 2); // the 2 byte offset is to skip the "nop" instruction at the beginning of terminate task. This is to make GDB happy about the link return ...
+	frame->r0 = reinterpret_cast<uint32_t>(this);
+
+	m_stackPointer -= sizeof(Context) / sizeof(StackItem);
+	const auto context = reinterpret_cast<Context*>(m_stackPointer);
+	context->control = 0b10;
+	context->lr = 0xFFFFFFFD;
+
+	Scheduler::addTask(*this);
+	return true;
+}
+
+/**
+ * @brief Stops the task immediately
+ * @return @c true if the task was running and has been signalled to terminate, @c false if it was already inactive
+ * @remark Issues an @c SVC carrying @c ServiceCallNumber::Terminate; the actual
+ *         teardown happens in @c Scheduler::serviceCallHandler.
+ */
+inline bool TaskControlBlock::stop()
+{
+	if(!isStarted()) // can only stop an active task
+		return false;
+
+	asm volatile(
+			"mov r0, %[task] \n\t"
+			"svc %[immediate]"
+			:
+			: [immediate] "I" (Scheduler::ServiceCallNumber::Terminate), [task] "r" (this)
+			: "r0");
+	return true;
+}
+
+/**
+ * @brief Updates the task priority
+ * @param newPriority The new priority value
+ * @remark No-op if the priority is unchanged. Otherwise delegates to
+ *         @c Scheduler::updatePriority which may re-order ready/waiting lists
+ *         and request a context switch.
+ */
+inline void TaskControlBlock::priority(Priority newPriority)
+{
+	if(newPriority == m_priority)
+		return;
+	else
+		Scheduler::updatePriority(*this, newPriority);
+}
+
+/**
+ * @brief Trampoline executed at the start of every task
+ * @param thisPtr Pointer to the @c TaskControlBlock being started
+ * @remark Calls the user-provided entry callback, then terminates the task
+ *         via @c Scheduler::terminateTask. The link register set up in
+ *         @c start would also lead here, this trampoline is for the normal
+ *         (non-fault) entry path.
+ */
+inline void TaskControlBlock::taskStarter(TaskControlBlock* thisPtr)
+{
+	thisPtr->m_entry();
+	Scheduler::terminateTask(thisPtr);
 }
 
 }

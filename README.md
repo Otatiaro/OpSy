@@ -23,12 +23,16 @@ of hours in commercial flight controllers.
 - Cortex-M33 (ARMv8-M Mainline, FPU, with TrustZone disabled / non-secure)
 
 The `PendSV` context-switch path saves and restores the floating-point
-callee-saved registers (`S16-S31`) only on cores that have an FPU; the FP
-save/restore block is compiled out on Cortex-M3 so no clock cycle is spent
-on a feature the core does not have. `cortex_m::enable_fpu()` is a
-compile-time error on Cortex-M3 — the user project is responsible for
-calling it only on FPU-equipped targets. The scheduler asserts at startup
-that the running core is one of the above.
+callee-saved registers (`S16-S31`) only when the toolchain reports a
+hardware FPU (the predefined `__ARM_FP` macro, set by GCC for `-mfpu=…
+-mfloat-abi=hard`). Builds without an FPU — Cortex-M3 in the official
+build matrix, but also any soft-float build of M4/M7 — pay zero clock
+cycle for the absent feature: the FP save/restore block is preprocessed
+out, and the matching `if constexpr` branch in the service-call handler
+disappears at compile time. `cortex_m::enable_fpu()` is a compile-time
+error in those builds — the user project is responsible for calling it
+only on FPU-equipped targets. The scheduler asserts at startup that the
+running core is one of the above.
 
 ## Requirements
 

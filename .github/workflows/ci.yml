@@ -35,8 +35,8 @@ jobs:
         run: |
           version=19.1.5
           asset=LLVM-ET-Arm-${version}-Linux-x86_64.tar.xz
-          curl -L -o /tmp/${asset} \
-            https://github.com/arm/LLVM-embedded-toolchain-for-Arm/releases/download/release-${version}/${asset}
+          curl --fail -L -o /tmp/${asset} \
+            https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${version}/${asset}
           sudo mkdir -p /opt
           sudo tar -xJf /tmp/${asset} -C /opt
           echo "/opt/LLVM-ET-Arm-${version}-Linux-x86_64/bin" >> "$GITHUB_PATH"

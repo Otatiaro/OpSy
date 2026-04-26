@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [m4, m7, m33]
+        target: [m3, m4, m7, m33]
     steps:
       - uses: actions/checkout@v5
 

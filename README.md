@@ -18,13 +18,17 @@ of hours in commercial flight controllers.
 
 ## Supported targets
 
-- Cortex-M4, Cortex-M7 (ARMv7-M)
-- Cortex-M33 (ARMv8-M, with TrustZone disabled / non-secure)
+- Cortex-M3 (ARMv7-M, no FPU)
+- Cortex-M4, Cortex-M7 (ARMv7-M, FPU)
+- Cortex-M33 (ARMv8-M Mainline, FPU, with TrustZone disabled / non-secure)
 
-All three have an FPU; the `PendSV` context-switch path saves and restores
-the floating-point registers unconditionally, so OpSy currently requires a
-core with VFP. Cortex-M3 (no FPU) is not supported. The scheduler asserts
-at startup that the running core is one of the above.
+The `PendSV` context-switch path saves and restores the floating-point
+callee-saved registers (`S16-S31`) only on cores that have an FPU; the FP
+save/restore block is compiled out on Cortex-M3 so no clock cycle is spent
+on a feature the core does not have. `cortex_m::enable_fpu()` is a
+compile-time error on Cortex-M3 — the user project is responsible for
+calling it only on FPU-equipped targets. The scheduler asserts at startup
+that the running core is one of the above.
 
 ## Requirements
 

@@ -18,7 +18,13 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 
 [[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start(idle_task_control_block& idle)
 {
-	assert((cortex_m::type() == cortex_m::core_type::m4) || (cortex_m::type() == cortex_m::core_type::m7) || (cortex_m::type() == cortex_m::core_type::m33)); // only Cortex-M4, M7 and M33 are officially supported
+	{
+		const auto running = cortex_m::type();
+		assert(running == cortex_m::core_type::m3
+			|| running == cortex_m::core_type::m4
+			|| running == cortex_m::core_type::m7
+			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
+	}
 	assert(!is_started_);
 	is_started_ = true;
 
@@ -331,10 +337,14 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		// wake_up() → set_return_value() navigate to stack_frame::r0 correctly regardless
 		// of whether PendSV has already run.
 		{
-			const bool fpu_active = !(exc_return & task_control_block::fp_flag);
 			auto* sp = reinterpret_cast<task_control_block::stack_item*>(frame)
-					  - sizeof(context) / sizeof(task_control_block::stack_item)
-					  - (fpu_active ? sizeof(fp_context) / sizeof(task_control_block::stack_item) : 0u);
+					  - sizeof(context) / sizeof(task_control_block::stack_item);
+			if constexpr (cortex_m::has_fpu)
+			{
+				const bool fpu_active = !(exc_return & task_control_block::fp_flag);
+				if (fpu_active)
+					sp -= sizeof(fp_context) / sizeof(task_control_block::stack_item);
+			}
 			reinterpret_cast<context*>(sp)->lr = exc_return; // pre-populate lr for set_return_value's FPU check
 			current_task_->stack_pointer_ = sp;
 		}
@@ -357,6 +367,15 @@ void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
 	opsy::scheduler::systick_handler();
 }
 
+/**
+ * @brief @c PendSV handler — ARMv7-M / ARMv8-M Mainline (Cortex-M3 / M4 / M7 / M33).
+ * @remark Uses @c BASEPRI to lock at the service-call priority, Thumb-2 @c stmdb / @c ldmia
+ *         to save and restore @c R4-R11 in a single instruction, and conditionally saves
+ *         the FP callee-saved registers (@c S16-S31) when the running task had the FPU
+ *         active. The FP save/restore block is compiled in only when the toolchain reports
+ *         a hardware FPU (@c __ARM_FP) so cores without an FPU (Cortex-M3) pay zero clock
+ *         cycle for the absent feature.
+ */
 void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
 {
 	asm volatile(
@@ -364,9 +383,11 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"msr BASEPRI, R1 \n\t"
 			"isb \n\t"
 			"mrs R0, PSP \n\t"
+#if defined(__ARM_FP)
 			"tst LR, #16 \n\t"
 			"it EQ \n\t"
 			"vstmdbeq R0!, {S16-S31} \n\t"
+#endif
 			"mov R2, LR\n\t"
 			"mrs R3, CONTROL\n\t"
 			"stmdb R0!, {R2-R11} \n\t"
@@ -374,9 +395,11 @@ void __attribute__((optimize("O0"), naked, section(".text.opsy.isr.pendsv"))) Pe
 			"ldmia R0!, {R2-R11} \n\t"
 			"mov LR, R2\n\t"
 			"msr CONTROL, R3\n\t"
+#if defined(__ARM_FP)
 			"tst LR, #16 \n\t"
 			"it EQ \n\t"
 			"vldmiaeq R0!, {S16-S31} \n\t"
+#endif
 			"msr PSP, R0 \n\t"
 			"msr BASEPRI, R1 \n\t"
 			"isb \n\t"

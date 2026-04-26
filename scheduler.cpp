@@ -19,18 +19,18 @@
 namespace opsy
 {
 
-__attribute__((section(".bss.opsy.scheduler.isstarted"))) bool scheduler::is_started_ = false;
+__attribute__((section(".bss.opsy.scheduler.isstarted"))) std::atomic<bool> scheduler::is_started_{false};
 __attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point scheduler::ticks_ = opsy::startup;
 __attribute__((section(".bss.opsy.scheduler.alltasks"))) embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
 __attribute__((section(".bss.opsy.scheduler.timeouts"))) embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
 __attribute__((section(".bss.opsy.scheduler.ready"))) embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
-__attribute__((section(".bss.opsy.scheduler.idling"))) bool scheduler::idling_ = false;
-__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) bool scheduler::may_need_switch_ = false;
-__attribute__((section(".bss.opsy.scheduler.idle"))) idle_task_control_block* scheduler::idle_;
-__attribute__((section(".bss.opsy.scheduler.previoustask"))) task_control_block* scheduler::previous_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.currenttask"))) task_control_block* scheduler::current_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.nexttask"))) task_control_block* scheduler::next_task_ = nullptr;
-__attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool scheduler::critical_section_ = false;
+__attribute__((section(".bss.opsy.scheduler.idling"))) std::atomic<bool> scheduler::idling_{false};
+__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) std::atomic<bool> scheduler::may_need_switch_{false};
+__attribute__((section(".bss.opsy.scheduler.idle"))) std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
+__attribute__((section(".bss.opsy.scheduler.previoustask"))) std::atomic<task_control_block*> scheduler::previous_task_{nullptr};
+__attribute__((section(".bss.opsy.scheduler.currenttask"))) std::atomic<task_control_block*> scheduler::current_task_{nullptr};
+__attribute__((section(".bss.opsy.scheduler.nexttask"))) std::atomic<task_control_block*> scheduler::next_task_{nullptr};
+__attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool> scheduler::critical_section_{false};
 
 [[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start_impl(idle_task_control_block& idle)
 {
@@ -41,14 +41,14 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 			|| running == cortex_m::core_type::m7
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
-	assert(!is_started_);
-	is_started_ = true;
+	assert(!is_started_.load(std::memory_order_relaxed));
+	is_started_.store(true, std::memory_order_relaxed);
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
 
 	auto core_clock_value = core_clock();
-	idle_ = &idle;
+	idle_.store(&idle, std::memory_order_relaxed);
 
 	cortex_m::preempt_bits(preemption_bits);
 	cortex_m::set_priority(cortex_m::system_irq::service_call, service_call_priority); // service call is at system preemption and highest sub priority
@@ -78,29 +78,30 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) volatile bool sc
 
 bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
 {
-	assert(is_started_);
-	assert((current_task_ != nullptr) || (critical_section_ == false)); // can't have no current task in critical section
+	assert(is_started_.load(std::memory_order_relaxed));
+	auto* current = current_task_.load(std::memory_order_relaxed);
+	auto* next    = next_task_.load(std::memory_order_relaxed);
+	assert((current != nullptr) || (critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
 
-	if(critical_section_)
+	if(critical_section_.load(std::memory_order_relaxed))
 	{
-		may_need_switch_ = true;
+		may_need_switch_.store(true, std::memory_order_relaxed);
 		return false;
 	}
 
-	if (next_task_ != nullptr)
+	if (next != nullptr)
 	{
-		assert(current_task_ != next_task_);
+		assert(current != next);
 
-		ready_.insert_when(task_control_block::priority_is_lower, *next_task_);
-		next_task_ = nullptr;
+		ready_.insert_when(task_control_block::priority_is_lower, *next);
+		next_task_.store(nullptr, std::memory_order_relaxed);
+		next = nullptr;
 	}
 
-	const auto current = current_task_;
-
-	if (current_task_ != nullptr)
+	if (current != nullptr)
 	{
-		ready_.insert_when(task_control_block::priority_is_lower, *current_task_);
-		current_task_ = nullptr;
+		ready_.insert_when(task_control_block::priority_is_lower, *current);
+		current_task_.store(nullptr, std::memory_order_relaxed);
 	}
 
 	if (ready_.empty())
@@ -110,17 +111,18 @@ bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
 	}
 	else
 	{
-		next_task_ = &ready_.front();
+		auto& front = ready_.front();
 		ready_.pop_front();
 
-		if (next_task_ == current)
+		if (&front == current)
 		{
-			current_task_ = next_task_;
-			next_task_ = nullptr;
+			current_task_.store(&front, std::memory_order_relaxed);
+			next_task_.store(nullptr, std::memory_order_relaxed);
 			return false;
 		}
 		else
 		{
+			next_task_.store(&front, std::memory_order_relaxed);
 			cortex_m::trigger_pend_sv();
 			return true;
 		}
@@ -184,7 +186,8 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 	task.priority_ = new_priority;
 	if(task.is_started()) // check task is started
 	{
-		if(&task == current_task_ || &task == next_task_) // task is current or next to switch to
+		if(&task == current_task_.load(std::memory_order_relaxed)
+			|| &task == next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
 			do_switch(); // ask for a switch, this will compare priority again with other ready tasks
 		else if(task.waiting_ != nullptr) // task is waiting a condition variable
 		{
@@ -210,48 +213,51 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pe
 	cortex_m::clear_pend_sv();
 
 	uint64_t result = 0;
+	auto* previous = previous_task_.load(std::memory_order_relaxed);
+	auto* next     = next_task_.load(std::memory_order_relaxed);
+	auto* idle     = idle_.load(std::memory_order_relaxed);
 
-	if (previous_task_ != nullptr)
+	if (previous != nullptr)
 	{
-		assert(psp >= previous_task_->stack_base_); // Process stack pointer below the task stack base, stack overflow !
-		assert(*previous_task_->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
-		previous_task_->stack_pointer_ = psp;
-		hooks::task_stopped(*previous_task_);
+		assert(psp >= previous->stack_base_); // Process stack pointer below the task stack base, stack overflow !
+		assert(*previous->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
+		previous->stack_pointer_ = psp;
+		hooks::task_stopped(*previous);
 	}
 
-	if (idling_)
-		idle_->stack_pointer_ = psp;
+	if (idling_.load(std::memory_order_relaxed))
+		idle->stack_pointer_ = psp;
 
-	if (next_task_ == nullptr)
+	if (next == nullptr)
 	{
-		idling_ = true;
-		previous_task_ = nullptr;
-		result = reinterpret_cast<uint64_t>(idle_->stack_pointer_);
+		idling_.store(true, std::memory_order_relaxed);
+		previous_task_.store(nullptr, std::memory_order_relaxed);
+		result = reinterpret_cast<uint64_t>(idle->stack_pointer_);
 		hooks::enter_idle();
 	}
 	else
 	{
-		idling_ = false;
-		previous_task_ = next_task_;
-		current_task_ = next_task_;
-		result = reinterpret_cast<uint64_t>(current_task_->stack_pointer_);
-		current_task_->last_started_ = ticks_;
-		next_task_ = nullptr;
+		idling_.store(false, std::memory_order_relaxed);
+		previous_task_.store(next, std::memory_order_relaxed);
+		current_task_.store(next, std::memory_order_relaxed);
+		result = reinterpret_cast<uint64_t>(next->stack_pointer_);
+		next->last_started_ = ticks_;
+		next_task_.store(nullptr, std::memory_order_relaxed);
 
-		if(current_task_->mutex_ != nullptr) // there is a mutex we need to re-acquire before exit
+		if(next->mutex_ != nullptr) // there is a mutex we need to re-acquire before exit
 		{
-			result |= static_cast<uint64_t>(current_task_->mutex_->relock_from_pend_sv(critical_section(true))) <<32;
-			critical_section_ = true;
-			current_task_->mutex_ = nullptr;
-			hooks::mutex_restored_for_task(*current_task_);
+			result |= static_cast<uint64_t>(next->mutex_->relock_from_pend_sv(critical_section(true))) <<32;
+			critical_section_.store(true, std::memory_order_relaxed);
+			next->mutex_ = nullptr;
+			hooks::mutex_restored_for_task(*next);
 		}
 
-		assert(current_task_->is_started());
-		hooks::task_started(*current_task_);
+		assert(next->is_started());
+		hooks::task_started(*next);
 	}
 
 	if constexpr (cortex_m::has_stack_limit_regs)
-		cortex_m::set_psplim(idling_ ? idle_->stack_base_ : current_task_->stack_base_);
+		cortex_m::set_psplim(idling_.load(std::memory_order_relaxed) ? idle->stack_base_ : next->stack_base_);
 
 	return result;
 }
@@ -290,10 +296,11 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			task.waiting_ = nullptr;
 		}
 
-		if (&task == current_task_)
+		if (&task == current_task_.load(std::memory_order_relaxed))
 		{
-			assert(!critical_section_);
-			previous_task_ = current_task_ = nullptr;
+			assert(!critical_section_.load(std::memory_order_relaxed));
+			previous_task_.store(nullptr, std::memory_order_relaxed);
+			current_task_.store(nullptr, std::memory_order_relaxed);
 			task_switch = do_switch();
 		}
 		hooks::task_terminated(task);
@@ -303,16 +310,17 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 	case service_call_number::sleep:
 	{
 		assert(is_thread); // should not be called from non thread mode
-		assert(!critical_section_); // should not be called in critical section
-		assert(current_task_ != nullptr); // cannot be called if there is no current task running
+		assert(!critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		auto* current = current_task_.load(std::memory_order_relaxed);
+		assert(current != nullptr); // cannot be called if there is no current task running
 
 		const int64_t raw = static_cast<int64_t>(frame->r0) | (static_cast<int64_t>(frame->r1) << 32);
 		auto delta = duration{raw + 1}; // add one because we want to wait at least the required time
 		assert(delta.count() >= 0);
-		current_task_->wait_until_ = ticks_ + delta;
-		timeouts_.insert_when(wakeup_after, *current_task_);
-		hooks::task_sleep(*current_task_);
-		current_task_ = nullptr;
+		current->wait_until_ = ticks_ + delta;
+		timeouts_.insert_when(wakeup_after, *current);
+		hooks::task_sleep(*current);
+		current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
 		break;
 	}
@@ -320,7 +328,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 	case service_call_number::context_switch:
 	{
 		assert(is_thread); // should not be called from non thread mode
-		assert(!critical_section_); // should not be called in critical section
+		assert(!critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
 		task_switch = do_switch();
 		break;
 	}
@@ -329,7 +337,8 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 	{
 		assert(is_thread); // should not be called from non thread mode
 		assert(frame->r0 != 0); // cannot be called with undefined condition variable
-		assert(current_task_ != nullptr); // cannot be called if there is no current task running
+		auto* current = current_task_.load(std::memory_order_relaxed);
+		assert(current != nullptr); // cannot be called if there is no current task running
 
 		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
 		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
@@ -338,31 +347,31 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 
 		if(timeout.count() >= 0)
 		{
-			current_task_->wait_until_ = ticks_ + timeout;
-			timeouts_.insert_when(wakeup_after, *current_task_);
+			current->wait_until_ = ticks_ + timeout;
+			timeouts_.insert_when(wakeup_after, *current);
 			// Just engaged on the previous line; use * not .value() to avoid
 			// the bad_optional_access -> abort path under -fno-exceptions.
-			hooks::task_wait_timeout(*current_task_, *condition, *current_task_->wait_until_);
-			hooks::condition_variable_start_waiting(*condition, *current_task_, timeout);
+			hooks::task_wait_timeout(*current, *condition, *current->wait_until_);
+			hooks::condition_variable_start_waiting(*condition, *current, timeout);
 		}
 		else
 		{
-			hooks::task_wait(*current_task_, *condition);
-			hooks::condition_variable_start_waiting(*condition, *current_task_);
+			hooks::task_wait(*current, *condition);
+			hooks::condition_variable_start_waiting(*condition, *current);
 		}
 
 		if(mtx != nullptr)
 		{
-			assert(critical_section_ == true); // should be in critical section
-			current_task_->mutex_ = mtx;
+			assert(critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+			current->mutex_ = mtx;
 			mtx->release_from_service_call();
 			mtx->critical_section_.disable();
-			critical_section_ = false;
-			hooks::mutex_stored_for_task(*current_task_);
+			critical_section_.store(false, std::memory_order_relaxed);
+			hooks::mutex_stored_for_task(*current);
 		}
 
-		condition->add_waiting(*current_task_);
-		current_task_->waiting_ = condition;
+		condition->add_waiting(*current);
+		current->waiting_ = condition;
 
 		// Pre-set stack_pointer_ so set_return_value() is safe if an ISR tail-chains
 		// before PendSV saves the context. PendSV will save context (and fp_context
@@ -379,10 +388,10 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 					sp -= sizeof(fp_context) / sizeof(task_control_block::stack_item);
 			}
 			reinterpret_cast<context*>(sp)->lr = exc_return; // pre-populate lr for set_return_value's FPU check
-			current_task_->stack_pointer_ = sp;
+			current->stack_pointer_ = sp;
 		}
 
-		current_task_ = nullptr;
+		current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
 		break;
 	}

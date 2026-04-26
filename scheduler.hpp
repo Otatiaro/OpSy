@@ -154,7 +154,8 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(is_started_ && cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
+		assert(is_started_.load(std::memory_order_relaxed)
+			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 		return ticks_;
 	}
 
@@ -165,12 +166,12 @@ public:
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
-		if (critical_section_) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
+		if (critical_section_.load(std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return opsy::critical_section(false);
 		else
 		{
 			hooks::enter_critical_section();
-			critical_section_ = true;
+			critical_section_.store(true, std::memory_order_relaxed);
 			return opsy::critical_section(true);
 		}
 	}
@@ -183,26 +184,34 @@ private:
 			terminate, sleep, context_switch, wait,
 	};
 
-	static bool is_started_;
+	// All flags / pointers below are read or written from both task and ISR
+	// context (PendSV, SysTick, SVC). We keep them as std::atomic<...> with
+	// memory_order_relaxed, matching the rest of OpSy (see task::active_):
+	// single-core Cortex-M makes the underlying word load/store atomic for
+	// free, the only thing relaxed atomics buy us — and the only thing we
+	// need — is preventing the compiler from caching them in registers across
+	// SVC / PendSV / function calls. Stronger orders would just add DMBs that
+	// are unnecessary on a uniprocessor.
+	static std::atomic<bool> is_started_;
 	static time_point ticks_;
 	static embedded_list<task_control_block, task_lists::handle> all_tasks_;
 	static embedded_list<task_control_block, task_lists::timeout> timeouts_;
 	static embedded_list<task_control_block, task_lists::waiting> ready_;
-	static bool idling_;
-	static bool may_need_switch_;
-	static volatile bool critical_section_;
+	static std::atomic<bool> idling_;
+	static std::atomic<bool> may_need_switch_;
+	static std::atomic<bool> critical_section_;
 
-	static idle_task_control_block* idle_;
-	static task_control_block* previous_task_;
-	static task_control_block* current_task_;
-	static task_control_block* next_task_;
+	static std::atomic<idle_task_control_block*> idle_;
+	static std::atomic<task_control_block*> previous_task_;
+	static std::atomic<task_control_block*> current_task_;
+	static std::atomic<task_control_block*> next_task_;
 
 	static void add_task(task_control_block& task)
 	{
 		hooks::task_added(task);
 		all_tasks_.push_front(task);
 		ready_.insert_when(task_control_block::priority_is_lower, task);
-		if(is_started_)
+		if(is_started_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
 
@@ -211,7 +220,7 @@ private:
 	static void trigger_soft_switch()
 	{
 		auto previous = cortex_m::set_basepri(service_call_priority);
-		may_need_switch_ = false;
+		may_need_switch_.store(false, std::memory_order_relaxed);
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
 		cortex_m::set_basepri(previous); // and restore the basepri to its previous value
@@ -281,10 +290,10 @@ private:
 
 	static void critical_section_end()
 	{
-		assert(critical_section_ == true); // should be in critical section
-		critical_section_ = false;
+		assert(critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+		critical_section_.store(false, std::memory_order_relaxed);
 		hooks::exit_critical_section();
-		if (may_need_switch_)
+		if (may_need_switch_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
 };

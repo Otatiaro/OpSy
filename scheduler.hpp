@@ -139,7 +139,7 @@ public:
 	 * @return A @c critical_section with state @c true if possible, @c false otherwise (already in critical section)
 	 * @remark Use this only for @c task to @c task synchronization, prefer @c mutex for a more generic synchronization (uses @c isr_priority to sychronize with interrupt service routines)
 	 */
-	static inline opsy::critical_section try_critical_section()
+	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
 		if (critical_section_) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return opsy::critical_section(false);

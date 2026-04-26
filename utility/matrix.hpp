@@ -52,11 +52,14 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
+#include "../opsy_assert.hpp"
 #include "vector.hpp"
 
 namespace opsy::utility
@@ -561,6 +564,50 @@ public:
 		}
 	}
 
+	// ── Symmetric eigen decomposition ────────────────────────────────────
+	//
+	// Eigenvalues + eigenvectors of a real symmetric matrix via a
+	// Householder tridiagonalisation followed by QL with implicit shifts
+	// — the textbook two-pass algorithm shipped by EISPACK / JAMA. Both
+	// entry points sort the eigenvalues in ascending order; the columns
+	// of the returned @c vectors matrix line up with @c values .
+	//
+	// The methods abort via @c assert(M @c == @c M^T) when given a
+	// non-symmetric matrix: the algorithm assumes symmetry and would
+	// silently produce nonsense otherwise. The check is exact on float
+	// equality, which is fine for matrices built symmetrically (e.g.
+	// @c DᵀD ); if you accumulate symmetric updates with rounding, build
+	// the matrix once symmetrically before calling.
+
+	/** Return type of @ref symmetric_eigen_decomposition . */
+	struct eigen_decomposition_t
+	{
+		vector<Rows, T>       values;   // ascending order
+		matrix<Rows, Rows, T> vectors;  // column @c i is the eigenvector for @c values[i]
+	};
+
+	/**
+	 * @brief Returns the eigenvalues of this real symmetric matrix in
+	 *        ascending order.
+	 *
+	 * @pre   The matrix must be symmetric (asserted in debug).
+	 */
+	vector<Rows, T> eigenvalues() const requires (Rows == Cols && Rows >= 2);
+
+	/**
+	 * @brief Returns the eigenvalues and eigenvectors of this real
+	 *        symmetric matrix.
+	 *
+	 *        Eigenvalues are sorted ascending; column @c i of @c vectors
+	 *        is the unit eigenvector for @c values[i] . By construction
+	 *        @c vectors is orthogonal, so the original matrix can be
+	 *        reconstructed as @c vectors @c * @c diag(values) @c *
+	 *        @c vectors.transposed() (within float tolerance).
+	 *
+	 * @pre   The matrix must be symmetric (asserted in debug).
+	 */
+	eigen_decomposition_t symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2);
+
 private:
 
 	std::array<std::array<T, Cols>, Rows> values_;
@@ -616,6 +663,280 @@ template<std::size_t R, std::size_t C, typename T>
 			sum += m(i, j) * v[j];
 		result[i] = sum;
 	}
+	return result;
+}
+
+// ── Symmetric eigen decomposition implementation ────────────────────────
+//
+// Ported from JAMA / EISPACK ( @c tred2 + @c tql2 ). Two passes:
+//
+//   1. @ref detail::tred2 reduces the symmetric matrix @c V to tridiagonal
+//      form by chained Householder reflections. After the call, the main
+//      diagonal sits in @c d , the off-diagonal in @c e (with @c e[0]
+//      unused — slot kept for indexing convenience), and @c V holds the
+//      orthogonal accumulator @c Q such that @c QᵀMQ is tridiagonal.
+//
+//   2. @ref detail::tql2 runs QL with implicit Wilkinson shifts on the
+//      tridiagonal pair @c (d, @c e), composing the rotations into @c V .
+//      On exit @c d holds the eigenvalues and the columns of @c V hold
+//      the matching eigenvectors. A final pass sorts both ascending.
+//
+// The algorithm is iterative (QL converges quadratically near the
+// eigenvalues) and uses @c std::sqrt / @c std::hypot, so neither helper
+// can be @c constexpr in C++23 — @c std::sqrt only became @c constexpr in
+// C++26. Both helpers are therefore plain functions, exercised at
+// runtime by the sanity test.
+namespace detail
+{
+
+template<std::size_t N, typename T>
+void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+{
+	for (std::size_t j = 0; j < N; ++j)
+		d[j] = V(N - 1, j);
+
+	// Householder reduction (i goes from N-1 down to 1, inclusive).
+	for (std::size_t i = N - 1; i > 0; --i)
+	{
+		T scale = T{0};
+		T h     = T{0};
+		for (std::size_t k = 0; k < i; ++k)
+			scale += d[k] < T{0} ? -d[k] : d[k];
+
+		if (scale == T{0})
+		{
+			e[i] = d[i - 1];
+			for (std::size_t j = 0; j < i; ++j)
+			{
+				d[j]    = V(i - 1, j);
+				V(i, j) = T{0};
+				V(j, i) = T{0};
+			}
+		}
+		else
+		{
+			// Generate Householder vector.
+			for (std::size_t k = 0; k < i; ++k)
+			{
+				d[k] /= scale;
+				h += d[k] * d[k];
+			}
+			T f = d[i - 1];
+			T g = std::sqrt(h);
+			if (f > T{0})
+				g = -g;
+			e[i]     = scale * g;
+			h        -= f * g;
+			d[i - 1] = f - g;
+			for (std::size_t j = 0; j < i; ++j)
+				e[j] = T{0};
+
+			// Apply similarity transformation to remaining columns.
+			for (std::size_t j = 0; j < i; ++j)
+			{
+				f       = d[j];
+				V(j, i) = f;
+				g       = e[j] + V(j, j) * f;
+				for (std::size_t k = j + 1; k < i; ++k)
+				{
+					g    += V(k, j) * d[k];
+					e[k] += V(k, j) * f;
+				}
+				e[j] = g;
+			}
+			f = T{0};
+			for (std::size_t j = 0; j < i; ++j)
+			{
+				e[j] /= h;
+				f    += e[j] * d[j];
+			}
+			const T hh = f / (h + h);
+			for (std::size_t j = 0; j < i; ++j)
+				e[j] -= hh * d[j];
+			for (std::size_t j = 0; j < i; ++j)
+			{
+				f = d[j];
+				g = e[j];
+				for (std::size_t k = j; k < i; ++k)
+					V(k, j) -= f * e[k] + g * d[k];
+				d[j]    = V(i - 1, j);
+				V(i, j) = T{0};
+			}
+		}
+		d[i] = h;
+	}
+
+	// Accumulate transformations into V (V <- Q).
+	for (std::size_t i = 0; i + 1 < N; ++i)
+	{
+		V(N - 1, i) = V(i, i);
+		V(i, i)     = T{1};
+		const T h   = d[i + 1];
+		if (h != T{0})
+		{
+			for (std::size_t k = 0; k <= i; ++k)
+				d[k] = V(k, i + 1) / h;
+			for (std::size_t j = 0; j <= i; ++j)
+			{
+				T g = T{0};
+				for (std::size_t k = 0; k <= i; ++k)
+					g += V(k, i + 1) * V(k, j);
+				for (std::size_t k = 0; k <= i; ++k)
+					V(k, j) -= g * d[k];
+			}
+		}
+		for (std::size_t k = 0; k <= i; ++k)
+			V(k, i + 1) = T{0};
+	}
+	for (std::size_t j = 0; j < N; ++j)
+	{
+		d[j]        = V(N - 1, j);
+		V(N - 1, j) = T{0};
+	}
+	V(N - 1, N - 1) = T{1};
+	e[0] = T{0};
+}
+
+template<std::size_t N, typename T>
+void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+{
+	// Shift e so e[i] holds the off-diagonal between rows i and i+1.
+	for (std::size_t i = 1; i < N; ++i)
+		e[i - 1] = e[i];
+	e[N - 1] = T{0};
+
+	T f    = T{0};
+	T tst1 = T{0};
+	const T eps = std::numeric_limits<T>::epsilon();
+
+	for (std::size_t l = 0; l < N; ++l)
+	{
+		// Find a small sub-diagonal element to split off.
+		const T abs_d = d[l] < T{0} ? -d[l] : d[l];
+		const T abs_e = e[l] < T{0} ? -e[l] : e[l];
+		tst1 = tst1 > abs_d + abs_e ? tst1 : abs_d + abs_e;
+		std::size_t m = l;
+		while (m < N)
+		{
+			const T abs_em = e[m] < T{0} ? -e[m] : e[m];
+			if (abs_em <= eps * tst1)
+				break;
+			++m;
+		}
+
+		// If m == l, d[l] is an eigenvalue. Otherwise iterate.
+		if (m > l)
+		{
+			do
+			{
+				// Implicit Wilkinson shift.
+				T g       = d[l];
+				T p       = (d[l + 1] - g) / (T{2} * e[l]);
+				T r       = std::hypot(p, T{1});
+				if (p < T{0})
+					r = -r;
+				d[l]      = e[l] / (p + r);
+				d[l + 1]  = e[l] * (p + r);
+				const T dl1 = d[l + 1];
+				const T h   = g - d[l];
+				for (std::size_t i = l + 2; i < N; ++i)
+					d[i] -= h;
+				f += h;
+
+				// Implicit QL transformation.
+				p           = d[m];
+				T c         = T{1};
+				T c2        = c;
+				T c3        = c;
+				const T el1 = e[l + 1];
+				T s         = T{0};
+				T s2        = T{0};
+				for (std::size_t ii = m; ii > l; --ii)
+				{
+					const std::size_t i = ii - 1;
+					c3 = c2;
+					c2 = c;
+					s2 = s;
+					g  = c * e[i];
+					const T h2 = c * p;
+					r           = std::hypot(p, e[i]);
+					e[i + 1]    = s * r;
+					s           = e[i] / r;
+					c           = p / r;
+					p           = c * d[i] - s * g;
+					d[i + 1]    = h2 + s * (c * g + s * d[i]);
+
+					// Accumulate transformation into V.
+					for (std::size_t k = 0; k < N; ++k)
+					{
+						const T tmp = V(k, i + 1);
+						V(k, i + 1) = s * V(k, i) + c * tmp;
+						V(k, i)     = c * V(k, i) - s * tmp;
+					}
+				}
+				p    = -s * s2 * c3 * el1 * e[l] / dl1;
+				e[l] = s * p;
+				d[l] = c * p;
+			}
+			while ((e[l] < T{0} ? -e[l] : e[l]) > eps * tst1);
+		}
+		d[l] += f;
+		e[l]  = T{0};
+	}
+
+	// Sort eigenvalues and corresponding columns of V ascending.
+	for (std::size_t i = 0; i + 1 < N; ++i)
+	{
+		std::size_t k = i;
+		T p           = d[i];
+		for (std::size_t j = i + 1; j < N; ++j)
+		{
+			if (d[j] < p)
+			{
+				k = j;
+				p = d[j];
+			}
+		}
+		if (k != i)
+		{
+			d[k] = d[i];
+			d[i] = p;
+			for (std::size_t j = 0; j < N; ++j)
+			{
+				const T tmp = V(j, i);
+				V(j, i)     = V(j, k);
+				V(j, k)     = tmp;
+			}
+		}
+	}
+}
+
+}  // namespace detail
+
+template<std::size_t Rows, std::size_t Cols, typename T>
+vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (Rows == Cols && Rows >= 2)
+{
+	assert(*this == this->transposed());
+
+	matrix<Rows, Rows, T> V = *this;
+	vector<Rows, T> d;
+	vector<Rows, T> e;
+	detail::tred2(V, d, e);
+	detail::tql2(V, d, e);
+	return d;
+}
+
+template<std::size_t Rows, std::size_t Cols, typename T>
+typename matrix<Rows, Cols, T>::eigen_decomposition_t
+matrix<Rows, Cols, T>::symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2)
+{
+	assert(*this == this->transposed());
+
+	eigen_decomposition_t result;
+	result.vectors = *this;
+	vector<Rows, T> e;
+	detail::tred2(result.vectors, result.values, e);
+	detail::tql2(result.vectors, result.values, e);
 	return result;
 }
 

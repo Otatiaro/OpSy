@@ -445,6 +445,51 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	m /= 2.0f;
 	(void) m.row(0);
 	(void) m.col(1);
+
+	// Eigen decomposition — runtime only (uses sqrt / hypot, neither
+	// constexpr in C++23).
+	//
+	// 2x2 with eigenvalues 1 and 3, identity-ish path.
+	const matrix<2, 2> m_sym2{
+		2.0f, 1.0f,
+		1.0f, 2.0f
+	};
+	(void) m_sym2.eigenvalues();
+	auto eig2 = m_sym2.symmetric_eigen_decomposition();
+	(void) eig2.values;
+	(void) eig2.vectors;
+
+	// 3x3 symmetric — diagonal-dominant case to keep convergence cheap.
+	const matrix<3, 3> m_sym3{
+		2.0f, 1.0f, 0.0f,
+		1.0f, 2.0f, 1.0f,
+		0.0f, 1.0f, 2.0f
+	};
+	(void) m_sym3.eigenvalues();
+	auto eig3 = m_sym3.symmetric_eigen_decomposition();
+	(void) eig3.values;
+
+	// Diagonal matrix — eigenvalues are the diagonal entries (sorted).
+	const matrix<4, 4> m_diag{
+		3.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 4.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 2.0f
+	};
+	auto eig4 = m_diag.symmetric_eigen_decomposition();
+	(void) eig4.values;
+	(void) eig4.vectors;
+
+	// 5x5 — exercises a size where the algorithm runs more than a couple
+	// QL iterations.
+	const matrix<5, 5> m_sym5{
+		4.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+		1.0f, 4.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 4.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 4.0f, 1.0f,
+		0.0f, 0.0f, 0.0f, 1.0f, 4.0f
+	};
+	(void) m_sym5.eigenvalues();
 }
 
 // ============================== quaternion ==============================

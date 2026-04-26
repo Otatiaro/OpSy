@@ -445,11 +445,16 @@ public:
 
 	/**
 	 * @brief Generates a system reset
-	 * @remark This call only sets the required bit, but it may take a couple more cycles before the reset is effective
+	 * @remark Setting the @c SYSRESETREQ bit does not stop the CPU instantly: the
+	 *         reset propagates a few cycles later. The trailing @c while loop is
+	 *         needed to honour @c [[noreturn]] under stricter front-ends (clang
+	 *         emits @c -Winvalid-noreturn otherwise), and also pins execution
+	 *         here in the unlikely event the bit takes very long to take effect.
 	 */
-	static void __attribute__((noreturn)) reset()
+	[[noreturn]] static void reset()
 	{
 		memory_register<uint32_t>(AircrAddress).set(AircrVectkeyValue | AircrSysreset);
+		while (true) {} // wait for the reset to take effect; never reached in practice
 	}
 
 	/**

@@ -52,6 +52,33 @@
 namespace opsy::utility
 {
 
+/**
+ * @brief Fixed-size, heap-free allocator.
+ *
+ *        Manages a single std::array<int, N> as a sequence of free and
+ *        allocated chunks separated by boundary tags. Each chunk has two
+ *        indicator slots — one at its head, one at its tail — that hold the
+ *        chunk size as a positive int when free and as a negative int when
+ *        allocated. @ref deallocate coalesces adjacent free chunks.
+ *
+ *        @ref allocate only ever splits the trailing free chunk: any free
+ *        chunk created in the middle of the buffer by @ref deallocate stays
+ *        unusable until the surrounding allocations are released and the
+ *        regions merge into the trailing chunk. The allocator is therefore
+ *        not a general-purpose freelist; it is a "stack with backwards
+ *        cleanup" that suits embedded code where allocation order is
+ *        usually LIFO.
+ *
+ * @tparam N        Total slot count of the underlying buffer (= sizeof(int)
+ *                  bytes per slot). Must be at least 4 — the minimum useful
+ *                  size is "2 head/tail indicators of a single chunk + 2
+ *                  data slots".
+ * @tparam UseDummy When @c true, freed slots are filled with @p Dummy and
+ *                  @ref run_check verifies the pattern. Useful to catch
+ *                  use-after-free.
+ * @tparam Dummy    The sentinel pattern used by @c UseDummy (default
+ *                  @c 0xBAADF00D).
+ */
 template<std::size_t N, bool UseDummy = false, int Dummy = static_cast<int>(0xBAADF00D)>
 class allocator
 {

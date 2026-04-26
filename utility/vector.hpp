@@ -375,7 +375,10 @@ public:
 	 */
 	constexpr vector operator-() const
 	{
-		return construct([](const T& l, const T& r) {return l * r;}, values_, static_cast<T>(-1));
+		vector result;
+		for (auto i = 0U; i < N; ++i)
+			result.values_[i] = -values_[i];
+		return result;
 	}
 
 	/**

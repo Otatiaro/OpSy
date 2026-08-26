@@ -143,7 +143,7 @@ OPSY_QEMU_TEST(two_tasks_never_hold_the_section_at_once)
 	g_stop = true;
 	for (int guard = 0; guard < 100 && g_contender.is_started(); ++guard)
 		opsy::sleep_for(1ms);
-	(void) g_contender.stop();
+	(void) g_contender.kill();
 
 	CHECK(g_acquired > 1);        // the loop really ran on both sides
 	CHECK(g_max_holders == 1);    // and never overlapped

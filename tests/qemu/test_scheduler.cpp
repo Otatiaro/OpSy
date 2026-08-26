@@ -34,7 +34,7 @@ std::atomic<int> g_second_ran = 0;
 /** @brief Stops a task and waits for it to actually leave the scheduler. */
 void ensure_stopped(opsy::task<1024>& task)
 {
-	(void) task.stop();
+	(void) task.kill();
 	for (int guard = 0; guard < 100 && task.is_started(); ++guard)
 		opsy::sleep_for(1ms);
 }
@@ -173,7 +173,7 @@ OPSY_QEMU_TEST(stopping_a_runnable_task_removes_it_from_the_ready_list)
 	g_helper.priority(opsy::task_priority::lowest);
 	CHECK(g_helper_ran == 0);
 
-	CHECK(g_helper.stop());       // terminate it while it is in ready_
+	CHECK(g_helper.kill());       // terminate it while it is in ready_
 	CHECK(!g_helper.is_started());
 
 	// If it were still linked, the scheduler would resume it here.
@@ -197,7 +197,7 @@ OPSY_QEMU_TEST(stopping_a_ready_task_leaves_other_tasks_runnable)
 	CHECK(g_second_helper.start([] { while (true) { g_second_ran = 1; opsy::sleep_for(1ms); } }, "victim"));
 	g_second_helper.priority(opsy::task_priority::lowest);
 
-	CHECK(g_second_helper.stop());   // drop the second while both are in ready_
+	CHECK(g_second_helper.kill());   // drop the second while both are in ready_
 	opsy::sleep_for(20ms);
 
 	// Erasing one must not have unlinked the other: this is the failure mode
@@ -233,7 +233,7 @@ OPSY_QEMU_TEST(stopping_a_task_that_timed_out_waiting_leaves_the_lists_intact)
 	CHECK(g_helper_ran == 1);        // the timeout fired and it resumed
 
 	// Stop it now that waiting_ is stale.
-	CHECK(g_helper.stop());
+	CHECK(g_helper.kill());
 	CHECK(!g_helper.is_started());
 
 	// The condition variable must still work for somebody else.

@@ -44,9 +44,9 @@ void record(int who)
 void stop_all()
 {
 	g_stop = true;
-	(void) g_alpha.stop();
-	(void) g_beta.stop();
-	(void) g_gamma.stop();
+	(void) g_alpha.kill();
+	(void) g_beta.kill();
+	(void) g_gamma.kill();
 	for (int guard = 0; guard < 200 &&
 	     (g_alpha.is_started() || g_beta.is_started() || g_gamma.is_started()); ++guard)
 		opsy::sleep_for(1ms);
@@ -60,10 +60,10 @@ OPSY_QEMU_TEST(a_task_reports_started_between_start_and_stop)
 	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }, "alpha"));
 	CHECK(g_alpha.is_started());
 
-	CHECK(g_alpha.stop());
+	CHECK(g_alpha.kill());
 	CHECK(!g_alpha.is_started());
 
-	CHECK(!g_alpha.stop());   // stopping twice is refused, not fatal
+	CHECK(!g_alpha.kill());   // stopping twice is refused, not fatal
 }
 
 OPSY_QEMU_TEST(a_task_carries_the_name_it_was_given)
@@ -180,10 +180,10 @@ OPSY_QEMU_TEST(all_tasks_lists_every_started_task_and_drops_stopped_ones)
 	CHECK(g_beta.start([]  { while (true) opsy::sleep_for(1ms); }, "listed-b"));
 	CHECK(count() == before + 2);
 
-	CHECK(g_alpha.stop());
+	CHECK(g_alpha.kill());
 	CHECK(count() == before + 1);
 
-	CHECK(g_beta.stop());
+	CHECK(g_beta.kill());
 	CHECK(count() == before);
 
 	stop_all();
@@ -212,7 +212,7 @@ OPSY_QEMU_TEST(stopping_a_sleeping_task_removes_it_from_the_timeout_list)
 	g_alpha.priority(opsy::task_priority::highest);
 
 	// It parked on a long sleep; kill it while it sits in timeouts_.
-	CHECK(g_alpha.stop());
+	CHECK(g_alpha.kill());
 	CHECK(!g_alpha.is_started());
 
 	// If it were still linked, SysTick would wake a terminated task.
@@ -249,6 +249,62 @@ OPSY_QEMU_TEST(many_tasks_run_concurrently_without_losing_any)
 	CHECK(g_alpha_ran > 2);
 	CHECK(g_beta_ran > 2);
 	CHECK(g_gamma_ran > 2);
+
+	stop_all();
+}
+
+
+// ─────────────────────── cooperative stop (jthread-style) ──────────────────
+// request_stop sets a flag the task polls through stop_requested and acts on
+// itself, so it unwinds its own stack and releases what it holds — unlike
+// kill(), which tears it out at an arbitrary instruction.
+
+OPSY_QEMU_TEST(a_task_stops_itself_when_a_stop_is_requested)
+{
+	g_alpha_ran = 0;
+
+	CHECK(g_alpha.start([]
+	{
+		while (!g_alpha.stop_requested())
+		{
+			g_alpha_ran = 1;
+			opsy::sleep_for(1ms);
+		}
+		g_alpha_ran = 2;   // reached only by leaving the loop cleanly
+	}, "cooperative"));
+	g_alpha.priority(opsy::task_priority::normal);
+
+	opsy::sleep_for(10ms);
+	CHECK(g_alpha_ran == 1);
+	CHECK(!g_alpha.stop_requested());
+
+	g_alpha.request_stop();
+	CHECK(g_alpha.stop_requested());
+
+	// It leaves the loop, runs to the end of its entry callback, and
+	// terminates itself.
+	for (int guard = 0; guard < 200 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+
+	CHECK(g_alpha_ran == 2);
+	CHECK(!g_alpha.is_started());
+}
+
+OPSY_QEMU_TEST(a_restarted_task_starts_with_no_stop_pending)
+{
+	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }, "first"));
+	g_alpha.priority(opsy::task_priority::normal);
+	g_alpha.request_stop();
+	for (int guard = 0; guard < 200 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(!g_alpha.is_started());
+
+	// Reusing the slot must not inherit the previous request.
+	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }, "second"));
+	g_alpha.priority(opsy::task_priority::normal);
+	opsy::sleep_for(5ms);
+	CHECK(!g_alpha.stop_requested());
+	CHECK(g_alpha.is_started());
 
 	stop_all();
 }

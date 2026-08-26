@@ -40,8 +40,8 @@ std::atomic<int> g_iterations  = 0;
 
 void stop_all()
 {
-	(void) g_first.stop();
-	(void) g_second.stop();
+	(void) g_first.kill();
+	(void) g_second.kill();
 	for (int guard = 0; guard < 200 && (g_first.is_started() || g_second.is_started()); ++guard)
 		opsy::sleep_for(1ms);
 }

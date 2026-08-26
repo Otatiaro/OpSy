@@ -32,9 +32,9 @@ std::atomic<int> g_ready   = 0;
 
 void stop_all()
 {
-	(void) g_waiter_a.stop();
-	(void) g_waiter_b.stop();
-	(void) g_notifier.stop();
+	(void) g_waiter_a.kill();
+	(void) g_waiter_b.kill();
+	(void) g_notifier.kill();
 	for (int guard = 0; guard < 200 &&
 	     (g_waiter_a.is_started() || g_waiter_b.is_started() || g_notifier.is_started()); ++guard)
 		opsy::sleep_for(1ms);

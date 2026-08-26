@@ -27,7 +27,7 @@ std::atomic<int>  g_regressions = 0;   // times now() went backwards
 void stop_all()
 {
 	g_stop = true;
-	(void) g_reader.stop();
+	(void) g_reader.kill();
 	for (int guard = 0; guard < 200 && g_reader.is_started(); ++guard)
 		opsy::sleep_for(1ms);
 	g_stop = false;

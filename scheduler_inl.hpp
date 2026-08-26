@@ -469,6 +469,7 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 	stack_base_ = stack_base;
 	stack_size_ = stack_size;
 	priority_   = task_priority::lowest;
+	stop_requested_.store(false, std::memory_order_relaxed); // a reused slot starts clean
 
 	entry_ = std::move(entry);
 	name_ = name;
@@ -508,14 +509,14 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 }
 
 /**
- * @brief Stops the task immediately
+ * @brief Terminates the task immediately
  * @return @c true if the task was running and has been signalled to terminate, @c false if it was already inactive
  * @remark Issues an @c SVC carrying @c service_call_number::terminate; the actual
  *         teardown happens in @c scheduler::service_call_handler.
  */
-inline bool task_control_block::stop()
+inline bool task_control_block::kill()
 {
-	if(!is_started()) // can only stop an active task
+	if(!is_started()) // can only terminate an active task
 		return false;
 
 	// "memory" clobber: see scheduler::trigger_hard_switch.

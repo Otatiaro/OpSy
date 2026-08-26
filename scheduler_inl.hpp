@@ -347,6 +347,14 @@ inline cv_status condition_variable::wait_for(duration timeout)
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
+	// It gets here from wait_until() with a deadline that is already in the
+	// past, where the standard answer -- and std::condition_variable's -- is to
+	// report the timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
 	const auto count = timeout.count();
 	uint32_t result;
 	// "memory" clobber: see scheduler::trigger_hard_switch.
@@ -379,6 +387,14 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
+	// It gets here from wait_until() with a deadline that is already in the
+	// past, where the standard answer -- and std::condition_variable's -- is to
+	// report the timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
 	const auto count = timeout.count();
 	uint32_t result;
 	// "memory" clobber: see scheduler::trigger_hard_switch.
@@ -405,6 +421,8 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
  * @brief Waits on this condition variable until an absolute time point
  * @param timeout_time The absolute time at which the wait expires
  * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
+ * @remark A @p timeout_time already in the past returns @c cv_status::timeout
+ *         immediately, without blocking.
  */
 inline cv_status condition_variable::wait_until(time_point timeout_time)
 {

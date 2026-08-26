@@ -376,23 +376,26 @@ public:
 	 * @brief Sets the priority for a system interrupt
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
-	 * @warning Only @c system_irq::non_maskable_interrupt, @c system_irq::hard_fault, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable
+	 * @warning Only @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable.
+	 *          @c non_maskable_interrupt and @c hard_fault have architecturally fixed priorities (-2 and -1)
+	 *          and have no @c SHPR field: the register file only covers exceptions 4 to 15.
 	 */
 	static void set_priority(system_irq irq, isr_priority priority)
 	{
 		switch (irq)
 		{
-		case system_irq::non_maskable_interrupt:
-		case system_irq::hard_fault:
 		case system_irq::service_call:
 		case system_irq::pend_sv:
 		case system_irq::systick:
+			// ScbShpAddress + irq is SHPR1 + (irq - 4), valid for exceptions 4 to 15 only
 			memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
 			break;
 		case system_irq::initial_sp:
 		case system_irq::reset:
+		case system_irq::non_maskable_interrupt:
+		case system_irq::hard_fault:
 		default:
-			assert(false);
+			assert(false); // priority is architecturally fixed, there is no register to write
 			break;
 		}
 	}
@@ -401,23 +404,25 @@ public:
 	 * @brief Gets the current priority for a system interrupt
 	 * @param irq The interrupt request to get priority for
 	 * @return The current priority
-	 * @warning Only @c system_irq::non_maskable_interrupt, @c system_irq::hard_fault, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable
+	 * @warning Only @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable.
+	 *          @c non_maskable_interrupt and @c hard_fault have architecturally fixed priorities (-2 and -1)
+	 *          and have no @c SHPR field: the register file only covers exceptions 4 to 15.
 	 */
 	static isr_priority priority(system_irq irq)
 	{
 		switch (irq)
 		{
-		case system_irq::non_maskable_interrupt:
-		case system_irq::hard_fault:
 		case system_irq::service_call:
 		case system_irq::pend_sv:
 		case system_irq::systick:
+			// ScbShpAddress + irq is SHPR1 + (irq - 4), valid for exceptions 4 to 15 only
 			return isr_priority(memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
-			break;
 		case system_irq::initial_sp:
 		case system_irq::reset:
+		case system_irq::non_maskable_interrupt:
+		case system_irq::hard_fault:
 		default:
-			assert(false);
+			assert(false); // priority is architecturally fixed, there is no register to read
 			return isr_priority(0);
 		}
 	}

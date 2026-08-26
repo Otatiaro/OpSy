@@ -480,7 +480,17 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
 	stack_base_[stack_size_ - 1] = 0; // keep this pointer to zero to stop stack trace
 
+	// Round the top of the frame down to an 8-byte boundary before carving it
+	// out. stack_base_ is 8-aligned (see stack_storage), but &stack_base_[N - 1]
+	// is deliberately one word below the top, so the frame — 8 words, alignment
+	// preserving — would otherwise start the task with SP at 4-mod-8. The word
+	// reserved just above to stop stack-trace unwinding is left untouched.
+	stack_pointer_ = reinterpret_cast<stack_item*>(
+		reinterpret_cast<std::uintptr_t>(stack_pointer_) & ~std::uintptr_t{7});
+
 	stack_pointer_ -= sizeof(stack_frame) / sizeof(stack_item);
+	static_assert(sizeof(stack_frame) % 8 == 0, "the exception frame must preserve 8-byte stack alignment");
+	assert(reinterpret_cast<std::uintptr_t>(stack_pointer_) % 8 == 0);
 	const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
 
 	frame->psr = 1 << 24;

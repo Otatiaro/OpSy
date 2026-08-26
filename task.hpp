@@ -356,7 +356,11 @@ private:
  */
 template<std::size_t N>
 struct stack_storage {
-	std::array<uint32_t, N> stack_{};
+	// AAPCS requires SP to be 8-byte aligned at a public interface, and a task
+	// starts executing on this buffer. std::array<uint32_t, N> only carries
+	// alignof 4, which would leave the alignment of a task's stack down to
+	// where the linker happened to place the object.
+	alignas(8) std::array<uint32_t, N> stack_{};
 };
 
 /**

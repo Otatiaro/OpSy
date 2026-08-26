@@ -145,7 +145,7 @@ public:
 	 * Gets the size of the @c vector
 	 * @return The size of the @c vector
 	 */
-	constexpr inline std::size_t size() const
+	[[nodiscard]] constexpr inline std::size_t size() const
 	{
 		return N;
 	}
@@ -154,7 +154,7 @@ public:
 	 * Gets the norm of the @c vector (squared length)
 	 * @return The norm of the @c vector
 	 */
-	constexpr T norm() const
+	[[nodiscard]] constexpr T norm() const
 	{
 		// should use return std::transform_reduce here but not yet available in the library
 
@@ -187,7 +187,7 @@ public:
 	 * Gets the current @c vector normalized as a copy
 	 * @return The current @c vector normalized
 	 */
-	constexpr vector normalized() const
+	[[nodiscard]] constexpr vector normalized() const
 	{
 		return *this / length();
 	}

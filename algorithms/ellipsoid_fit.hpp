@@ -169,7 +169,7 @@ public:
 	 *        determined system to solve, so this is what a caller checks to
 	 *        know whether a calibration attempt is worth making.
 	 */
-	constexpr std::size_t count() const
+	[[nodiscard]] constexpr std::size_t count() const
 	{
 		return count_;
 	}
@@ -217,7 +217,7 @@ public:
 	 *        rejected fit that got persisted would survive a reboot and
 	 *        silently corrupt every later reading.
 	 */
-	std::optional<magnetometer_calibration<T>> fit() const
+	[[nodiscard]] std::optional<magnetometer_calibration<T>> fit() const
 	{
 		if (count_ < minimum_samples)
 			return std::nullopt;

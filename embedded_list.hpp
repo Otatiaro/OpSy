@@ -488,7 +488,7 @@ public:
 	 * @brief Checks if this @c embedded_list is empty
 	 * @return
 	 */
-	constexpr inline bool empty() const
+	[[nodiscard]] constexpr inline bool empty() const
 	{
 		assert((first_ == nullptr) ^ (size_ != 0));
 		return first_ == nullptr;
@@ -595,7 +595,7 @@ public:
 	 * @brief Gets the current size of this list (number of @c Item)
 	 * @return The current size of this list (number of @c Item)
 	 */
-	constexpr size_type size() const
+	[[nodiscard]] constexpr size_type size() const
 	{
 		return size_;
 	}

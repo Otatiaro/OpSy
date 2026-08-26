@@ -178,9 +178,9 @@ public:
 	constexpr const vector<4, T>& as_vector() const { return v_; }
 
 	// ── Norm / length / normalize (delegate to vector) ───────────────────
-	constexpr T          norm()       const { return v_.norm(); }
+	[[nodiscard]] constexpr T          norm()       const { return v_.norm(); }
 	constexpr T          length()     const { return v_.length(); }
-	constexpr quaternion normalized() const { return quaternion(v_.normalized()); }
+	[[nodiscard]] constexpr quaternion normalized() const { return quaternion(v_.normalized()); }
 	constexpr void       normalize()        { v_.normalize(); }
 
 	// ── Euler angle extraction (Tait-Bryan ZYX) ──────────────────────────

@@ -236,7 +236,7 @@ public:
 	 *        Always works (returns a @c matrix<Cols, Rows, T> ); the in-place
 	 *        form is reserved for square matrices and not provided yet.
 	 */
-	constexpr matrix<Cols, Rows, T> transposed() const
+	[[nodiscard]] constexpr matrix<Cols, Rows, T> transposed() const
 	{
 		matrix<Cols, Rows, T> result;
 		for (std::size_t i = 0; i < Rows; ++i)
@@ -403,7 +403,7 @@ public:
 	 *        check @ref determinant first (closed-form sizes) or guard
 	 *        the input some other way.
 	 */
-	[[gnu::always_inline]] constexpr matrix inverse() const requires (Rows == Cols)
+	[[nodiscard]] [[gnu::always_inline]] constexpr matrix inverse() const requires (Rows == Cols)
 	{
 		if constexpr (Rows == 1)
 		{
@@ -592,7 +592,7 @@ public:
 	 *
 	 * @pre   The matrix must be symmetric (asserted in debug).
 	 */
-	vector<Rows, T> eigenvalues() const requires (Rows == Cols && Rows >= 2);
+	[[nodiscard]] vector<Rows, T> eigenvalues() const requires (Rows == Cols && Rows >= 2);
 
 	/**
 	 * @brief Returns the eigenvalues and eigenvectors of this real
@@ -606,7 +606,7 @@ public:
 	 *
 	 * @pre   The matrix must be symmetric (asserted in debug).
 	 */
-	eigen_decomposition_t symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2);
+	[[nodiscard]] eigen_decomposition_t symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2);
 
 private:
 

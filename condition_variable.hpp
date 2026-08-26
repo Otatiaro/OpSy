@@ -110,6 +110,26 @@ public:
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (issues an @c SVC
 	 *         using @c scheduler::service_call_number).
 	 */
+	/**
+	 * @warning No mutex, so no way to test a predicate and go to sleep
+	 *          atomically — which is the whole reason
+	 *          @c std::condition_variable::wait requires a lock. The
+	 *          notification that lands between the test and the wait is lost,
+	 *          and the task blocks for good:
+	 *          @code
+	 *          if (!ready)   // notify_one() here...
+	 *              cv.wait(); // ...and this never returns
+	 *          @endcode
+	 *          Use this overload only to wait on a bare event with no shared
+	 *          state behind it. Anything guarding a predicate wants
+	 *          @ref wait(mutex&) .
+	 *
+	 * @remark OpSy has no spurious wake-ups: the only paths that resume a
+	 *         waiter are a notification and a timeout, each setting the
+	 *         @c cv_status it reports. The predicate loop the standard forces
+	 *         on you is not needed here — but code meant to be portable should
+	 *         keep it anyway.
+	 */
 	void wait();
 
 	/**

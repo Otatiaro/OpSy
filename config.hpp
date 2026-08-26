@@ -160,6 +160,31 @@ using mutex = priority_mutex;
  */
 struct opsy_clock
 {
+	/**
+	 * @warning @c is_steady is @c true in the sense the standard requires —
+	 *          the value never decreases and is never adjusted — but this is a
+	 *          software tick counter, not a hardware one, and the two differ in
+	 *          a way that matters.
+	 *
+	 *          @c ticks_ advances only when @c SysTick_Handler runs. SysTick's
+	 *          pending bit is a flag, not a counter, so masking above
+	 *          @c systick_priority for longer than one tick period — a mutex
+	 *          carrying an @c isr_priority , a full lock, a long ISR — loses
+	 *          the intervening ticks outright rather than delaying them. The
+	 *          clock then under-counts real time, permanently and without
+	 *          bound.
+	 *
+	 *          So `auto t0 = now(); masked_work_10ms(); now() - t0;` can report
+	 *          1 ms. Use it for scheduling and timeouts, which is what it
+	 *          drives; for measuring elapsed real time, read a hardware counter
+	 *          such as @c DWT_CYCCNT .
+	 *
+	 * @warning @c now() is not callable from anywhere: it requires the
+	 *          scheduler to be started, and the caller to be running no higher
+	 *          than @c systick_priority (both asserted in
+	 *          @c scheduler::now ). @c std::chrono::steady_clock::now() has
+	 *          neither precondition.
+	 */
 	using rep        = int64_t;
 	using period     = std::milli;
 	using duration   = opsy::duration;

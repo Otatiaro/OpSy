@@ -69,6 +69,16 @@ namespace opsy::utility
  *        cleanup" that suits embedded code where allocation order is
  *        usually LIFO.
  *
+ *        @warning NOT safe against preemption, unlike @c std::allocator ,
+ *                 which the standard requires to be free of data races.
+ *                 @ref allocate and @ref deallocate are read-modify-write
+ *                 sequences over the boundary tags and the trailing indicator,
+ *                 with no critical section and no masking: a SysTick landing
+ *                 mid-sequence, or an ISR allocating from the same arena,
+ *                 corrupts the chunk chain with no immediate diagnostic — two
+ *                 callers can be handed the same block. Give each task its own
+ *                 allocator, or guard it yourself.
+ *
  * @tparam N        Total slot count of the underlying buffer (= sizeof(int)
  *                  bytes per slot). Must be at least 4 — the minimum useful
  *                  size is "2 head/tail indicators of a single chunk + 2

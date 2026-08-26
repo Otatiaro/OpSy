@@ -69,12 +69,12 @@ public:
 
 	Type inline get() const
 	{
-		return *reinterpret_cast<Type*>(address_);
+		return *reinterpret_cast<volatile Type*>(address_);
 	}
 
 	inline void set(Type value) const
 	{
-		*reinterpret_cast<Type*>(address_) = value;
+		*reinterpret_cast<volatile Type*>(address_) = value;
 	}
 
 private:

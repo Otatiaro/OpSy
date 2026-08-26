@@ -164,7 +164,24 @@ public:
 	{
 		assert(is_started_.load(std::memory_order_relaxed)
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
-		return ticks_;
+
+		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
+		// writer — can land between them: when the low word wraps (every ~49.7
+		// days at 1 ms) the two halves come from different values and the result
+		// is torn. std::atomic<time_point> is not an option: atomic<uint64_t> is
+		// not lock-free on any target in the matrix (checked on m3/m4/m7/m33), so
+		// it would call into libatomic from an ISR.
+		//
+		// Masking SysTick for the duration of the read is the whole fix, and it
+		// can only ever raise the mask: the assert above already requires the
+		// caller to be running no higher than systick_priority. set_basepri
+		// carries a "memory" clobber, which also stops the compiler from caching
+		// ticks_ in a register across the read — the reason a spin such as
+		// while (now() < deadline) {} could never terminate at -O2.
+		const auto previous = cortex_m::set_basepri(systick_priority);
+		const auto value = ticks_;
+		cortex_m::set_basepri(previous);
+		return value;
 	}
 
 	/**
@@ -268,7 +285,7 @@ private:
 	static void __attribute__((always_inline)) systick_handler()
 	{
 		hooks::enter_systick();
-		ticks_+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
+		ticks_+=duration(1); // the only writer, and nothing above system preemption level runs while it does; readers below that level go through now(), which masks
 
 		bool dirty = false;
 

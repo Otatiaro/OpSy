@@ -9,6 +9,12 @@ familiar to anyone who has written multi-threaded C++ on a hosted platform.
 OpSy does no heap allocation, throws no exceptions, and has no dependency
 beyond a C++23-capable `arm-none-eabi-g++`.
 
+Beyond the scheduler, it ships a set of standalone [`utility/`](utility)
+primitives (fixed-size vector / matrix / quaternion, biquad filters, a
+heap-free allocator, a compile-time interrupt vector builder) and
+[`algorithms/`](algorithms) built on them — none of which depend on the
+scheduler.
+
 ## Status
 
 Alpha. The API is stable enough to use in side projects but has not yet
@@ -36,8 +42,19 @@ running core is one of the above.
 
 ## Requirements
 
-- C++23 compiler. Tested with the ARM GNU toolchain shipped in recent
-  STM32CubeIDE versions (currently `arm-none-eabi-g++ 14.3 rel1`).
+- C++23 compiler. OpSy tracks the toolchain STM32CubeIDE ships, so that a
+  project built in the IDE needs nothing extra: **GNU Tools for STM32 based on
+  GCC 14.3.1**, the default since STM32CubeIDE 2.1.0 (sources at
+  [STMicroelectronics/gnu-tools-for-stm32](https://github.com/STMicroelectronics/gnu-tools-for-stm32),
+  branch `14.3.rel1`). CI builds every target with `arm-none-eabi-g++ 14.3.Rel1`
+  and with clang (LLVM Embedded Toolchain for Arm 19.1.5).
+
+  Older toolchains are not tested and are unlikely to work — the headers use
+  C++23 throughout. If you need to build with the GCC 11 or 12 that older
+  CubeIDE releases shipped, expect to have to check it yourself.
+
+  The suites also build under C++26 in CI, so the code stays ready for it, but
+  C++23 is what OpSy targets.
 - A linker script that places `.text`, `.bss`, `.data` etc. as usual on
   Cortex-M, plus `_estack`, `_sstack`, `_sidata`, `_sdata`, `_edata`,
   `_sbss`, `_ebss` symbols if you reuse the example startup code.
@@ -67,6 +84,26 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `embedded_list.hpp` | Intrusive doubly-linked list used internally for the ready / waiting / timeout queues. |
 | `hooks.hpp` | Default (empty) hook callbacks. Override by providing `<opsy_hooks.hpp>` somewhere on the include path. |
 | `config.hpp` | Default configuration. Override by providing `<opsy_config.hpp>` somewhere on the include path. |
+
+Two directories sit alongside the scheduler and are independent of it —
+they allocate nothing, throw nothing, and have no dependency on the
+scheduler, so they can be used on their own (including on a host, for
+offline validation):
+
+| Directory | Contents |
+|---|---|
+| [`utility/`](utility) | Fixed-size numeric and container primitives: [`vector`](utility/README.md) / `matrix` (with symmetric eigen-decomposition) / `quaternion`, `biquad` filters, `slope`, a heap-free `allocator`, typed `memory` register access, and `interrupt_vector` — a compile-time builder for the Cortex-M vector table. |
+| [`algorithms/`](algorithms) | Higher-level numerics built on `utility/`. Currently `ellipsoid_fit`, an online least-squares ellipsoid fit for magnetometer hard/soft iron calibration. |
+
+Each has its own README with the per-file detail.
+
+## How it works
+
+[`docs/architecture.md`](docs/architecture.md) covers the inside: which
+exception does what (`SVC` decides, `SysTick` counts, `PendSV` switches,
+and why they sit at those priorities), what the three lists hold, how a
+task moves between them, and the two different exclusion mechanisms that
+are easy to confuse. Read it before changing anything in `scheduler.cpp`.
 
 ## Naming convention
 
@@ -118,7 +155,9 @@ int main()
 {
     // ... clock and GPIO init ...
 
-    blinker.start([] {
+    // start() is [[nodiscard]] — it returns false if the task was already
+    // running. Discard it explicitly, or check it.
+    (void) blinker.start([] {
         while (true)
         {
             led_on();

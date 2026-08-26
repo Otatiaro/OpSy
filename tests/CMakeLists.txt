@@ -34,6 +34,7 @@ add_library(opsy_sanity STATIC
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sanity.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/readme_examples.cpp
 )
 
 target_include_directories(opsy_sanity PUBLIC ${OPSY_ROOT})

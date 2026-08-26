@@ -720,7 +720,7 @@ public:
 				"isb"// make sure it is into effect before returning
 				: [output] "=&r" (result)
 				: [input] "r" (priority.value())
-				: );
+				: "memory");
 		return isr_priority(static_cast<uint8_t>(result));
 	}
 

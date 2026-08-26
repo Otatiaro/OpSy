@@ -175,7 +175,7 @@ public:
 	 *             3×3 (the pure quadratic part) is normalised, and its
 	 *             eigen-decomposition gives the principal axes (eigenvectors)
 	 *             and squared semi-axes (eigenvalues).
-	 *          5. @c soft_iron @c = @c V @c * @c diag(1/sqrt(λ)) @c * @c Vᵀ
+	 *          5. @c soft_iron @c = @c V @c * @c diag(sqrt(λ)) @c * @c Vᵀ
 	 *             is the unique symmetric matrix that maps the ellipsoid
 	 *             back onto the unit sphere.
 	 *
@@ -228,12 +228,16 @@ public:
 		//    principal axes and λ are the squared inverse semi-axes.
 		const auto eigen = normalised.symmetric_eigen_decomposition();
 
-		// 7. Build soft_iron = V · diag(1/√λ) · Vᵀ , the unique symmetric
-		//    matrix that maps the ellipsoid back onto the unit sphere.
-		utility::vector<3, T> inv_sqrt_lambda{
-			T{1} / std::sqrt(eigen.values[0]),
-			T{1} / std::sqrt(eigen.values[1]),
-			T{1} / std::sqrt(eigen.values[2])
+		// 7. Build soft_iron = N^(1/2) = V · diag(√λ) · Vᵀ , the unique
+		//    symmetric matrix that maps the ellipsoid onto the unit sphere:
+		//    a centred sample x satisfies xᵀNx = 1, so y = N^(1/2)·x has
+		//    yᵀy = xᵀNx = 1. Since λ is the *inverse* squared semi-axis,
+		//    √λ = 1 / semi-axis — the reciprocal would scale the sphere
+		//    back up into the ellipsoid.
+		utility::vector<3, T> sqrt_lambda{
+			std::sqrt(eigen.values[0]),
+			std::sqrt(eigen.values[1]),
+			std::sqrt(eigen.values[2])
 		};
 		utility::matrix<3, 3, T> soft_iron;
 		for (std::size_t i = 0; i < 3; ++i)
@@ -241,7 +245,7 @@ public:
 			{
 				T sum = T{0};
 				for (std::size_t k = 0; k < 3; ++k)
-					sum += eigen.vectors(i, k) * eigen.vectors(j, k) * inv_sqrt_lambda[k];
+					sum += eigen.vectors(i, k) * eigen.vectors(j, k) * sqrt_lambda[k];
 				soft_iron(i, j) = sum;
 			}
 

@@ -74,6 +74,11 @@ public:
 	/**
 	 * Creates a @c vector from an array of values
 	 * @param items The array containing the @c vector values
+	 *
+	 * @remark Left implicit: the arithmetic operators build their result with
+	 *         @ref construct, which yields a @c std::array<T,N> that converts
+	 *         here on return. The conversion is also harmless — the source
+	 *         already has the element type and the exact rank.
 	 */
 	constexpr vector(const std::array<T, N>& items) : values_{items}
 	{
@@ -94,9 +99,16 @@ public:
 
 	/**
 	 * Creates a @c vector with a specified value at each rank
-	 * @param value
+	 * @param value The value to place at every rank
+	 *
+	 * @remark @c explicit on purpose. Without it a scalar converts silently to
+	 *         a whole vector: @c f(2.0f) would call @c f(vector<3,float>) with
+	 *         @c {2,2,2} , and @c v @c = @c 0.0f would broadcast rather than
+	 *         fail to compile. The same goes for the @c std::array constructor
+	 *         above. Broadcasting is a deliberate operation and reads better
+	 *         spelled out: @c vector<3,float>{value} .
 	 */
-	constexpr vector(const T& value) : values_{construct([&](std::size_t) {return value;})}
+	constexpr explicit vector(const T& value) : values_{construct([&](std::size_t) {return value;})}
 	{
 
 	}
@@ -133,7 +145,7 @@ public:
 	 * Gets the size of the @c vector
 	 * @return The size of the @c vector
 	 */
-	constexpr inline std::size_t size() const
+	[[nodiscard]] constexpr inline std::size_t size() const
 	{
 		return N;
 	}
@@ -142,7 +154,7 @@ public:
 	 * Gets the norm of the @c vector (squared length)
 	 * @return The norm of the @c vector
 	 */
-	constexpr T norm() const
+	[[nodiscard]] constexpr T norm() const
 	{
 		// should use return std::transform_reduce here but not yet available in the library
 
@@ -175,7 +187,7 @@ public:
 	 * Gets the current @c vector normalized as a copy
 	 * @return The current @c vector normalized
 	 */
-	constexpr vector normalized() const
+	[[nodiscard]] constexpr vector normalized() const
 	{
 		return *this / length();
 	}

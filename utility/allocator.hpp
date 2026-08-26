@@ -69,6 +69,16 @@ namespace opsy::utility
  *        cleanup" that suits embedded code where allocation order is
  *        usually LIFO.
  *
+ *        @warning NOT safe against preemption, unlike @c std::allocator ,
+ *                 which the standard requires to be free of data races.
+ *                 @ref allocate and @ref deallocate are read-modify-write
+ *                 sequences over the boundary tags and the trailing indicator,
+ *                 with no critical section and no masking: a SysTick landing
+ *                 mid-sequence, or an ISR allocating from the same arena,
+ *                 corrupts the chunk chain with no immediate diagnostic — two
+ *                 callers can be handed the same block. Give each task its own
+ *                 allocator, or guard it yourself.
+ *
  * @tparam N        Total slot count of the underlying buffer (= sizeof(int)
  *                  bytes per slot). Must be at least 4 — the minimum useful
  *                  size is "2 head/tail indicators of a single chunk + 2
@@ -101,9 +111,15 @@ public:
 	/**
 	 * Allocates some memory
 	 * @param bytes The requested number of bytes to allocate
-	 * @warning if the allocator cannot allocate memory (typically not enough memory available), it will return nullptr, so please check return value against nullptr
+	 * @param bytes The requested size in BYTES -- not a count of objects, unlike
+	 *              @c std::allocator<T>::allocate and unlike the templated
+	 *              overload below.
+	 * @warning if the allocator cannot allocate memory (typically not enough memory available), it will return nullptr, so please check return value against nullptr.
+	 *          Unlike @c std::allocator , which throws @c std::bad_alloc , this
+	 *          never throws and never signals failure other than by the return
+	 *          value -- hence @c [[nodiscard]] .
 	 */
-	void* allocate(size_type bytes)
+	[[nodiscard]] void* allocate(size_type bytes)
 	{
 		if (bytes == 0) // cannot allocate zero bytes
 			return nullptr;
@@ -126,9 +142,28 @@ public:
 		return reinterpret_cast<void*>(&data_[previous_index + 1]);
 	}
 
+	/**
+	 * @brief Allocates room for @p count objects of type @p T
+	 * @param count Number of objects, not bytes -- unlike the overload above,
+	 *              which takes a byte count. @c std::allocator<T>::allocate
+	 *              also counts objects.
+	 * @return A pointer to the block, or @c nullptr if it does not fit
+	 *
+	 * @warning Blocks are carved on @c element_type boundaries, so the returned
+	 *          pointer is only guaranteed to be aligned for @c element_type.
+	 *          Measured: with a 4-byte @c element_type, a request for an
+	 *          8-byte-aligned type comes back at a 4-mod-8 address about half
+	 *          the time, depending on what was allocated before it -- which on
+	 *          Cortex-M4/M7 is a @c UsageFault on @c LDRD / @c STRD or a
+	 *          double-precision access. The @c static_assert turns that into a
+	 *          compile error rather than something the caller discovers on
+	 *          target.
+	 */
 	template<typename T>
-	T* allocate(size_type count = 1)
+	[[nodiscard]] T* allocate(size_type count = 1)
 	{
+		static_assert(alignof(T) <= alignof(element_type),
+			"allocator hands out element_type-aligned blocks; T needs stricter alignment than that");
 		return reinterpret_cast<T*>(allocate(count * sizeof(T)));
 	}
 
@@ -164,10 +199,17 @@ public:
 			}
 		}
 
-		if (ptr_index + static_cast<size_type>(allocated_slots) + 1 < N - 2) // the allocation was not the last one, check if next if also free
+		// The next chunk's head indicator sits at ptr_index + allocated_slots + 1. A head
+		// index is valid up to N - 2 included: that is a trailing chunk of zero payload,
+		// whose own tail indicator is the last slot of the buffer. So the bound is
+		// N - 1, not N - 2.
+		if (ptr_index + static_cast<size_type>(allocated_slots) + 1 < N - 1) // the allocation was not the last one, check if next if also free
 		{
 			const auto next_allocation_slots = data_[ptr_index + static_cast<size_type>(allocated_slots) + 1];
-			if (next_allocation_slots > 0) // next slot is free, merge the two
+			// >= 0, not > 0: a free chunk of zero payload is still a free chunk to merge
+			// with, and allocate() creates exactly that whenever needed_slots + 2 uses up
+			// the trailing chunk exactly.
+			if (next_allocation_slots >= 0) // next slot is free, merge the two
 			{
 				const auto combined_slots = allocated_slots + next_allocation_slots + 2;
 				data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(combined_slots)] = combined_slots;

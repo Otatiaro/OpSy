@@ -65,9 +65,9 @@ enum class task_priority
 	: uint8_t
 	{
 		lowest = 0xFF, ///< Lowest priority
-	low = 0x40,  ///< Low priority
+	low = 0xC0,  ///< Low priority
 	normal = 0x80, ///< Normal priority
-	high = 0xC0,  ///< High priority
+	high = 0x40,  ///< High priority
 	highest = 0x0, ///< Highest priority
 };
 
@@ -220,12 +220,80 @@ public:
 	constexpr task_control_block() = default;
 
 	/**
-	 * @brief Stops the @c task_control_block whatever its state
-	 * @return @c true is the @c task_control_block has been stopped, @c false otherwise (not started)
+	 * @brief Destroys the control block, refusing to do so while it is started
+	 *
+	 * @warning Destroying a started task leaves the scheduler holding a pointer
+	 *          into freed storage — in @c all_tasks_ , and in @c ready_ or
+	 *          @c timeouts_ — plus a stack that is about to be reused. Nothing
+	 *          detects it; the system faults later, somewhere else.
+	 *
+	 *          @c ~std::thread calls @c std::terminate when the thread is still
+	 *          joinable, precisely so this is loud rather than silent. OpSy has
+	 *          no exceptions and no @c std::terminate , so the equivalent here
+	 *          is an assert: it costs nothing in a release build, and turns
+	 *          @code { opsy::task<1024> t; (void) t.start(body); } @endcode
+	 *          — which reads as perfectly ordinary — into an immediate stop
+	 *          during development.
+	 *
+	 *          Stopping the task first is the caller's job, since @ref stop is
+	 *          an abrupt termination and cannot be made implicit safely.
+	 */
+	~task_control_block()
+	{
+		assert(!is_started());
+	}
+
+	/**
+	 * @brief Terminates the task immediately, whatever it is doing
+	 * @return @c true if the task was active and has been terminated, @c false if it was not started
+	 *
+	 * @warning Abrupt and asynchronous, which is why it is not called @c stop :
+	 *          the task is torn out of the scheduler at an arbitrary
+	 *          instruction. Its stack is never unwound, so no destructor of any
+	 *          local runs, and any mutex it holds stays held. The standard
+	 *          offers no equivalent — @c std::jthread::request_stop is
+	 *          cooperative — so reach for @ref request_stop unless the task is
+	 *          known to hold nothing.
+	 *
 	 * @remark Defined inline in @c scheduler_inl.hpp (issues an @c SVC using
 	 *         @c scheduler::service_call_number).
 	 */
-	[[nodiscard]] bool stop();
+	[[nodiscard]] bool kill();
+
+	/**
+	 * @brief Asks the task to stop, cooperatively
+	 *
+	 *        Sets a flag the task observes through @ref stop_requested and acts
+	 *        on where it chooses, so it unwinds its own stack and releases what
+	 *        it holds. This is @c std::jthread::request_stop , under the same
+	 *        name and with the same meaning.
+	 *
+	 * @warning It does NOT wake a blocked task. One parked in
+	 *          @c condition_variable::wait() with no timeout never observes the
+	 *          request; write such loops with @c wait_for , or notify the
+	 *          condition variable after requesting. There is no
+	 *          @c std::stop_callback here.
+	 *
+	 * @remark The flag is cleared when the task is next started, so a task slot
+	 *         can be reused.
+	 */
+	void request_stop()
+	{
+		stop_requested_.store(true, std::memory_order_relaxed);
+	}
+
+	/**
+	 * @brief Whether a cooperative stop has been requested
+	 * @return @c true once @ref request_stop has been called and the task has
+	 *         not been restarted since
+	 *
+	 * @remark Meant to be polled by the task itself:
+	 *         @code while (!self.stop_requested()) { ... } @endcode
+	 */
+	[[nodiscard]] bool stop_requested() const
+	{
+		return stop_requested_.load(std::memory_order_relaxed);
+	}
 
 	/**
 	 * @brief Checks if the @c task_control_block is started
@@ -316,6 +384,7 @@ private:
 	stack_item* stack_base_ = nullptr;
 	std::size_t stack_size_ = 0;
 	std::atomic_bool active_ { false };
+	std::atomic_bool stop_requested_ { false };   // cooperative stop, see request_stop
 	stack_item* stack_pointer_ = nullptr;
 	task_priority priority_ {};                   // set to task_priority::lowest by start_impl
 	time_point last_started_ = startup;           // startup == time_point{0}, BSS-friendly
@@ -356,7 +425,11 @@ private:
  */
 template<std::size_t N>
 struct stack_storage {
-	std::array<uint32_t, N> stack_{};
+	// AAPCS requires SP to be 8-byte aligned at a public interface, and a task
+	// starts executing on this buffer. std::array<uint32_t, N> only carries
+	// alignof 4, which would leave the alignment of a task's stack down to
+	// where the linker happened to place the object.
+	alignas(8) std::array<uint32_t, N> stack_{};
 };
 
 /**

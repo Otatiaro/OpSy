@@ -38,7 +38,26 @@ add_library(opsy_sanity STATIC
 
 target_include_directories(opsy_sanity PUBLIC ${OPSY_ROOT})
 
-target_compile_features(opsy_sanity PUBLIC cxx_std_23)
+# OpSy targets C++23, and is kept building under C++26 as that lands: the CI
+# builds both so a construct C++26 changes or removes is caught here rather
+# than by a user on a newer toolchain. Override with -DOPSY_CXX_STANDARD=26.
+if(NOT DEFINED OPSY_CXX_STANDARD)
+    set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
+endif()
+
+set_target_properties(opsy_sanity PROPERTIES
+    CXX_STANDARD ${OPSY_CXX_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# Optimisation level. The default (empty) leaves it to the build type, but the
+# CI drives this explicitly: the MMIO-volatile and missing-"memory"-clobber
+# class of bug only exists once the optimiser is allowed to reorder, cache or
+# eliminate, so a suite built without -O proves nothing about them.
+if(DEFINED OPSY_OPTIMISATION)
+    add_compile_options(${OPSY_OPTIMISATION})
+endif()
 
 target_compile_options(opsy_sanity PRIVATE
     ${OPSY_CPU_FLAGS}

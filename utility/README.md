@@ -50,4 +50,9 @@ short STL-style template parameter names (`T`, `N`, `Coef`, `I`, `Is`).
 `tests/utility_sanity.cpp` instantiates every template under the same
 strict warning set as the scheduler (`-Wshadow`, `-Wcast-align`,
 `-Wconversion`, `-Wsign-conversion`, `-Wdouble-promotion`, `-Werror`,
-…) on every Cortex-M target in the matrix.
+…) on every Cortex-M target in the matrix. Add a header here and add it
+to that include list, or nothing in the repository will compile it.
+
+That build never runs, so behaviour is covered separately by the host
+suite in [`tests/host`](../tests/host) — `allocator`, `biquad` and the
+`embedded_list` used by the scheduler each have cases there.

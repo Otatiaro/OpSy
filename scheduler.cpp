@@ -313,6 +313,12 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			task.waiting_ = nullptr;
 		}
 
+		// A runnable-but-not-running task is linked into ready_, and nothing
+		// above unlinks it. Done after the waiting_ branch on purpose: both
+		// lists share the task_lists::waiting node pair, so the task must have
+		// left the condition variable's list before this touches ready_.
+		ready_.erase(task);
+
 		if (&task == current_task_.load(std::memory_order_relaxed))
 		{
 			assert(!critical_section_.load(std::memory_order_relaxed));
@@ -490,12 +496,19 @@ OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.svc"))) SVC_Handl
 			"ldrne R2, =0x1 \n\t"
 			"ldr R1, [R0,#24] \n\t"
 			"ldrb R1, [R1,#-2] \n\t"
-			"push {LR} \n\t"
+			// R4 rides along with LR purely for alignment: exception entry leaves
+			// MSP 8-byte aligned (CCR.STKALIGN), and pushing a single register
+			// would leave it 4-mod-8 across the bl below. AAPCS requires 8-byte
+			// alignment at a public interface, and everything reachable from the
+			// handler -- the user-supplied hooks in particular -- is compiled on
+			// that assumption. R4 is callee-saved and restored right after, so
+			// the choice of register is inert.
+			"push {R4, LR} \n\t"
 			"mov R3, LR \n\t"        // pass EXC_RETURN as 4th argument
 			"bl %[handler] \n\t"
 			"isb \n\t"
 			"dsb \n\t"
-			"pop {LR} \n\t"
+			"pop {R4, LR} \n\t"
 			"bx LR"
 			:
 			: [handler] "g" (opsy::scheduler::service_call_handler),

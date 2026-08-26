@@ -152,7 +152,8 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(is_started_);
+		assert(is_started_.load(std::memory_order_relaxed));
+		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
 
@@ -164,7 +165,54 @@ public:
 	{
 		assert(is_started_.load(std::memory_order_relaxed)
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
-		return ticks_;
+
+		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
+		// writer — can land between them: when the low word wraps (every ~49.7
+		// days at 1 ms) the two halves come from different values and the result
+		// is torn. std::atomic<time_point> is not an option: atomic<uint64_t> is
+		// not lock-free on any target in the matrix (checked on m3/m4/m7/m33), so
+		// it would call into libatomic from an ISR.
+		//
+		// Masking SysTick for the duration of the read is the whole fix, and it
+		// can only ever raise the mask: the assert above already requires the
+		// caller to be running no higher than systick_priority. set_basepri
+		// carries a "memory" clobber, which also stops the compiler from caching
+		// ticks_ in a register across the read — the reason a spin such as
+		// while (now() < deadline) {} could never terminate at -O2.
+		const auto previous = cortex_m::set_basepri(systick_priority);
+		const auto value = ticks_;
+		cortex_m::set_basepri(previous);
+		return value;
+	}
+
+	/**
+	 * @brief Whether the caller is running at a level where OpSy may be entered
+	 *
+	 *        OpSy deliberately leaves the priority levels above its own free
+	 *        for latency-critical interrupt handlers — they preempt the
+	 *        scheduler itself, which is the point. The price is that such a
+	 *        handler can interrupt OpSy at an arbitrary instruction, with its
+	 *        lists half-stitched and its globals mid-update, so it must not
+	 *        call into OpSy at all.
+	 *
+	 *        The service calls are protected by the hardware: an @c SVC issued
+	 *        from a handler that outranks @c service_call_priority escalates
+	 *        straight to HardFault. Everything that does not go through an
+	 *        @c SVC — this function, @ref now , the accessors — has no such
+	 *        protection, and asserts on this instead.
+	 *
+	 * @return @c true from a task, or from a handler at or below
+	 *         @c service_call_priority
+	 *
+	 * @remark Thread mode reports no priority at all, which is the lowest
+	 *         there is, so a task always passes.
+	 */
+	[[nodiscard]] static inline bool is_os_callable()
+	{
+		return cortex_m::current_priority()
+			.value_or(cortex_m::lowest_priority)
+			.masked_value<preemption_bits>()
+			>= service_call_priority.masked_value<preemption_bits>();
 	}
 
 	/**
@@ -174,14 +222,17 @@ public:
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
-		if (critical_section_.load(std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
+		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
+
+		// A single read-modify-write, not a load followed by a store: SysTick can
+		// land between the two and switch to a task that takes the section for
+		// itself, after which both tasks believe they hold it and the first
+		// release clears the flag for both.
+		if (critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return opsy::critical_section(false);
-		else
-		{
-			hooks::enter_critical_section();
-			critical_section_.store(true, std::memory_order_relaxed);
-			return opsy::critical_section(true);
-		}
+
+		hooks::enter_critical_section();
+		return opsy::critical_section(true);
 	}
 
 private:
@@ -217,8 +268,20 @@ private:
 	static void add_task(task_control_block& task)
 	{
 		hooks::task_added(task);
-		all_tasks_.push_front(task);
-		ready_.insert_when(task_control_block::priority_is_lower, task);
+
+		{
+			// Called straight from task context by task_control_block::start_impl,
+			// so SysTick can land in the middle of these two list mutations and run
+			// its own ready_.insert_when on a half-stitched list -- losing a task or
+			// closing the links into a cycle. The mask is released before
+			// trigger_soft_switch, which asserts BASEPRI is clear (and is therefore
+			// why the caller cannot simply hold the lock across the whole thing).
+			const auto previous = cortex_m::set_basepri(service_call_priority);
+			all_tasks_.push_front(task);
+			ready_.insert_when(task_control_block::priority_is_lower, task);
+			cortex_m::set_basepri(previous);
+		}
+
 		if(is_started_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
@@ -255,7 +318,7 @@ private:
 	static void __attribute__((always_inline)) systick_handler()
 	{
 		hooks::enter_systick();
-		ticks_+=duration(1); // this is correct and "atomic" because nothing that has preemptive level above system should use it
+		ticks_+=duration(1); // the only writer, and nothing above system preemption level runs while it does; readers below that level go through now(), which masks
 
 		bool dirty = false;
 
@@ -272,6 +335,7 @@ private:
 			if(task.waiting_ != nullptr)
 			{
 				task.waiting_->remove_waiting(task);
+				task.waiting_ = nullptr; // the task no longer waits on it -- see wake_up, which does the same
 				task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 

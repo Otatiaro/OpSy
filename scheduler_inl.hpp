@@ -347,6 +347,14 @@ inline cv_status condition_variable::wait_for(duration timeout)
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
+	// It gets here from wait_until() with a deadline that is already in the
+	// past, where the standard answer -- and std::condition_variable's -- is to
+	// report the timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
 	const auto count = timeout.count();
 	uint32_t result;
 	// "memory" clobber: see scheduler::trigger_hard_switch.
@@ -379,6 +387,14 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
+	// It gets here from wait_until() with a deadline that is already in the
+	// past, where the standard answer -- and std::condition_variable's -- is to
+	// report the timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
 	const auto count = timeout.count();
 	uint32_t result;
 	// "memory" clobber: see scheduler::trigger_hard_switch.
@@ -405,6 +421,8 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
  * @brief Waits on this condition variable until an absolute time point
  * @param timeout_time The absolute time at which the wait expires
  * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
+ * @remark A @p timeout_time already in the past returns @c cv_status::timeout
+ *         immediately, without blocking.
  */
 inline cv_status condition_variable::wait_until(time_point timeout_time)
 {
@@ -445,12 +463,15 @@ inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_t
 inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
                                            callback<void(void)>&& entry, const char* name)
 {
+	assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
+
 	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
 		return false;
 
 	stack_base_ = stack_base;
 	stack_size_ = stack_size;
 	priority_   = task_priority::lowest;
+	stop_requested_.store(false, std::memory_order_relaxed); // a reused slot starts clean
 
 	entry_ = std::move(entry);
 	name_ = name;
@@ -462,7 +483,17 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
 	stack_base_[stack_size_ - 1] = 0; // keep this pointer to zero to stop stack trace
 
+	// Round the top of the frame down to an 8-byte boundary before carving it
+	// out. stack_base_ is 8-aligned (see stack_storage), but &stack_base_[N - 1]
+	// is deliberately one word below the top, so the frame — 8 words, alignment
+	// preserving — would otherwise start the task with SP at 4-mod-8. The word
+	// reserved just above to stop stack-trace unwinding is left untouched.
+	stack_pointer_ = reinterpret_cast<stack_item*>(
+		reinterpret_cast<std::uintptr_t>(stack_pointer_) & ~std::uintptr_t{7});
+
 	stack_pointer_ -= sizeof(stack_frame) / sizeof(stack_item);
+	static_assert(sizeof(stack_frame) % 8 == 0, "the exception frame must preserve 8-byte stack alignment");
+	assert(reinterpret_cast<std::uintptr_t>(stack_pointer_) % 8 == 0);
 	const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
 
 	frame->psr = 1 << 24;
@@ -480,14 +511,16 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 }
 
 /**
- * @brief Stops the task immediately
+ * @brief Terminates the task immediately
  * @return @c true if the task was running and has been signalled to terminate, @c false if it was already inactive
  * @remark Issues an @c SVC carrying @c service_call_number::terminate; the actual
  *         teardown happens in @c scheduler::service_call_handler.
  */
-inline bool task_control_block::stop()
+inline bool task_control_block::kill()
 {
-	if(!is_started()) // can only stop an active task
+	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
+
+	if(!is_started()) // can only terminate an active task
 		return false;
 
 	// "memory" clobber: see scheduler::trigger_hard_switch.

@@ -40,7 +40,7 @@ opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 	(void) g_task.priority();
 	g_task.priority(opsy::task_priority::normal);
 	(void) g_task.is_started();
-	(void) g_task.stop();
+	(void) g_task.kill();
 }
 
 [[gnu::used]] void use_mutex()

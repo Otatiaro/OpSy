@@ -136,18 +136,42 @@ public:
 	 * @brief Increment the @c embedded_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type operator++()
+	inline self_type& operator++()
 	{
-		return self_type(ptr_ = next());
+		ptr_ = next();
+		return *this;
+	}
+
+	/**
+	 * @brief Post-increment the @c embedded_iterator
+	 * @return The value before the increment
+	 */
+	inline self_type operator++(int)
+	{
+		const self_type before = *this;
+		ptr_ = next();
+		return before;
 	}
 
 	/**
 	 * @brief Decrement the @c embedded_iterator (move backward)
-	 * @return
+	 * @return The new value
 	 */
-	inline self_type operator--()
+	inline self_type& operator--()
 	{
-		return self_type(ptr_ = previous());
+		ptr_ = previous();
+		return *this;
+	}
+
+	/**
+	 * @brief Post-decrement the @c embedded_iterator
+	 * @return The value before the decrement
+	 */
+	inline self_type operator--(int)
+	{
+		const self_type before = *this;
+		ptr_ = previous();
+		return before;
 	}
 
 	/**
@@ -293,20 +317,46 @@ public:
 	 * @brief Increment the @c embedded_const_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type operator++()
+	inline self_type& operator++()
 	{
 		assert(ptr_ != nullptr);
-		return ptr_ = ptr_->Interface::next_;
+		ptr_ = ptr_->Interface::next_;
+		return *this;
+	}
+
+	/**
+	 * @brief Post-increment the @c embedded_const_iterator
+	 * @return The value before the increment
+	 */
+	inline self_type operator++(int)
+	{
+		assert(ptr_ != nullptr);
+		const self_type before = *this;
+		ptr_ = ptr_->Interface::next_;
+		return before;
 	}
 
 	/**
 	 * @brief Decrement the @c embedded_const_iterator (move backward)
 	 * @return The new value
 	 */
-	inline self_type operator--()
+	inline self_type& operator--()
 	{
 		assert(ptr_ != nullptr);
-		return self_type(ptr_ = ptr_->Interface::previous_);
+		ptr_ = ptr_->Interface::previous_;
+		return *this;
+	}
+
+	/**
+	 * @brief Post-decrement the @c embedded_const_iterator
+	 * @return The value before the decrement
+	 */
+	inline self_type operator--(int)
+	{
+		assert(ptr_ != nullptr);
+		const self_type before = *this;
+		ptr_ = ptr_->Interface::previous_;
+		return before;
 	}
 
 	/**
@@ -413,7 +463,7 @@ public:
 	 * @brief Move construct a @c embedded_list from another
 	 * @param other The other @c embedded_list to move data from
 	 */
-	explicit embedded_list(embedded_list&& other) :
+	embedded_list(embedded_list&& other) :
 			first_(other.first_), size_(other.size_)
 	{
 		other.first_ = nullptr;
@@ -438,7 +488,7 @@ public:
 	 * @brief Checks if this @c embedded_list is empty
 	 * @return
 	 */
-	constexpr inline bool empty() const
+	[[nodiscard]] constexpr inline bool empty() const
 	{
 		assert((first_ == nullptr) ^ (size_ != 0));
 		return first_ == nullptr;
@@ -455,7 +505,7 @@ public:
 		{
 			auto next = i.next();
 			i.reset();
-			i = next;
+			i = iterator(next);
 		}
 
 		first_ = nullptr;
@@ -475,9 +525,9 @@ public:
 	 * @brief Gets an @c embedded_const_iterator to the beginning of this @c embedded_list
 	 * @return An @c embedded_const_iterator to the beginning of this @c embedded_list
 	 */
-	constexpr const inline const_iterator begin() const
+	constexpr inline const_iterator begin() const
 	{
-		return first_;
+		return const_iterator(first_);
 	}
 
 	/**
@@ -488,6 +538,11 @@ public:
 	{
 		return iterator();
 	}
+
+	// Note: end() is a null iterator, not a sentinel node, so unlike
+	// std::list there is no way back from it -- `--end()` dereferences a null
+	// pointer rather than yielding the last element. Step back from a real
+	// element instead.
 
 	/**
 	 * @brief Gets an @c embedded_const_iterator to the end of this @c embedded_list
@@ -504,7 +559,7 @@ public:
 	 */
 	constexpr inline const_iterator cbegin() const
 	{
-		return first_;
+		return const_iterator(first_);
 	}
 
 	/**
@@ -516,25 +571,16 @@ public:
 		return const_iterator();
 	}
 
-	/**
-	 * @brief Compare this @c embedded_list to another @c embedded_list
-	 * @param other The other @c embedded_list to compare to
-	 * @return @c true if the two @c embedded_list are equal, @c false otherwise
-	 */
-	constexpr bool operator==(const embedded_list& other)
-	{
-		return this == &other;
-	}
-
-	/**
-	 * @brief Compare this @c embedded_list to another @c embedded_list
-	 * @param other The other @c embedded_list to compare to
-	 * @return @c false if the two @c embedded_list are equal, @c true otherwise
-	 */
-	constexpr bool operator!=(const embedded_list& other)
-	{
-		return first_ == nullptr || first_ != other.first_;
-	}
+	// No operator== / operator!=. The pair that used to live here disagreed
+	// with each other: == compared identity (this == &other) while != tested
+	// first_ == nullptr || first_ != other.first_, so for an empty list both
+	// `l == l` and `l != l` returned true. Neither matched std::list, which
+	// compares element by element, and neither was const.
+	//
+	// An intrusive list is not copyable and cannot share nodes with another
+	// list, so equality of contents can only ever mean identity. Callers that
+	// want that can compare addresses; nothing in the repository used either
+	// operator.
 
 	/**
 	 * @brief Gets the max @c size this list can hold
@@ -549,7 +595,7 @@ public:
 	 * @brief Gets the current size of this list (number of @c Item)
 	 * @return The current size of this list (number of @c Item)
 	 */
-	constexpr size_type size() const
+	[[nodiscard]] constexpr size_type size() const
 	{
 		return size_;
 	}
@@ -625,6 +671,14 @@ public:
 			}
 			else // first but not last element in the list
 			{
+				// ... of *some* list. Without this guard, erasing an item that heads
+				// another list splices that list's nodes into this one: this->first_
+				// would be set to a node this list never owned, the other list would
+				// keep a size_ it no longer backs, and the tail of the current list
+				// would be dropped. The sibling branch above already checks this.
+				if (first_ != i.ptr())
+					return end();
+
 				first_ = i.next();
 				i.next(nullptr);
 				iterator(first_).previous(nullptr);
@@ -645,12 +699,21 @@ public:
 	}
 
 	/**
-	 * @brief Inserts an @c Item in the @c embedded_list
-	 * @param previous The @c embedded_iterator that points to the @c Item just before where the new @c Item is to be inserted
+	 * @brief Inserts an @c Item into the @c embedded_list, just after @p previous
+	 * @param previous The @c embedded_iterator that points to the @c Item the new one goes after
 	 * @param item The @c Item to insert in the @c embedded_list
 	 * @return An @c embedded_iterator pointing to the @c Item inserted
+	 *
+	 * @warning Named @c insert_after, not @c insert, because it is the mirror
+	 *          image of @c std::list::insert -- which inserts *before* its
+	 *          position. Under the old name the two differed on every call:
+	 *          on @c [1,2] , @c insert(begin(),9) gave @c [1,9,2] where
+	 *          @c std::list gives @c [9,1,2] , and @c insert(end(),9) put the
+	 *          item at the *head* rather than the tail. The name now says
+	 *          which side it lands on, and no longer invites the assumption.
+	 *          @c std::forward_list uses the same @c insert_after convention.
 	 */
-	iterator insert(iterator previous, Item& item)
+	iterator insert_after(iterator previous, Item& item)
 	{
 		assert(iterator(&item).is_free());
 
@@ -701,7 +764,7 @@ public:
 				++current;
 			}
 
-			return insert(previous, item);
+			return insert_after(previous, item);
 		}
 
 	}

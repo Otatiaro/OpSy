@@ -14,13 +14,17 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.compiler }} / cortex-${{ matrix.target }})
+    name: Build (${{ matrix.compiler }} / cortex-${{ matrix.target }} / c++${{ matrix.standard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
         target: [m3, m4, m7, m33]
+        # C++26 is built alongside C++23 deliberately: OpSy targets 23, and
+        # building 26 as it lands catches anything the newer standard changes
+        # or removes before a user on a newer toolchain hits it.
+        standard: [23, 26]
     steps:
       - uses: actions/checkout@v5
 
@@ -30,15 +34,28 @@ jobs:
         with:
           release: '14.3.Rel1'
 
+      # Installed straight from the upstream release rather than through an
+      # action. The action that used to do this apt-installs libtinfo5, which
+      # Ubuntu 24.04 no longer ships, so every clang job died before compiling
+      # anything. Fetching the tarball also lifts the version cap the action
+      # imposed (it only knew about 19.1.1).
       - name: Install LLVM Embedded Toolchain for Arm
         if: matrix.compiler == 'clang'
-        uses: stellar-aria/llvm-embedded-toolchain-for-arm-action@latest
-        # 19.1.1 is the latest version the action knows about. 19.1.5 exists
-        # upstream but the action's release table hasn't been bumped to
-        # include it yet. 19.1.1 is the same toolchain family — fine for
-        # a compile-only sanity check.
-        with:
-          release: '19.1.1'
+        env:
+          LLVM_ET_ARM_VERSION: '19.1.5'
+        run: |
+          set -euo pipefail
+          url="https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${LLVM_ET_ARM_VERSION}/LLVM-ET-Arm-${LLVM_ET_ARM_VERSION}-Linux-x86_64.tar.xz"
+          curl --fail --silent --show-error --location --retry 3 -o llvm-et-arm.tar.xz "$url"
+          mkdir -p "$HOME/llvm-et-arm"
+          tar -xJf llvm-et-arm.tar.xz -C "$HOME/llvm-et-arm" --strip-components=1
+          # Some LLVM builds still look for libtinfo.so.5; 24.04 has .6 and the
+          # ABI is compatible for what clang uses it for. Only if needed.
+          if ! "$HOME/llvm-et-arm/bin/clang" --version >/dev/null 2>&1; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+          "$HOME/llvm-et-arm/bin/clang" --version
+          echo "$HOME/llvm-et-arm/bin" >> "$GITHUB_PATH"
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -50,6 +67,115 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
           -DOPSY_COMPILER=${{ matrix.compiler }}
           -DOPSY_TARGET=${{ matrix.target }}
+          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
 
       - name: Build
         run: cmake --build build --parallel
+
+  host-tests:
+    name: Host tests (${{ matrix.compiler }} / c++${{ matrix.standard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        standard: [23, 26]
+    steps:
+      - uses: actions/checkout@v5
+
+      # The host suite builds 32-bit: utility/allocator.hpp requires
+      # sizeof(int) == sizeof(void*), which holds on every Cortex-M target and
+      # on no 64-bit host, and a 32-bit build keeps the pointer arithmetic
+      # under test the same width as on target.
+      # g++-14 explicitly: the runner's default GNU compiler does not know
+      # c++26, so the c++26 axis failed at configure time with "the current
+      # compiler GNU does not support this". clang on the runner is recent
+      # enough as-is.
+      - name: Install Ninja, 32-bit support and GCC 14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-multilib g++-multilib
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            sudo apt-get install -y g++-14 gcc-14 g++-14-multilib gcc-14-multilib
+          fi
+
+      - name: Configure
+        run: >
+          cmake -S tests/host -B build-host
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++-14' || 'clang++' }}
+          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
+
+      - name: Build
+        run: cmake --build build-host --parallel
+
+      - name: Run
+        run: ctest --test-dir build-host --output-on-failure
+
+  qemu-tests:
+    name: QEMU tests (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja and QEMU
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
+
+      - name: Configure
+        run: >
+          cmake -S tests/qemu -B build-qemu
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build-qemu --parallel
+
+      - name: Run
+        run: ctest --test-dir build-qemu --output-on-failure
+
+  codegen-checks:
+    name: Codegen checks (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # Built at -O2 on purpose: the volatile-MMIO and stack-alignment
+      # properties only mean anything once the optimiser is allowed to
+      # reorder, cache and eliminate. The other suites build without -O.
+      - name: Configure
+        run: >
+          cmake -S tests/codegen -B build-codegen
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build-codegen --parallel
+
+      - name: Check
+        run: ctest --test-dir build-codegen --output-on-failure

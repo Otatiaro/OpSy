@@ -19,6 +19,7 @@
 #include <algorithms/ellipsoid_fit.hpp>
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
+#include <utility/interrupt_vector.hpp>
 #include <utility/matrix.hpp>
 #include <utility/memory.hpp>
 #include <utility/quaternion.hpp>
@@ -533,9 +534,16 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	}};
 	for (const auto& s : samples_f)
 		fit_f.feed(s);
-	auto cal_f = fit_f.fit();
-	const auto corrected_f = cal_f.correct(samples_f[0]);
-	(void) corrected_f;
+	const auto cal_f = fit_f.fit();
+	// fit() is fallible: it returns nullopt on a degenerate accumulator, so
+	// the optional has to be unwrapped before the calibration is usable.
+	if (cal_f.has_value())
+	{
+		const auto corrected_f = cal_f->correct(samples_f[0]);
+		(void) corrected_f;
+	}
+	const auto count_f = fit_f.count();
+	(void) count_f;
 	fit_f.reset();
 
 	// Double instantiation for host-side validation. No FPU on Cortex-M
@@ -720,6 +728,53 @@ struct mock_reg
 
 	(void) g_mem_ro.load();
 	g_mem_wo = mock_reg{0x42};
+}
+
+// ========================== interrupt_vector ============================
+// Compile-time vector table builder. This header was previously included by
+// no translation unit in the repository, so a compile-breaking change to it
+// passed the whole matrix green — the one header the docs single out as
+// Cortex-M specific, and so the least likely to be caught downstream.
+//
+// Built at namespace scope in a constexpr object so the front end
+// instantiates the whole chain: the system_block layout, with_handler, and
+// the hooks::decorate_isr wrapper it goes through.
+
+static uint32_t g_fake_stack[8]{};
+
+static void fake_reset_handler() {}
+static void fake_peripheral_handler() {}
+
+static constexpr std::size_t fake_irq_count = 8;
+
+static constexpr auto g_vectors =
+	opsy::utility::interrupt_vector<fake_irq_count>(
+		&g_fake_stack[8],
+		&fake_reset_handler,
+		&SysTick_Handler,
+		&SVC_Handler,
+		&PendSV_Handler)
+	.with_handler<0, &fake_peripheral_handler>()
+	.with_handler<fake_irq_count - 1, &fake_peripheral_handler>();
+
+// No is_trivially_copyable check here, deliberately. interrupt_vector holds a
+// `const system_block system_`, and a const-qualified member makes the class
+// non-trivially-copyable -- clang says so, GCC is more permissive, which is
+// how an assertion asserting the opposite passed locally and broke CI.
+//
+// The property is not one this type needs: the table is built at compile time
+// and read by the hardware, never memcpy'd. (magnetometer_calibration is the
+// one that genuinely requires it, and asserts it in its own header.) What
+// matters here is the layout, which the two checks below pin.
+
+// The system block layout is read by the hardware at fixed offsets, so pin
+// the offsets the table depends on rather than just the total size.
+static_assert(sizeof(g_vectors) == (16 + fake_irq_count) * sizeof(void*));
+static_assert(offsetof(decltype(g_vectors), peripherals_) == 16 * sizeof(void*));
+
+[[gnu::used]] const void* use_interrupt_vector()
+{
+	return &g_vectors;
 }
 
 }

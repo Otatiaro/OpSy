@@ -90,6 +90,11 @@ public:
 	constexpr priority_mutex(priority_mutex&& from) :
 			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
 	{
+		// As in operator=(priority_mutex&&): the lock moved out with the
+		// critical_section handle, so the source no longer holds it. Leaving
+		// locked_ set there would let its unlock() -- or its destructor --
+		// release a section this object believes it owns.
+		from.locked_ = false;
 	}
 
 	/**
@@ -123,6 +128,29 @@ public:
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls into
 	 *         @c scheduler, @c hooks and @c cortex_m, see the cycle-breaking
 	 *         note there).
+	 */
+	/**
+	 * @warning NOT recursive, and unlike @c std::mutex the failure is silent.
+	 *          A second @c lock() from the task that already holds it receives
+	 *          an invalid @c critical_section handle and assigns it over the
+	 *          valid one, clearing that handle while the scheduler's
+	 *          @c critical_section_ flag stays set. Every later context switch
+	 *          is then refused and the system freezes on the current task, with
+	 *          no trap and no fault. A typical @c std::mutex deadlocks instead,
+	 *          which at least points at the culprit. There is no
+	 *          @c recursive_mutex here.
+	 *
+	 * @warning Releases must be strictly LIFO across mutexes. Exclusion is a
+	 *          single global critical section rather than a per-object lock, so
+	 *          with @c a.lock(); @c b.lock(); the handle @c b holds is already
+	 *          invalid, and @c a.unlock() releases the section while @c b still
+	 *          believes it holds one — preemption resumes and @c b protects
+	 *          nothing. @c std::mutex allows any release order.
+	 *
+	 * @warning Do not sleep or wait while holding one: @ref opsy::sleep_for and
+	 *          the sleep service call assert that no critical section is held.
+	 *          Use @c condition_variable::wait(mutex&) , which releases it
+	 *          atomically with the wait.
 	 */
 	void lock();
 

@@ -36,8 +36,19 @@ running core is one of the above.
 
 ## Requirements
 
-- C++23 compiler. Tested with the ARM GNU toolchain shipped in recent
-  STM32CubeIDE versions (currently `arm-none-eabi-g++ 14.3 rel1`).
+- C++23 compiler. OpSy tracks the toolchain STM32CubeIDE ships, so that a
+  project built in the IDE needs nothing extra: **GNU Tools for STM32 based on
+  GCC 14.3.1**, the default since STM32CubeIDE 2.1.0 (sources at
+  [STMicroelectronics/gnu-tools-for-stm32](https://github.com/STMicroelectronics/gnu-tools-for-stm32),
+  branch `14.3.rel1`). CI builds every target with `arm-none-eabi-g++ 14.3.Rel1`
+  and with clang (LLVM Embedded Toolchain for Arm 19.1.5).
+
+  Older toolchains are not tested and are unlikely to work — the headers use
+  C++23 throughout. If you need to build with the GCC 11 or 12 that older
+  CubeIDE releases shipped, expect to have to check it yourself.
+
+  The suites also build under C++26 in CI, so the code stays ready for it, but
+  C++23 is what OpSy targets.
 - A linker script that places `.text`, `.bss`, `.data` etc. as usual on
   Cortex-M, plus `_estack`, `_sstack`, `_sidata`, `_sdata`, `_edata`,
   `_sbss`, `_ebss` symbols if you reuse the example startup code.

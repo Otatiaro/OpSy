@@ -19,6 +19,7 @@
 #include <algorithms/ellipsoid_fit.hpp>
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
+#include <utility/interrupt_vector.hpp>
 #include <utility/matrix.hpp>
 #include <utility/memory.hpp>
 #include <utility/quaternion.hpp>
@@ -727,6 +728,45 @@ struct mock_reg
 
 	(void) g_mem_ro.load();
 	g_mem_wo = mock_reg{0x42};
+}
+
+// ========================== interrupt_vector ============================
+// Compile-time vector table builder. This header was previously included by
+// no translation unit in the repository, so a compile-breaking change to it
+// passed the whole matrix green — the one header the docs single out as
+// Cortex-M specific, and so the least likely to be caught downstream.
+//
+// Built at namespace scope in a constexpr object so the front end
+// instantiates the whole chain: the system_block layout, with_handler, and
+// the hooks::decorate_isr wrapper it goes through.
+
+static uint32_t g_fake_stack[8]{};
+
+static void fake_reset_handler() {}
+static void fake_peripheral_handler() {}
+
+static constexpr std::size_t fake_irq_count = 8;
+
+static constexpr auto g_vectors =
+	opsy::utility::interrupt_vector<fake_irq_count>(
+		&g_fake_stack[8],
+		&fake_reset_handler,
+		&SysTick_Handler,
+		&SVC_Handler,
+		&PendSV_Handler)
+	.with_handler<0, &fake_peripheral_handler>()
+	.with_handler<fake_irq_count - 1, &fake_peripheral_handler>();
+
+static_assert(std::is_trivially_copyable_v<decltype(g_vectors)>);
+
+// The system block layout is read by the hardware at fixed offsets, so pin
+// the offsets the table depends on rather than just the total size.
+static_assert(sizeof(g_vectors) == (16 + fake_irq_count) * sizeof(void*));
+static_assert(offsetof(decltype(g_vectors), peripherals_) == 16 * sizeof(void*));
+
+[[gnu::used]] const void* use_interrupt_vector()
+{
+	return &g_vectors;
 }
 
 }

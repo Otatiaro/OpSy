@@ -174,14 +174,15 @@ public:
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
-		if (critical_section_.load(std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
+		// A single read-modify-write, not a load followed by a store: SysTick can
+		// land between the two and switch to a task that takes the section for
+		// itself, after which both tasks believe they hold it and the first
+		// release clears the flag for both.
+		if (critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return opsy::critical_section(false);
-		else
-		{
-			hooks::enter_critical_section();
-			critical_section_.store(true, std::memory_order_relaxed);
-			return opsy::critical_section(true);
-		}
+
+		hooks::enter_critical_section();
+		return opsy::critical_section(true);
 	}
 
 private:

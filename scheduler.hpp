@@ -273,6 +273,7 @@ private:
 			if(task.waiting_ != nullptr)
 			{
 				task.waiting_->remove_waiting(task);
+				task.waiting_ = nullptr; // the task no longer waits on it -- see wake_up, which does the same
 				task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 

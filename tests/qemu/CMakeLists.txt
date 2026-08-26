@@ -54,7 +54,12 @@ add_executable(opsy_qemu_tests
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qemu_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_condition_variable.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_critical_section.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_mutex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_task.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_time.cpp
 )
 
 set_target_properties(opsy_qemu_tests PROPERTIES SUFFIX ".elf")

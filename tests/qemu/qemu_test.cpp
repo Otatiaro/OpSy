@@ -56,6 +56,12 @@ void report_failure(const char* file, int line, const char* expression)
 	{
 		g_current_test = current->name;
 		const int before = g_failures;
+
+		// Announced before it runs, not after: a case that hangs or faults would
+		// otherwise leave no trace of which one it was.
+		qemu::write("  .... ");
+		qemu::write(current->name);
+		qemu::write("\n");
 		current->run();
 		++g_cases;
 

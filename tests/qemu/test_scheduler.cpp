@@ -15,6 +15,8 @@
 
 #include <opsy.hpp>
 
+#include <atomic>
+
 namespace
 {
 
@@ -26,8 +28,8 @@ opsy::task<1024> g_second_helper;
 opsy::condition_variable g_condition;
 opsy::mutex g_mutex;
 
-volatile int g_helper_ran = 0;
-volatile int g_second_ran = 0;
+std::atomic<int> g_helper_ran = 0;
+std::atomic<int> g_second_ran = 0;
 
 /** @brief Stops a task and waits for it to actually leave the scheduler. */
 void ensure_stopped(opsy::task<1024>& task)

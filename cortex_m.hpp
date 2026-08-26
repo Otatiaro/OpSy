@@ -233,7 +233,7 @@ public:
 	 */
 	static uint8_t preempt_bits()
 	{
-		return static_cast<uint8_t>(prigroup_max + 1u - priority_grouping());
+		return static_cast<uint8_t>(prigroup_max - priority_grouping());
 	}
 
 	/**
@@ -243,7 +243,8 @@ public:
 	 */
 	static void preempt_bits(uint8_t value)
 	{
-		priority_grouping(static_cast<uint8_t>(prigroup_max + 1u - value));
+		assert(value <= prigroup_max); // PRIGROUP encodes at most 7 preemption bits
+		priority_grouping(static_cast<uint8_t>(prigroup_max - value));
 	}
 
 	/**

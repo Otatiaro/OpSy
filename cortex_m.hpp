@@ -69,15 +69,43 @@ public:
 
 	Type inline get() const
 	{
-		return *reinterpret_cast<volatile Type*>(address_);
+		return ref();
 	}
 
 	inline void set(Type value) const
 	{
-		*reinterpret_cast<volatile Type*>(address_) = value;
+		ref() = value;
 	}
 
 private:
+
+	/**
+	 * @brief The register itself, as a reference to the mapped memory
+	 *
+	 * @remark The address is held as an integer rather than as a pointer because
+	 *         @c reinterpret_cast is not allowed in a constant expression, so the
+	 *         pointer can only be formed at the point of use. This is the single
+	 *         place where that happens.
+	 *
+	 * @remark @c volatile is the intended tool here, not a C leftover: it is the only
+	 *         standard way to state that an access is an observable side effect that
+	 *         may not be elided, duplicated or reordered against other volatile
+	 *         accesses. C++20 (P1152R4) deprecated compound assignment, @c ++ / @c --,
+	 *         @c volatile parameters and return types, and volatile structured
+	 *         bindings -- but deliberately kept plain loads and stores through a
+	 *         @c volatile glvalue, precisely so that memory-mapped I/O keeps working.
+	 *         Only those plain forms are used, here and by the callers.
+	 *
+	 *         @c std::atomic_ref is not a substitute: it models data-race freedom
+	 *         between threads, not device side effects, and says nothing about
+	 *         access width or about a store whose only purpose is its effect on
+	 *         hardware.
+	 */
+	volatile Type& ref() const
+	{
+		return *reinterpret_cast<volatile Type*>(address_);
+	}
+
 	const uint32_t address_;
 	memory_register& operator=(const memory_register& other) = delete;
 

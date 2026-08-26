@@ -136,18 +136,42 @@ public:
 	 * @brief Increment the @c embedded_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type operator++()
+	inline self_type& operator++()
 	{
-		return self_type(ptr_ = next());
+		ptr_ = next();
+		return *this;
+	}
+
+	/**
+	 * @brief Post-increment the @c embedded_iterator
+	 * @return The value before the increment
+	 */
+	inline self_type operator++(int)
+	{
+		const self_type before = *this;
+		ptr_ = next();
+		return before;
 	}
 
 	/**
 	 * @brief Decrement the @c embedded_iterator (move backward)
-	 * @return
+	 * @return The new value
 	 */
-	inline self_type operator--()
+	inline self_type& operator--()
 	{
-		return self_type(ptr_ = previous());
+		ptr_ = previous();
+		return *this;
+	}
+
+	/**
+	 * @brief Post-decrement the @c embedded_iterator
+	 * @return The value before the decrement
+	 */
+	inline self_type operator--(int)
+	{
+		const self_type before = *this;
+		ptr_ = previous();
+		return before;
 	}
 
 	/**
@@ -293,20 +317,46 @@ public:
 	 * @brief Increment the @c embedded_const_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type operator++()
+	inline self_type& operator++()
 	{
 		assert(ptr_ != nullptr);
-		return self_type(ptr_ = ptr_->Interface::next_);
+		ptr_ = ptr_->Interface::next_;
+		return *this;
+	}
+
+	/**
+	 * @brief Post-increment the @c embedded_const_iterator
+	 * @return The value before the increment
+	 */
+	inline self_type operator++(int)
+	{
+		assert(ptr_ != nullptr);
+		const self_type before = *this;
+		ptr_ = ptr_->Interface::next_;
+		return before;
 	}
 
 	/**
 	 * @brief Decrement the @c embedded_const_iterator (move backward)
 	 * @return The new value
 	 */
-	inline self_type operator--()
+	inline self_type& operator--()
 	{
 		assert(ptr_ != nullptr);
-		return self_type(ptr_ = ptr_->Interface::previous_);
+		ptr_ = ptr_->Interface::previous_;
+		return *this;
+	}
+
+	/**
+	 * @brief Post-decrement the @c embedded_const_iterator
+	 * @return The value before the decrement
+	 */
+	inline self_type operator--(int)
+	{
+		assert(ptr_ != nullptr);
+		const self_type before = *this;
+		ptr_ = ptr_->Interface::previous_;
+		return before;
 	}
 
 	/**
@@ -488,6 +538,11 @@ public:
 	{
 		return iterator();
 	}
+
+	// Note: end() is a null iterator, not a sentinel node, so unlike
+	// std::list there is no way back from it -- `--end()` dereferences a null
+	// pointer rather than yielding the last element. Step back from a real
+	// element instead.
 
 	/**
 	 * @brief Gets an @c embedded_const_iterator to the end of this @c embedded_list

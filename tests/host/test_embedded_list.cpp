@@ -11,6 +11,9 @@
 
 #include <embedded_list.hpp>
 
+#include <algorithm>
+#include <iterator>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -156,6 +159,74 @@ OPSY_TEST(embedded_list_is_move_constructible)
 	CHECK(contents(moved) == std::vector<int>({5, 6}));
 	CHECK(moved.size() == 2);
 	CHECK(source.empty());
+}
+
+
+// ───────────────── iterator concepts and <ranges> interop ──────────────────
+// The iterators advertise bidirectional_iterator_tag. They used to satisfy no
+// iterator concept at all — operator++ returned by value instead of by
+// reference, and there was no post-increment — so <ranges> and <algorithm>
+// were unusable on a list whose own tag promised otherwise.
+
+static_assert(std::input_or_output_iterator<list::iterator>);
+static_assert(std::forward_iterator<list::iterator>);
+static_assert(std::bidirectional_iterator<list::iterator>);
+static_assert(std::forward_iterator<list::const_iterator>);
+static_assert(std::bidirectional_iterator<list::const_iterator>);
+static_assert(std::ranges::range<list>);
+static_assert(std::ranges::bidirectional_range<list>);
+
+OPSY_TEST(embedded_list_works_with_ranges_algorithms)
+{
+	node x0{3}, x1{1}, x2{2};
+	list subject;
+	subject.push_front(x2);
+	subject.push_front(x1);
+	subject.push_front(x0);   // [3, 1, 2]
+
+	CHECK(std::ranges::count_if(subject, [](const node& n) { return n.id > 1; }) == 2);
+
+	const auto found = std::ranges::find_if(subject, [](const node& n) { return n.id == 1; });
+	CHECK(found != subject.end());
+	CHECK(found->id == 1);
+
+	std::vector<int> scaled;
+	for (const int value : subject | std::views::transform([](const node& n) { return n.id * 10; }))
+		scaled.push_back(value);
+	CHECK(scaled == std::vector<int>({30, 10, 20}));
+}
+
+OPSY_TEST(embedded_list_iterators_increment_and_decrement_correctly)
+{
+	node x0{1}, x1{2};
+	list subject;
+	subject.push_front(x1);
+	subject.push_front(x0);
+
+	auto it = subject.begin();
+	CHECK(it->id == 1);
+
+	// Pre-increment returns a reference, so chaining advances the iterator
+	// itself rather than a temporary.
+	auto& same = ++it;
+	CHECK(&same == &it);
+	CHECK(it->id == 2);
+
+	// Post-increment yields the value from before.
+	auto before = it++;
+	CHECK(before->id == 2);
+	CHECK(it == subject.end());
+
+	// Note: --end() is NOT supported, unlike std::list. end() is a null
+	// iterator with no link back to the list, so there is no last element to
+	// step onto. Walk back from a real element instead.
+	auto back = subject.begin();
+	++back;
+	CHECK(back->id == 2);
+
+	auto before_dec = back--;
+	CHECK(before_dec->id == 2);
+	CHECK(back->id == 1);
 }
 
 } // namespace

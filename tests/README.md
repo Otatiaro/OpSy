@@ -1,12 +1,13 @@
 # OpSy tests
 
-Three suites, answering three different questions.
+Four suites, answering four different questions.
 
 | Suite | Question | Runs code? |
 |---|---|---|
 | [Cortex-M sanity](#cortex-m-sanity-build) (this directory) | does the whole API still compile, on every target, under a strict warning set? | no |
 | [Host tests](#host-tests) (`host/`) | does the portable half of OpSy still *behave*? | yes, natively |
 | [QEMU tests](#qemu-tests) (`qemu/`) | does the *scheduler* behave, on a real Cortex-M? | yes, emulated |
+| [Codegen checks](#codegen-checks) (`codegen/`) | does the optimiser leave the memory-mapped accesses alone? | no — it reads the disassembly |
 
 The cross build cannot check behaviour: it produces a static library
 that is never linked or run. The host suite covers the part of OpSy
@@ -164,12 +165,50 @@ Secure ZBT SRAM at `0x10000000`.
 
 ## CI
 
-Every push and pull request to `master` runs all three suites on
-`ubuntu-latest`: the `{gcc, clang} × {m3, m4, m7, m33}` cross matrix,
-the host tests under `gcc` and `clang`, and the QEMU tests on all four
-targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
+Every push and pull request to `master` runs all four suites on
+`ubuntu-latest`: the `{gcc, clang} × {m3, m4, m7, m33} × {23, 26}` cross
+matrix, the host tests under `gcc` and `clang` in both standards, and
+the QEMU and codegen checks on all four targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
 the workflow is the canonical spec, and local builds should match its
 configure lines.
+
+## Codegen checks
+
+Probes in [`codegen/`](codegen), built at `-O2` and inspected with
+`objdump`.
+
+```sh
+cmake -S tests/codegen -B build-codegen -G Ninja       -DCMAKE_TOOLCHAIN_FILE="$PWD/tests/cortex-m-toolchain.cmake"       -DOPSY_COMPILER=gcc       -DOPSY_TARGET=m4
+cmake --build build-codegen --parallel
+ctest --test-dir build-codegen --output-on-failure
+```
+
+A whole class of bug here only exists once the optimiser is allowed to
+work: a register read through a non-volatile pointer can be cached or
+folded with an identical read, and a store to one can be dropped as
+dead. The other three suites are blind to it — the cross build and the
+QEMU images are compiled without `-O`, and emulation would only show it
+if the compiler happened to take the dangerous transformation. So here
+the disassembly itself is the assertion.
+
+Four checks: two reads of the same register stay two loads, a spin on a
+register keeps its load inside the loop, `enable_systick`'s four stores
+all survive, and `SVC_Handler` pushes an even number of registers so MSP
+stays 8-byte aligned across its `bl`.
+
+They were validated by putting the bugs back. With `volatile` removed
+from `memory_register` and `push {R4, LR}` reverted to `push {LR}`, all
+four fail, and the numbers say exactly what went wrong:
+
+```
+FAIL probe_two_reads_stay_two: 1 load(s), expected >= 2
+FAIL probe_spin_on_register: 0 load(s), 1 branch(es)
+FAIL probe_stores_are_not_eliminated: 2 store(s), expected >= 4
+FAIL SVC_Handler: pushes 1 register(s)
+```
+
+Zero loads inside the spin is the interesting one: that loop would never
+have terminated on hardware.
 
 ## What is still not covered
 
@@ -183,7 +222,7 @@ written correctly.
 The `ticks_` torn read needs the 32-bit low word to wrap: ~49.7 days of
 simulated time at 1 ms, or an API to seed the counter near the boundary.
 
-The non-`volatile` MMIO and the missing `"memory"` clobber are
-optimisation bugs, not execution bugs. Emulation only shows them if the
-compiler happens to take the dangerous transformation; the disassembly
-is the tool for those.
+The missing `"memory"` clobber on `set_basepri` has no probe: unlike the
+MMIO accesses, there is no single instruction pattern that proves the
+compiler kept an ordering it was free to break. It is covered by review
+and by the fact that the clobber is now there.

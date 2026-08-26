@@ -122,3 +122,38 @@ jobs:
 
       - name: Run
         run: ctest --test-dir build-qemu --output-on-failure
+
+  codegen-checks:
+    name: Codegen checks (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # Built at -O2 on purpose: the volatile-MMIO and stack-alignment
+      # properties only mean anything once the optimiser is allowed to
+      # reorder, cache and eliminate. The other suites build without -O.
+      - name: Configure
+        run: >
+          cmake -S tests/codegen -B build-codegen
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build-codegen --parallel
+
+      - name: Check
+        run: ctest --test-dir build-codegen --output-on-failure

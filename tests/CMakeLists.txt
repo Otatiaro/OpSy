@@ -51,6 +51,14 @@ set_target_properties(opsy_sanity PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+# Optimisation level. The default (empty) leaves it to the build type, but the
+# CI drives this explicitly: the MMIO-volatile and missing-"memory"-clobber
+# class of bug only exists once the optimiser is allowed to reorder, cache or
+# eliminate, so a suite built without -O proves nothing about them.
+if(DEFINED OPSY_OPTIMISATION)
+    add_compile_options(${OPSY_OPTIMISATION})
+endif()
+
 target_compile_options(opsy_sanity PRIVATE
     ${OPSY_CPU_FLAGS}
     -Wall -Werror -Wpedantic -Wextra

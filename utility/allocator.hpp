@@ -101,9 +101,15 @@ public:
 	/**
 	 * Allocates some memory
 	 * @param bytes The requested number of bytes to allocate
-	 * @warning if the allocator cannot allocate memory (typically not enough memory available), it will return nullptr, so please check return value against nullptr
+	 * @param bytes The requested size in BYTES -- not a count of objects, unlike
+	 *              @c std::allocator<T>::allocate and unlike the templated
+	 *              overload below.
+	 * @warning if the allocator cannot allocate memory (typically not enough memory available), it will return nullptr, so please check return value against nullptr.
+	 *          Unlike @c std::allocator , which throws @c std::bad_alloc , this
+	 *          never throws and never signals failure other than by the return
+	 *          value -- hence @c [[nodiscard]] .
 	 */
-	void* allocate(size_type bytes)
+	[[nodiscard]] void* allocate(size_type bytes)
 	{
 		if (bytes == 0) // cannot allocate zero bytes
 			return nullptr;
@@ -126,9 +132,28 @@ public:
 		return reinterpret_cast<void*>(&data_[previous_index + 1]);
 	}
 
+	/**
+	 * @brief Allocates room for @p count objects of type @p T
+	 * @param count Number of objects, not bytes -- unlike the overload above,
+	 *              which takes a byte count. @c std::allocator<T>::allocate
+	 *              also counts objects.
+	 * @return A pointer to the block, or @c nullptr if it does not fit
+	 *
+	 * @warning Blocks are carved on @c element_type boundaries, so the returned
+	 *          pointer is only guaranteed to be aligned for @c element_type.
+	 *          Measured: with a 4-byte @c element_type, a request for an
+	 *          8-byte-aligned type comes back at a 4-mod-8 address about half
+	 *          the time, depending on what was allocated before it -- which on
+	 *          Cortex-M4/M7 is a @c UsageFault on @c LDRD / @c STRD or a
+	 *          double-precision access. The @c static_assert turns that into a
+	 *          compile error rather than something the caller discovers on
+	 *          target.
+	 */
 	template<typename T>
-	T* allocate(size_type count = 1)
+	[[nodiscard]] T* allocate(size_type count = 1)
 	{
+		static_assert(alignof(T) <= alignof(element_type),
+			"allocator hands out element_type-aligned blocks; T needs stricter alignment than that");
 		return reinterpret_cast<T*>(allocate(count * sizeof(T)));
 	}
 

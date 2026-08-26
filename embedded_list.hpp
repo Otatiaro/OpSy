@@ -516,25 +516,16 @@ public:
 		return const_iterator();
 	}
 
-	/**
-	 * @brief Compare this @c embedded_list to another @c embedded_list
-	 * @param other The other @c embedded_list to compare to
-	 * @return @c true if the two @c embedded_list are equal, @c false otherwise
-	 */
-	constexpr bool operator==(const embedded_list& other)
-	{
-		return this == &other;
-	}
-
-	/**
-	 * @brief Compare this @c embedded_list to another @c embedded_list
-	 * @param other The other @c embedded_list to compare to
-	 * @return @c false if the two @c embedded_list are equal, @c true otherwise
-	 */
-	constexpr bool operator!=(const embedded_list& other)
-	{
-		return first_ == nullptr || first_ != other.first_;
-	}
+	// No operator== / operator!=. The pair that used to live here disagreed
+	// with each other: == compared identity (this == &other) while != tested
+	// first_ == nullptr || first_ != other.first_, so for an empty list both
+	// `l == l` and `l != l` returned true. Neither matched std::list, which
+	// compares element by element, and neither was const.
+	//
+	// An intrusive list is not copyable and cannot share nodes with another
+	// list, so equality of contents can only ever mean identity. Callers that
+	// want that can compare addresses; nothing in the repository used either
+	// operator.
 
 	/**
 	 * @brief Gets the max @c size this list can hold

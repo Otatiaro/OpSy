@@ -32,10 +32,20 @@ void on_mag_sample(const opsy::utility::vector<3, float>& raw)
     fitter.feed(raw);
 }
 
-void recalibrate()
+bool recalibrate(opsy::algorithms::magnetometer_calibration<float>& out)
 {
+    // fit() is fallible: it returns nullopt when the accumulator cannot
+    // produce a meaningful ellipsoid — fewer than `minimum_samples` fed, a
+    // singular system (samples collinear or coplanar), or a fit that landed
+    // on a hyperboloid, which is what a partial sweep usually gives. Storing
+    // an unchecked result would persist NaNs to non-volatile memory and
+    // silently corrupt every later reading.
     const auto cal = fitter.fit();
-    // cal.hard_iron, cal.soft_iron, cal.correct(raw)
+    if (!cal)
+        return false;
+
+    out = *cal;  // cal->hard_iron, cal->soft_iron, cal->correct(raw)
+    return true;
 }
 ```
 

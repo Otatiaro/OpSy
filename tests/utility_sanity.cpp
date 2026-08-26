@@ -533,9 +533,16 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	}};
 	for (const auto& s : samples_f)
 		fit_f.feed(s);
-	auto cal_f = fit_f.fit();
-	const auto corrected_f = cal_f.correct(samples_f[0]);
-	(void) corrected_f;
+	const auto cal_f = fit_f.fit();
+	// fit() is fallible: it returns nullopt on a degenerate accumulator, so
+	// the optional has to be unwrapped before the calibration is usable.
+	if (cal_f.has_value())
+	{
+		const auto corrected_f = cal_f->correct(samples_f[0]);
+		(void) corrected_f;
+	}
+	const auto count_f = fit_f.count();
+	(void) count_f;
 	fit_f.reset();
 
 	// Double instantiation for host-side validation. No FPU on Cortex-M

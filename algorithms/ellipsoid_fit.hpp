@@ -59,6 +59,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <type_traits>
 
 #include <utility/matrix.hpp>
@@ -158,7 +159,27 @@ public:
 			}
 
 		rescale_if_saturating();
+		++count_;
 	}
+
+	/**
+	 * @brief Number of samples fed so far.
+	 *
+	 *        @ref fit needs at least @ref minimum_samples of them to have a
+	 *        determined system to solve, so this is what a caller checks to
+	 *        know whether a calibration attempt is worth making.
+	 */
+	constexpr std::size_t count() const
+	{
+		return count_;
+	}
+
+	/**
+	 * @brief Smallest sample count that can determine the nine quadric
+	 *        parameters. Necessary, never sufficient: nine coplanar samples
+	 *        still give a singular system, which @ref fit rejects.
+	 */
+	static constexpr std::size_t minimum_samples = 9;
 
 	/**
 	 * @brief Solve the accumulated normal equations and return the
@@ -179,14 +200,32 @@ public:
 	 *             is the unique symmetric matrix that maps the ellipsoid
 	 *             back onto the unit sphere.
 	 *
-	 *        Requires at least nine well-spread samples; degenerate inputs
-	 *        (all collinear, all on a plane, ...) yield a singular
-	 *        @c DᵀD and the result is undefined.
+	 *        Every step is checked, and @c std::nullopt is returned rather
+	 *        than a meaningless calibration when:
+	 *          - fewer than @ref minimum_samples samples have been fed;
+	 *          - any solve produces a non-finite value, which is how a
+	 *            singular @c DᵀD surfaces (all samples collinear, all on a
+	 *            plane, an accumulator never fed);
+	 *          - the centred quadric has a zero constant term;
+	 *          - an eigenvalue is not strictly positive, i.e. the fit landed
+	 *            on a hyperboloid instead of an ellipsoid. That is the normal
+	 *            outcome of a partial sweep, and so the failure a real
+	 *            calibration session actually runs into.
+	 *
+	 *        A caller must therefore check the result before storing it. The
+	 *        struct is meant to be flushed to non-volatile memory, and a
+	 *        rejected fit that got persisted would survive a reboot and
+	 *        silently corrupt every later reading.
 	 */
-	magnetometer_calibration<T> fit() const
+	std::optional<magnetometer_calibration<T>> fit() const
 	{
+		if (count_ < minimum_samples)
+			return std::nullopt;
+
 		// 1. Solve normal equations: v = inverse(DᵀD) * sums.
 		const utility::vector<9, T> v = dtd_.inverse() * sums_;
+		if (!all_finite(v)) // singular DᵀD: not enough independent samples
+			return std::nullopt;
 
 		// 2. Reshape v into the 4x4 algebraic representation of the quadric:
 		//
@@ -207,6 +246,8 @@ public:
 		const utility::matrix<3, 3, T> upper_3x3 = algebraic.template sub_matrix<3, 3>(0, 0);
 		const utility::vector<3, T>    linear{ algebraic(0, 3), algebraic(1, 3), algebraic(2, 3) };
 		const utility::vector<3, T>    hard_iron = -(upper_3x3.inverse() * linear);
+		if (!all_finite(hard_iron)) // singular quadratic part: no well-defined centre
+			return std::nullopt;
 
 		// 4. Translate quadric so the centre sits at the origin:
 		//    Q' = T · Q · Tᵀ  with  T(3, i) = hard_iron(i) for i ∈ 0..2 .
@@ -221,12 +262,26 @@ public:
 		// 5. Normalise the upper-left 3x3 of the centred quadric by the
 		//    constant term so that its eigenvalues are 1 / (semi-axis)² .
 		const T ratio = -centred(3, 3);
+		if (ratio == T{0} || !std::isfinite(ratio)) // degenerate quadric, nothing to normalise by
+			return std::nullopt;
+
 		utility::matrix<3, 3, T> normalised = centred.template sub_matrix<3, 3>(0, 0);
 		normalised /= ratio;
+		// Checked before the eigen-decomposition, not after: its symmetry
+		// precondition is an assert, and a NaN element fails it (NaN != NaN),
+		// so a degenerate fit would trap here in a debug build.
+		if (!all_finite(normalised))
+			return std::nullopt;
 
 		// 6. Eigen-decompose: V·diag(λ)·Vᵀ where columns of V are the
 		//    principal axes and λ are the squared inverse semi-axes.
 		const auto eigen = normalised.symmetric_eigen_decomposition();
+		// Strictly positive eigenvalues are what makes the quadric an
+		// ellipsoid. A partial sweep commonly fits a hyperboloid instead,
+		// whose negative eigenvalue would come out of std::sqrt as NaN.
+		for (std::size_t k = 0; k < 3; ++k)
+			if (!(eigen.values[k] > T{0}) || !std::isfinite(eigen.values[k]))
+				return std::nullopt;
 
 		// 7. Build soft_iron = N^(1/2) = V · diag(√λ) · Vᵀ , the unique
 		//    symmetric matrix that maps the ellipsoid onto the unit sphere:
@@ -249,7 +304,7 @@ public:
 				soft_iron(i, j) = sum;
 			}
 
-		return { hard_iron, soft_iron };
+		return magnetometer_calibration<T>{ hard_iron, soft_iron };
 	}
 
 	/**
@@ -260,8 +315,9 @@ public:
 	 */
 	void reset()
 	{
-		dtd_  = utility::matrix<9, 9, T>{};
-		sums_ = utility::vector<9, T>{};
+		dtd_   = utility::matrix<9, 9, T>{};
+		sums_  = utility::vector<9, T>{};
+		count_ = 0;
 	}
 
 private:
@@ -305,8 +361,37 @@ private:
 	// product before float overflow could occur.
 	static constexpr T rescale_threshold = std::numeric_limits<T>::max() / static_cast<T>(1e8);
 
+	/**
+	 * @brief @c true if every element is a finite number.
+	 *
+	 *        The failure modes of a degenerate fit all surface as a division
+	 *        by a zero pivot or determinant somewhere in the chain, which
+	 *        produces Inf or NaN rather than an error. Testing the result of
+	 *        each step is both cheaper and more complete than re-deriving a
+	 *        9x9 determinant to predict it.
+	 */
+	template<std::size_t N>
+	static bool all_finite(const utility::vector<N, T>& v)
+	{
+		for (std::size_t i = 0; i < N; ++i)
+			if (!std::isfinite(v[i]))
+				return false;
+		return true;
+	}
+
+	template<std::size_t Rows, std::size_t Cols>
+	static bool all_finite(const utility::matrix<Rows, Cols, T>& m)
+	{
+		for (std::size_t i = 0; i < Rows; ++i)
+			for (std::size_t j = 0; j < Cols; ++j)
+				if (!std::isfinite(m(i, j)))
+					return false;
+		return true;
+	}
+
 	utility::matrix<9, 9, T> dtd_{};
 	utility::vector<9, T>    sums_{};
+	std::size_t              count_{};
 };
 
 // Magnetometer calibration must round-trip through EEPROM via memcpy, so

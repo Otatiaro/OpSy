@@ -313,6 +313,12 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			task.waiting_ = nullptr;
 		}
 
+		// A runnable-but-not-running task is linked into ready_, and nothing
+		// above unlinks it. Done after the waiting_ branch on purpose: both
+		// lists share the task_lists::waiting node pair, so the task must have
+		// left the condition variable's list before this touches ready_.
+		ready_.erase(task);
+
 		if (&task == current_task_.load(std::memory_order_relaxed))
 		{
 			assert(!critical_section_.load(std::memory_order_relaxed));

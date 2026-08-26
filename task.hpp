@@ -65,9 +65,9 @@ enum class task_priority
 	: uint8_t
 	{
 		lowest = 0xFF, ///< Lowest priority
-	low = 0x40,  ///< Low priority
+	low = 0xC0,  ///< Low priority
 	normal = 0x80, ///< Normal priority
-	high = 0xC0,  ///< High priority
+	high = 0x40,  ///< High priority
 	highest = 0x0, ///< Highest priority
 };
 

@@ -218,8 +218,20 @@ private:
 	static void add_task(task_control_block& task)
 	{
 		hooks::task_added(task);
-		all_tasks_.push_front(task);
-		ready_.insert_when(task_control_block::priority_is_lower, task);
+
+		{
+			// Called straight from task context by task_control_block::start_impl,
+			// so SysTick can land in the middle of these two list mutations and run
+			// its own ready_.insert_when on a half-stitched list -- losing a task or
+			// closing the links into a cycle. The mask is released before
+			// trigger_soft_switch, which asserts BASEPRI is clear (and is therefore
+			// why the caller cannot simply hold the lock across the whole thing).
+			const auto previous = cortex_m::set_basepri(service_call_priority);
+			all_tasks_.push_front(task);
+			ready_.insert_when(task_control_block::priority_is_lower, task);
+			cortex_m::set_basepri(previous);
+		}
+
 		if(is_started_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}

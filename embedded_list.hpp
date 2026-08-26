@@ -625,6 +625,14 @@ public:
 			}
 			else // first but not last element in the list
 			{
+				// ... of *some* list. Without this guard, erasing an item that heads
+				// another list splices that list's nodes into this one: this->first_
+				// would be set to a node this list never owned, the other list would
+				// keep a size_ it no longer backs, and the tail of the current list
+				// would be dropped. The sibling branch above already checks this.
+				if (first_ != i.ptr())
+					return end();
+
 				first_ = i.next();
 				i.next(nullptr);
 				iterator(first_).previous(nullptr);

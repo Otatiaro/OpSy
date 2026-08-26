@@ -97,6 +97,14 @@ offline validation):
 
 Each has its own README with the per-file detail.
 
+## How it works
+
+[`docs/architecture.md`](docs/architecture.md) covers the inside: which
+exception does what (`SVC` decides, `SysTick` counts, `PendSV` switches,
+and why they sit at those priorities), what the three lists hold, how a
+task moves between them, and the two different exclusion mechanisms that
+are easy to confuse. Read it before changing anything in `scheduler.cpp`.
+
 ## Naming convention
 
 Identifiers follow the C++ standard library style: `snake_case` types and

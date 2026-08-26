@@ -97,6 +97,22 @@ public:
 	}
 
 	/**
+	 * @brief Tells whether this handle actually holds the critical section.
+	 *
+	 *        @c scheduler::try_critical_section returns an invalid handle when
+	 *        the section is already held, so a caller has to be able to ask.
+	 *        Without this the return value carries no usable information: the
+	 *        two outcomes are indistinguishable, and only the holder of a valid
+	 *        handle may assume exclusion.
+	 *
+	 * @return @c true if the section is held by this handle
+	 */
+	[[nodiscard]] constexpr explicit operator bool() const
+	{
+		return valid_;
+	}
+
+	/**
 	 * @brief Deletes the @c critical_section, releasing the lock if it is active
 	 * @remark The body is defined inline at the bottom of @c scheduler.hpp because
 	 *         it calls @c scheduler::critical_section_end, and @c scheduler.hpp

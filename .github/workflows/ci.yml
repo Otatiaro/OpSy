@@ -14,13 +14,17 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.compiler }} / cortex-${{ matrix.target }})
+    name: Build (${{ matrix.compiler }} / cortex-${{ matrix.target }} / c++${{ matrix.standard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
         target: [m3, m4, m7, m33]
+        # C++26 is built alongside C++23 deliberately: OpSy targets 23, and
+        # building 26 as it lands catches anything the newer standard changes
+        # or removes before a user on a newer toolchain hits it.
+        standard: [23, 26]
     steps:
       - uses: actions/checkout@v5
 
@@ -50,17 +54,19 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
           -DOPSY_COMPILER=${{ matrix.compiler }}
           -DOPSY_TARGET=${{ matrix.target }}
+          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
 
       - name: Build
         run: cmake --build build --parallel
 
   host-tests:
-    name: Host tests (${{ matrix.compiler }})
+    name: Host tests (${{ matrix.compiler }} / c++${{ matrix.standard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
+        standard: [23, 26]
     steps:
       - uses: actions/checkout@v5
 
@@ -77,6 +83,7 @@ jobs:
           -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
 
       - name: Build
         run: cmake --build build-host --parallel

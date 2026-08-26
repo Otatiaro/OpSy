@@ -44,7 +44,18 @@ add_executable(opsy_host_tests ${OPSY_HOST_TEST_SOURCES})
 
 target_include_directories(opsy_host_tests PRIVATE ${OPSY_ROOT} ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_compile_features(opsy_host_tests PRIVATE cxx_std_23)
+# OpSy targets C++23, and is kept building under C++26 as that lands: the CI
+# builds both so a construct C++26 changes or removes is caught here rather
+# than by a user on a newer toolchain. Override with -DOPSY_CXX_STANDARD=26.
+if(NOT DEFINED OPSY_CXX_STANDARD)
+    set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
+endif()
+
+set_target_properties(opsy_host_tests PROPERTIES
+    CXX_STANDARD ${OPSY_CXX_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
 # Same strict set as the Cortex-M suite, so a warning cannot be introduced
 # here and go unnoticed until the cross build runs.

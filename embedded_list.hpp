@@ -296,7 +296,7 @@ public:
 	inline self_type operator++()
 	{
 		assert(ptr_ != nullptr);
-		return ptr_ = ptr_->Interface::next_;
+		return self_type(ptr_ = ptr_->Interface::next_);
 	}
 
 	/**
@@ -413,7 +413,7 @@ public:
 	 * @brief Move construct a @c embedded_list from another
 	 * @param other The other @c embedded_list to move data from
 	 */
-	explicit embedded_list(embedded_list&& other) :
+	embedded_list(embedded_list&& other) :
 			first_(other.first_), size_(other.size_)
 	{
 		other.first_ = nullptr;
@@ -455,7 +455,7 @@ public:
 		{
 			auto next = i.next();
 			i.reset();
-			i = next;
+			i = iterator(next);
 		}
 
 		first_ = nullptr;
@@ -475,9 +475,9 @@ public:
 	 * @brief Gets an @c embedded_const_iterator to the beginning of this @c embedded_list
 	 * @return An @c embedded_const_iterator to the beginning of this @c embedded_list
 	 */
-	constexpr const inline const_iterator begin() const
+	constexpr inline const_iterator begin() const
 	{
-		return first_;
+		return const_iterator(first_);
 	}
 
 	/**
@@ -504,7 +504,7 @@ public:
 	 */
 	constexpr inline const_iterator cbegin() const
 	{
-		return first_;
+		return const_iterator(first_);
 	}
 
 	/**

@@ -162,6 +162,11 @@ public:
 	{
 		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
 
+		// The storage may already hold a live object, exactly as in the
+		// callback&& overload above: destroy it before placement-newing over it.
+		if (valid_ == callback_validity::valid_destructor)
+			std::destroy_at(get());
+
 		valid_ = (std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>>) ? callback_validity::valid_destructor : callback_validity::valid_no_destructor;
 		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
 		return *this;

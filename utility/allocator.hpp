@@ -164,10 +164,17 @@ public:
 			}
 		}
 
-		if (ptr_index + static_cast<size_type>(allocated_slots) + 1 < N - 2) // the allocation was not the last one, check if next if also free
+		// The next chunk's head indicator sits at ptr_index + allocated_slots + 1. A head
+		// index is valid up to N - 2 included: that is a trailing chunk of zero payload,
+		// whose own tail indicator is the last slot of the buffer. So the bound is
+		// N - 1, not N - 2.
+		if (ptr_index + static_cast<size_type>(allocated_slots) + 1 < N - 1) // the allocation was not the last one, check if next if also free
 		{
 			const auto next_allocation_slots = data_[ptr_index + static_cast<size_type>(allocated_slots) + 1];
-			if (next_allocation_slots > 0) // next slot is free, merge the two
+			// >= 0, not > 0: a free chunk of zero payload is still a free chunk to merge
+			// with, and allocate() creates exactly that whenever needed_slots + 2 uses up
+			// the trailing chunk exactly.
+			if (next_allocation_slots >= 0) // next slot is free, merge the two
 			{
 				const auto combined_slots = allocated_slots + next_allocation_slots + 2;
 				data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(combined_slots)] = combined_slots;

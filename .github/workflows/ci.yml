@@ -53,3 +53,33 @@ jobs:
 
       - name: Build
         run: cmake --build build --parallel
+
+  host-tests:
+    name: Host tests (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v5
+
+      # The host suite builds 32-bit: utility/allocator.hpp requires
+      # sizeof(int) == sizeof(void*), which holds on every Cortex-M target and
+      # on no 64-bit host, and a 32-bit build keeps the pointer arithmetic
+      # under test the same width as on target.
+      - name: Install Ninja and 32-bit support
+        run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-multilib g++-multilib
+
+      - name: Configure
+        run: >
+          cmake -S tests/host -B build-host
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+
+      - name: Build
+        run: cmake --build build-host --parallel
+
+      - name: Run
+        run: ctest --test-dir build-host --output-on-failure

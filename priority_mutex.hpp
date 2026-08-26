@@ -90,6 +90,11 @@ public:
 	constexpr priority_mutex(priority_mutex&& from) :
 			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
 	{
+		// As in operator=(priority_mutex&&): the lock moved out with the
+		// critical_section handle, so the source no longer holds it. Leaving
+		// locked_ set there would let its unlock() -- or its destructor --
+		// release a section this object believes it owns.
+		from.locked_ = false;
 	}
 
 	/**

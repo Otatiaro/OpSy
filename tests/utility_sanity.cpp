@@ -757,7 +757,15 @@ static constexpr auto g_vectors =
 	.with_handler<0, &fake_peripheral_handler>()
 	.with_handler<fake_irq_count - 1, &fake_peripheral_handler>();
 
-static_assert(std::is_trivially_copyable_v<decltype(g_vectors)>);
+// No is_trivially_copyable check here, deliberately. interrupt_vector holds a
+// `const system_block system_`, and a const-qualified member makes the class
+// non-trivially-copyable -- clang says so, GCC is more permissive, which is
+// how an assertion asserting the opposite passed locally and broke CI.
+//
+// The property is not one this type needs: the table is built at compile time
+// and read by the hardware, never memcpy'd. (magnetometer_calibration is the
+// one that genuinely requires it, and asserts it in its own header.) What
+// matters here is the layout, which the two checks below pin.
 
 // The system block layout is read by the hardware at fixed offsets, so pin
 // the offsets the table depends on rather than just the total size.

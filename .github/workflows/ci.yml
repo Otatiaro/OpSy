@@ -83,3 +83,35 @@ jobs:
 
       - name: Run
         run: ctest --test-dir build-host --output-on-failure
+
+  qemu-tests:
+    name: QEMU tests (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja and QEMU
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
+
+      - name: Configure
+        run: >
+          cmake -S tests/qemu -B build-qemu
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build-qemu --parallel
+
+      - name: Run
+        run: ctest --test-dir build-qemu --output-on-failure

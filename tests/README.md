@@ -1,16 +1,19 @@
 # OpSy tests
 
-Two suites, answering two different questions.
+Three suites, answering three different questions.
 
 | Suite | Question | Runs code? |
 |---|---|---|
 | [Cortex-M sanity](#cortex-m-sanity-build) (this directory) | does the whole API still compile, on every target, under a strict warning set? | no |
-| [Host tests](#host-tests) (`host/`) | does the portable half of OpSy still *behave*? | yes |
+| [Host tests](#host-tests) (`host/`) | does the portable half of OpSy still *behave*? | yes, natively |
+| [QEMU tests](#qemu-tests) (`qemu/`) | does the *scheduler* behave, on a real Cortex-M? | yes, emulated |
 
 The cross build cannot check behaviour: it produces a static library
-that is never linked or run. The host suite covers what that leaves
-open, for the part of OpSy that is plain C++ — the containers, the
-allocator, the numerics.
+that is never linked or run. The host suite covers the part of OpSy
+that is plain C++ — the containers, the allocator, the numerics. The
+QEMU suite covers the rest: task switching, service calls, condition
+variable timeouts, all of which only exist once the scheduler owns a
+CPU.
 
 ## Cortex-M sanity build
 
@@ -97,20 +100,90 @@ The suite is built 32-bit. `utility/allocator.hpp` requires
 test at target width. Pass `-DOPSY_HOST_TESTS_M32=OFF` to build native
 width instead; the allocator cases are skipped in that configuration.
 
+## QEMU tests
+
+On-target suite in [`qemu/`](qemu), booted on an emulated Cortex-M.
+
+```sh
+cmake -S tests/qemu -B build-qemu -G Ninja \
+      -DCMAKE_TOOLCHAIN_FILE="$PWD/tests/cortex-m-toolchain.cmake" \
+      -DOPSY_COMPILER=gcc \
+      -DOPSY_TARGET=m4
+cmake --build build-qemu --parallel
+ctest --test-dir build-qemu --output-on-failure
+```
+
+Needs `qemu-system-arm` on `PATH`. Each `OPSY_TARGET` maps to the board
+QEMU models for it:
+
+| Target | Machine | Linker script |
+|---|---|---|
+| `m3` | `mps2-an385` | `armv7m.ld` |
+| `m4` | `mps2-an386` | `armv7m.ld` |
+| `m7` | `mps2-an500` | `armv7m.ld` |
+| `m33` | `mps2-an505` | `armv8m.ld` |
+
+The image is a real one: `startup.cpp` brings up `.data`, `.bss` and the
+static constructors, relocates the vector table into RAM and points VTOR
+at it, then hands over to `scheduler::start`. Cases run from an OpSy
+task, so they can block, sleep, and start or stop other tasks. I/O is
+ARM semihosting — no UART, no C library.
+
+Cases run back to back on one runner task, so each must leave the system
+as it found it: no task left started, no mutex left locked. The runner
+raises itself to `task_priority::high` once running; tasks start at
+`lowest`, so a freshly started helper cannot run until the runner
+blocks. That is what lets a case observe a helper *before* it has had
+any chance to execute. A helper that must preempt the runner is raised
+to `highest` explicitly.
+
+`test_scheduler.cpp` covers scheduler liveness and priority ordering,
+condition variable timeouts and notification, mutex serialisation,
+`sleep_until`, task termination and reuse, and the four regressions that
+needed a running scheduler to reproduce: `wait_until` with an elapsed
+deadline, `sleep_until` with one, a terminated task left linked into
+`ready_`, and a stale `waiting_` pointer after a wait timed out.
+
+Two notes on the plumbing, both learned the hard way:
+
+- On AArch32, plain `SYS_EXIT` takes the reason code *in r1*, not a
+  pointer — the `{reason, code}` block is `SYS_EXIT_EXTENDED`. Getting
+  that wrong makes QEMU exit 1 on a fully passing run.
+- QEMU writes semihosting output to *its own stderr*, and collapses
+  every non-zero application exit code to a process status of 1. So
+  `run_qemu.cmake` looks for a `RESULT:` line across both streams and
+  treats its absence as a failure — otherwise an image that hangs or
+  faults halfway would read as a pass.
+
+`mps2-an505` needs its own linker script for a second reason beyond
+TrustZone addressing: its SRAM at `0x30000000` sits behind a Memory
+Protection Controller that comes up blocking, so the very first stack
+push faults before any instruction of the image runs. Rather than
+programming the SSE-200 MPCs, the image puts both code and data in the
+Secure ZBT SRAM at `0x10000000`.
+
 ## CI
 
-Every push and pull request to `master` runs both suites on
-`ubuntu-latest`: the full `{gcc, clang} × {m3, m4, m7, m33}` cross
-matrix, and the host tests under `gcc` and `clang`. See
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — the
-workflow is the canonical spec, and local builds should match its
+Every push and pull request to `master` runs all three suites on
+`ubuntu-latest`: the `{gcc, clang} × {m3, m4, m7, m33}` cross matrix,
+the host tests under `gcc` and `clang`, and the QEMU tests on all four
+targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
+the workflow is the canonical spec, and local builds should match its
 configure lines.
 
-## What is not covered
+## What is still not covered
 
-The scheduler's concurrency paths — context switching, the service
-calls, priority inheritance, timeout expiry — are exercised for
-compilation only. Nothing here runs them, so bugs that need two tasks
-and an interrupt to manifest are found by review and by reading the
-disassembly, not by this suite. Closing that gap needs an emulator
-(QEMU `-machine mps2-an385` or similar) running a real image.
+Narrow races. `try_critical_section`'s test-then-set window and
+`add_task`'s unmasked list mutation are a few instructions wide; QEMU
+runs deterministically and will not hit them on its own. Reproducing
+them means driving the interleaving by hand — pending SysTick through
+`ICSR` at a chosen instruction — which mostly proves the test was
+written correctly.
+
+The `ticks_` torn read needs the 32-bit low word to wrap: ~49.7 days of
+simulated time at 1 ms, or an API to seed the counter near the boundary.
+
+The non-`volatile` MMIO and the missing `"memory"` clobber are
+optimisation bugs, not execution bugs. Emulation only shows them if the
+compiler happens to take the dangerous transformation; the disassembly
+is the tool for those.

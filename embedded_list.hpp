@@ -644,12 +644,21 @@ public:
 	}
 
 	/**
-	 * @brief Inserts an @c Item in the @c embedded_list
-	 * @param previous The @c embedded_iterator that points to the @c Item just before where the new @c Item is to be inserted
+	 * @brief Inserts an @c Item into the @c embedded_list, just after @p previous
+	 * @param previous The @c embedded_iterator that points to the @c Item the new one goes after
 	 * @param item The @c Item to insert in the @c embedded_list
 	 * @return An @c embedded_iterator pointing to the @c Item inserted
+	 *
+	 * @warning Named @c insert_after, not @c insert, because it is the mirror
+	 *          image of @c std::list::insert -- which inserts *before* its
+	 *          position. Under the old name the two differed on every call:
+	 *          on @c [1,2] , @c insert(begin(),9) gave @c [1,9,2] where
+	 *          @c std::list gives @c [9,1,2] , and @c insert(end(),9) put the
+	 *          item at the *head* rather than the tail. The name now says
+	 *          which side it lands on, and no longer invites the assumption.
+	 *          @c std::forward_list uses the same @c insert_after convention.
 	 */
-	iterator insert(iterator previous, Item& item)
+	iterator insert_after(iterator previous, Item& item)
 	{
 		assert(iterator(&item).is_free());
 
@@ -700,7 +709,7 @@ public:
 				++current;
 			}
 
-			return insert(previous, item);
+			return insert_after(previous, item);
 		}
 
 	}

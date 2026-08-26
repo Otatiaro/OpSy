@@ -34,15 +34,28 @@ jobs:
         with:
           release: '14.3.Rel1'
 
+      # Installed straight from the upstream release rather than through an
+      # action. The action that used to do this apt-installs libtinfo5, which
+      # Ubuntu 24.04 no longer ships, so every clang job died before compiling
+      # anything. Fetching the tarball also lifts the version cap the action
+      # imposed (it only knew about 19.1.1).
       - name: Install LLVM Embedded Toolchain for Arm
         if: matrix.compiler == 'clang'
-        uses: stellar-aria/llvm-embedded-toolchain-for-arm-action@latest
-        # 19.1.1 is the latest version the action knows about. 19.1.5 exists
-        # upstream but the action's release table hasn't been bumped to
-        # include it yet. 19.1.1 is the same toolchain family — fine for
-        # a compile-only sanity check.
-        with:
-          release: '19.1.1'
+        env:
+          LLVM_ET_ARM_VERSION: '19.1.5'
+        run: |
+          set -euo pipefail
+          url="https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${LLVM_ET_ARM_VERSION}/LLVM-ET-Arm-${LLVM_ET_ARM_VERSION}-Linux-x86_64.tar.xz"
+          curl --fail --silent --show-error --location --retry 3 -o llvm-et-arm.tar.xz "$url"
+          mkdir -p "$HOME/llvm-et-arm"
+          tar -xJf llvm-et-arm.tar.xz -C "$HOME/llvm-et-arm" --strip-components=1
+          # Some LLVM builds still look for libtinfo.so.5; 24.04 has .6 and the
+          # ABI is compatible for what clang uses it for. Only if needed.
+          if ! "$HOME/llvm-et-arm/bin/clang" --version >/dev/null 2>&1; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+          "$HOME/llvm-et-arm/bin/clang" --version
+          echo "$HOME/llvm-et-arm/bin" >> "$GITHUB_PATH"
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -74,15 +87,24 @@ jobs:
       # sizeof(int) == sizeof(void*), which holds on every Cortex-M target and
       # on no 64-bit host, and a 32-bit build keeps the pointer arithmetic
       # under test the same width as on target.
-      - name: Install Ninja and 32-bit support
-        run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-multilib g++-multilib
+      # g++-14 explicitly: the runner's default GNU compiler does not know
+      # c++26, so the c++26 axis failed at configure time with "the current
+      # compiler GNU does not support this". clang on the runner is recent
+      # enough as-is.
+      - name: Install Ninja, 32-bit support and GCC 14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-multilib g++-multilib
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            sudo apt-get install -y g++-14 gcc-14 g++-14-multilib gcc-14-multilib
+          fi
 
       - name: Configure
         run: >
           cmake -S tests/host -B build-host
           -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler == 'gcc' && 'g++-14' || 'clang++' }}
           -DOPSY_CXX_STANDARD=${{ matrix.standard }}
 
       - name: Build

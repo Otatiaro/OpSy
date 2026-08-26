@@ -463,6 +463,8 @@ inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_t
 inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
                                            callback<void(void)>&& entry, const char* name)
 {
+	assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
+
 	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
 		return false;
 
@@ -516,6 +518,8 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
  */
 inline bool task_control_block::kill()
 {
+	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
+
 	if(!is_started()) // can only terminate an active task
 		return false;
 

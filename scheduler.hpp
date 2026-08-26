@@ -152,7 +152,8 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(is_started_);
+		assert(is_started_.load(std::memory_order_relaxed));
+		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
 
@@ -185,12 +186,44 @@ public:
 	}
 
 	/**
+	 * @brief Whether the caller is running at a level where OpSy may be entered
+	 *
+	 *        OpSy deliberately leaves the priority levels above its own free
+	 *        for latency-critical interrupt handlers — they preempt the
+	 *        scheduler itself, which is the point. The price is that such a
+	 *        handler can interrupt OpSy at an arbitrary instruction, with its
+	 *        lists half-stitched and its globals mid-update, so it must not
+	 *        call into OpSy at all.
+	 *
+	 *        The service calls are protected by the hardware: an @c SVC issued
+	 *        from a handler that outranks @c service_call_priority escalates
+	 *        straight to HardFault. Everything that does not go through an
+	 *        @c SVC — this function, @ref now , the accessors — has no such
+	 *        protection, and asserts on this instead.
+	 *
+	 * @return @c true from a task, or from a handler at or below
+	 *         @c service_call_priority
+	 *
+	 * @remark Thread mode reports no priority at all, which is the lowest
+	 *         there is, so a task always passes.
+	 */
+	[[nodiscard]] static inline bool is_os_callable()
+	{
+		return cortex_m::current_priority()
+			.value_or(cortex_m::lowest_priority)
+			.masked_value<preemption_bits>()
+			>= service_call_priority.masked_value<preemption_bits>();
+	}
+
+	/**
 	 * @brief Try to get a valid @c critical_section from the @c scheduler
 	 * @return A @c critical_section with state @c true if possible, @c false otherwise (already in critical section)
 	 * @remark Use this only for @c task to @c task synchronization, prefer @c mutex for a more generic synchronization (uses @c isr_priority to sychronize with interrupt service routines)
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
+		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
+
 		// A single read-modify-write, not a load followed by a store: SysTick can
 		// land between the two and switch to a task that takes the section for
 		// itself, after which both tasks believe they hold it and the first

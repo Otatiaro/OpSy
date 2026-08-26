@@ -228,7 +228,10 @@ public:
 	 * Checks if the @c callback is valid (contains an actual function)
 	 * @return @c true if the @c callback contains a function, @c false if it is empty
 	 */
-	constexpr operator bool() const
+	// explicit, like std::function's: without it a callback converts silently
+	// to bool, so `int n = cb;` and `cb + 1` compile. Contextual conversion --
+	// if (cb), !cb, cb && x -- still works.
+	[[nodiscard]] constexpr explicit operator bool() const
 	{
 		return valid_ != callback_validity::invalid;
 	}

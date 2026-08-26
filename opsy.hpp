@@ -55,6 +55,17 @@ namespace opsy
  */
 void inline sleep_for(duration t)
 {
+	// A duration that has already elapsed is not an error -- std::this_thread's
+	// sleep_for and sleep_until both return immediately on one. It arrives here
+	// from sleep_until with a deadline in the past, where the sleep service call
+	// would otherwise trip its assert(delta.count() >= 0), and under NDEBUG set
+	// wait_until_ to a point in the past and sleep until the next tick anyway.
+	//
+	// Zero is left alone: it still costs one tick, which is the established way
+	// to yield.
+	if (t.count() < 0)
+		return;
+
 	const auto count = t.count();
 	// "memory" clobber: see trigger_hard_switch in scheduler.hpp. The SVC may
 	// reschedule, modify the task frame on PSP and the scheduler globals; the

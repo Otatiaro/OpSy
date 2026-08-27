@@ -208,38 +208,22 @@ public:
 			return routine{std::coroutine_handle<promise_type>::from_promise(*this)};
 		}
 
-		// Suspended before its first statement: the routine starts when the
-		// caller resumes it, not when it is created.
 		std::suspend_always initial_suspend() const noexcept { return {}; }
 
 		/**
 		 * @brief Leaves the routine suspended at its end rather than ending it
-		 *
-		 * @remark Suspending here, instead of letting the frame destroy
-		 *         itself, is what makes @c done() answerable. A routine that
-		 *         destroys its own frame leaves every handle to it dangling,
-		 *         and the handler's @c resume() -- or the @c done() guarding
-		 *         it -- then reads freed storage. The frame is destroyed by
-		 *         @ref routine instead, which knows when nobody holds it any
-		 *         more.
+		 * @remark A frame that destroys itself leaves every handle dangling,
+		 *         so @c done() would read freed storage. @ref routine
+		 *         destroys it instead.
 		 */
 		std::suspend_always final_suspend() const noexcept { return {}; }
 
 		void return_void() const noexcept {}
 
 #ifndef NDEBUG
-		/**
-		 * @brief Whether the routine is currently executing
-		 *
-		 *        Only exists in a debug build, and only so that @ref
-		 *        routine::resume can refuse to re-enter a frame that is
-		 *        already running. See the assert there for what that would do.
-		 */
-		bool running_ = false;
+		bool running_ = false;   // read by resume(), which refuses to re-enter
 #endif
 
-		// Required by the language even with -fno-exceptions, where nothing
-		// can call it.
 		void unhandled_exception() const noexcept {}
 	};
 
@@ -247,21 +231,13 @@ public:
 
 	explicit constexpr routine(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
 
-	/**
-	 * @brief Destroys the frame, running the destructors of whatever the
-	 *        routine still held
-	 *
-	 * @remark The storage itself is the caller's and is not freed -- there is
-	 *         nowhere to free it to. What this releases is the objects living
-	 *         in it, for a routine abandoned part-way through.
-	 */
+	/** @brief Destroys the frame; the storage itself belongs to the caller. */
 	~routine()
 	{
 		if(handle_)
 			handle_.destroy();
 	}
 
-	// Not copyable: two handles to one frame would each destroy it.
 	routine(const routine&) = delete;
 	routine& operator=(const routine&) = delete;
 
@@ -272,8 +248,6 @@ public:
 		if(this == &other)
 			return *this;
 
-		// Whatever this one held is dropped before taking the other's, or the
-		// frame it was running would be left with nothing pointing at it.
 		if(handle_)
 			handle_.destroy();
 

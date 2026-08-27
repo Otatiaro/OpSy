@@ -51,8 +51,6 @@
 #include "task.hpp"
 #include "cortex_m.hpp"
 #include "mutex.hpp"
-// Held by value as the lock a notification is issued under, so the
-// definition is needed here, not just a declaration.
 #include "isr_lock.hpp"
 
 #include <variant>

@@ -47,13 +47,7 @@
 
 #pragma once
 
-// callback appears by value in hooks::starting's signature, so a declaration
-// is not enough. It is a plain type-erased callable with inline storage and
-// pulls in no scheduler of its own.
 #include "callback.hpp"
-
-// time_point comes from the project's configuration, and isr_priority is
-// named in the interrupt-tracing signatures. Both appear by value.
 #include "config.hpp"
 #include "isr_priority.hpp"
 
@@ -64,19 +58,11 @@
 namespace opsy
 {
 
-// Forward declarations rather than includes: this header names these types in
-// signatures only, never touching their members, so a declaration is all the
-// compiler needs. Including their headers instead would not work anyway --
-// this one is pulled in from the middle of the scheduler's include chain, and
-// those headers include the scheduler in turn.
-//
-// Every type named below has to be here, or in one of the includes above.
-// Miss one and this header no longer compiles on its own -- and neither does
-// anything standalone that includes it, such as
-// utility/interrupt_vector.hpp. That is easy to miss rather than obvious:
-// most translation units reaching this header have included opsy.hpp first,
-// which declares everything, so the omission shows up only where the header
-// is used on its own.
+// Declared, not included: these appear in signatures only, and their headers
+// include this one back. Every type the signatures below name has to be
+// listed -- an omission stops this header compiling on its own, and with it
+// anything standalone that includes it, while most callers go on building
+// because they included <opsy.hpp> first.
 class task_control_block;
 class idle_task_control_block;
 class condition_variable;

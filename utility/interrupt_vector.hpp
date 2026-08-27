@@ -64,16 +64,9 @@
 #include <cstdint>
 #include <array>
 
-// Two headers, and deliberately not the opsy.hpp umbrella. All this one
-// needs from OpSy is cortex_m::isr_handler_t, the type of a vector table
-// entry, and hooks::decorate_isr just below. The umbrella would supply both,
-// and the scheduler, the tasks and the locks with them -- which would make a
-// vector table unusable without an RTOS, in a project that may well not run
-// one.
+// Not <opsy.hpp>: the umbrella would bring the scheduler with it, and a
+// vector table is useful to a project that runs no RTOS.
 #include "../cortex_m.hpp"
-
-// For hooks::decorate_isr, which wraps each peripheral handler so a configured
-// tracing hook fires around it. hooks.hpp includes nothing itself.
 #include "../hooks.hpp"
 
 namespace opsy::utility

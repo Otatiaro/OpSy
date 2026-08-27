@@ -65,9 +65,7 @@
 #include "config.hpp"
 #include "task.hpp"
 #include "mutex.hpp"
-// Returned by value from try_critical_section.
 #include "critical_section.hpp"
-// Named in the signatures that hand a lock back to a woken task.
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
 #include "hooks.hpp"

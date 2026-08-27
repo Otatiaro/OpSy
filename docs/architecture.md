@@ -146,7 +146,7 @@ already reported as terminated.
 | Call | What the handler does |
 |---|---|
 | `sleep` | Sets `wait_until_`, inserts into `timeouts_`, clears `current_task_`, switches. |
-| `wait` | Same, plus links the task into the condition variable's list and releases the mutex atomically. A negative duration means "no timeout". |
+| `wait` | Same, plus links the task into the condition variable's list and releases the lock the caller recorded — dropping `BASEPRI` for an `isr_lock`, handing ownership to a waiter for a `mutex`. A negative duration means "no timeout". |
 | `context_switch` | Just re-runs `do_switch()` — used after a priority change. |
 | `mutex_lock` | Links the caller as a waiter on a held `mutex`, applies priority inheritance, and switches away. Returns once the caller owns it. |
 | `mutex_unlock` | Releases the mutex, hands it straight to the highest-priority waiter, and recomputes the releaser's priority. |
@@ -235,6 +235,30 @@ inside a critical section — where a wait queue per mutex would have
 walked one. If you need that many tasks, this is the design decision to
 revisit first, and the fix is mechanical: give each mutex its own wait
 list and each task its own held list, at the cost of keeping them in step.
+
+### Waking with a lock held
+
+A task that waited holding a lock has to get it back before it may run,
+and the two kinds are re-acquired at different moments:
+
+- an **`isr_lock`** is a `BASEPRI` level, which belongs to the context —
+  it is restored inside `PendSV`, as part of the switch;
+- a **`mutex`** is ownership, which is not per-context — it is taken back
+  when the task is woken. And taking it back can fail, if someone else
+  holds it by then, in which case the wake turns straight into blocking
+  on the mutex.
+
+That second case is why `resume_waiter()` decides about the mutex
+*before* inserting into `ready_`, never after. A task woken to a mutex it
+cannot have goes into no list at all, carrying `blocked_on_`. Inserting
+first and correcting afterwards is what once put a task in two lists at
+the same time.
+
+Which lock to release is recorded on the task before the service call, as
+a `std::variant<std::monostate, mutex*, isr_lock*>` — 8 bytes on
+Cortex-M, and no `bad_variant_access` path under `-fno-exceptions`. There
+was no register left in the service call frame to carry a discriminant,
+and a bare pointer could not say which kind it pointed at.
 
 ## The clock
 

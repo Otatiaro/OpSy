@@ -82,5 +82,16 @@ SECTIONS
   . = ALIGN(8);
   _estack = ORIGIN(RAM) + LENGTH(RAM);
 
-  /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
+  /* Kept, not discarded: libgcc's unwinder references __exidx_start and
+     __exidx_end unconditionally, even with -fno-exceptions, as soon as
+     anything drags unwind-arm.o in. Providing an empty table satisfies it
+     without pulling in any actual unwinding. */
+  .ARM.extab : { *(.ARM.extab* .gnu.linkonce.armextab.*) } > CODE
+
+  .ARM.exidx :
+  {
+    __exidx_start = .;
+    *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+    __exidx_end = .;
+  } > CODE
 }

@@ -64,6 +64,7 @@
 
 #include "config.hpp"
 #include "task.hpp"
+#include "mutex.hpp"
 #include "condition_variable.hpp"
 #include "hooks.hpp"
 
@@ -88,6 +89,8 @@ namespace opsy
  */
 class scheduler
 {
+	friend class mutex;
+
 	friend void ::SysTick_Handler();
 	friend void ::PendSV_Handler();
 	friend void ::SVC_Handler();
@@ -186,6 +189,15 @@ public:
 	}
 
 	/**
+	 * @brief The task currently running, or @c nullptr between tasks
+	 * @remark Exposed for @c mutex , which needs to know who is acquiring.
+	 */
+	[[nodiscard]] static inline task_control_block* current_task()
+	{
+		return current_task_.load(std::memory_order_relaxed);
+	}
+
+	/**
 	 * @brief Whether the caller is running at a level where OpSy may be entered
 	 *
 	 *        OpSy deliberately leaves the priority levels above its own free
@@ -240,7 +252,7 @@ private:
 	enum class service_call_number
 		: uint8_t
 		{
-			terminate, sleep, context_switch, wait,
+			terminate, sleep, context_switch, wait, mutex_lock, mutex_unlock,
 	};
 
 	// All flags / pointers below are read or written from both task and ISR
@@ -256,6 +268,13 @@ private:
 	static embedded_list<task_control_block, task_lists::handle> all_tasks_;
 	static embedded_list<task_control_block, task_lists::timeout> timeouts_;
 	static embedded_list<task_control_block, task_lists::waiting> ready_;
+
+	// Every mutex currently held, by anyone. Mutexes have no global
+	// enumeration of their own the way tasks have all_tasks_, and both
+	// releasing a dead task's mutexes and recomputing an inherited priority
+	// need to walk what a task holds. Membership here is exactly
+	// `owner_ != nullptr`.
+	static embedded_list<mutex, mutex> locked_mutexes_;
 	static std::atomic<bool> idling_;
 	static std::atomic<bool> may_need_switch_;
 	static std::atomic<bool> critical_section_;
@@ -352,7 +371,44 @@ private:
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
 	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
+	/**
+	 * @brief Records @p task as the owner of @p m
+	 * @remark The two sides of taking a mutex, in one place so they cannot
+	 *         drift: the owner pointer, and membership of locked_mutexes_.
+	 *         Must be called with the critical section held.
+	 */
+	static void take_mutex(mutex& m, task_control_block& task);
+
 	static void wake_up(task_control_block& task, condition_variable& initiator);
+
+	/**
+	 * @brief Highest-priority task currently blocked on @p m , or @c nullptr
+	 * @remark Derived by walking all_tasks_ rather than kept in a per-mutex
+	 *         list, so the relation lives in exactly one place
+	 *         (@c task::blocked_on_ ). all_tasks_ is a handful of entries on
+	 *         any real system, and this only runs on unlock with contention.
+	 */
+	static task_control_block* highest_waiter(const mutex& m);
+
+	/**
+	 * @brief Recomputes @p task 's effective priority from its base one and
+	 *        every task waiting on a mutex it holds
+	 * @return @c true if the effective priority changed
+	 * @remark This is the other half of priority inheritance: raising happens
+	 *         when a waiter arrives, this restores the right level when a
+	 *         mutex is released — which may still be an inherited one, if the
+	 *         task holds another contended mutex.
+	 */
+	static bool recompute_priority(task_control_block& task);
+
+	/**
+	 * @brief Raises @p owner to at least @p priority, following the chain of
+	 *        blocked_on_ so a transitive holder is raised too
+	 */
+	static void inherit_priority(task_control_block& owner, task_priority priority);
+
+	/** @brief Releases every mutex held by @p task, waking the waiters */
+	static void release_all_mutexes(task_control_block& task);
 	static void update_priority(task_control_block& task, task_priority new_priority);
 
 	static void update_name(task_control_block& task)
@@ -372,7 +428,7 @@ private:
 
 }
 
-// Inline definitions for critical_section / priority_mutex / condition_variable.
+// Inline definitions for critical_section / isr_lock / condition_variable.
 // Pulled here, AFTER the full @c scheduler declaration is in scope, to break
 // the include cycle between scheduler.hpp and these three primitives' headers.
 // See scheduler_inl.hpp for details.

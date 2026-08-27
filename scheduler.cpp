@@ -24,6 +24,7 @@ __attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point scheduler
 __attribute__((section(".bss.opsy.scheduler.alltasks"))) embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
 __attribute__((section(".bss.opsy.scheduler.timeouts"))) embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
 __attribute__((section(".bss.opsy.scheduler.ready"))) embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
+__attribute__((section(".bss.opsy.scheduler.lockedmutexes"))) embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 __attribute__((section(".bss.opsy.scheduler.idling"))) std::atomic<bool> scheduler::idling_{false};
 __attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) std::atomic<bool> scheduler::may_need_switch_{false};
 __attribute__((section(".bss.opsy.scheduler.idle"))) std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
@@ -196,6 +197,103 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 	cortex_m::set_basepri(previous); // and restore the basepri to its previous value
 }
 
+void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mutex& m, task_control_block& task)
+{
+	assert(m.owner_ == nullptr);
+	m.owner_ = &task;
+	locked_mutexes_.push_front(m);
+	hooks::mutex_taken(m, task);
+}
+
+task_control_block* __attribute__((section(".text.opsy.highestwaiter"))) scheduler::highest_waiter(const mutex& m)
+{
+	task_control_block* best = nullptr;
+
+	// Walked rather than looked up: the waiters of a mutex are derived from
+	// task::blocked_on_, which is the only place the relation is stored. A
+	// per-mutex wait list would be a second copy of it, and a second thing to
+	// keep in step.
+	for (auto& task : all_tasks_)
+		if (task.blocked_on_ == &m
+			&& (best == nullptr || task_control_block::priority_is_lower(task, *best)))
+			best = &task;
+
+	return best;
+}
+
+bool __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompute_priority(task_control_block& task)
+{
+	auto effective = task.base_priority_;
+
+	// Still-held mutexes may have waiters of their own, so releasing one does
+	// not necessarily drop the task back to its base priority.
+	for (auto& held : locked_mutexes_)
+		if (held.owner_ == &task)
+			for (auto& waiter : all_tasks_)
+				if (waiter.blocked_on_ == &held && waiter.priority_ < effective)
+					effective = waiter.priority_;
+
+	if (effective == task.priority_)
+		return false;
+
+	task.priority_ = effective;
+	return true;
+}
+
+void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_priority(task_control_block& owner, task_priority priority)
+{
+	// Follows the chain: the owner may itself be blocked on a mutex held by
+	// someone else, who must be raised too, or the task at the end of the
+	// chain still gets starved. Bounded so a cycle cannot spin forever —
+	// a cycle is a deadlock, caught by the assert in the service call.
+	auto* current = &owner;
+
+	for (std::size_t depth = 0; current != nullptr && depth < max_inheritance_depth; ++depth)
+	{
+		if (!(priority < current->priority_))
+			break; // already at least this important, and so is the rest of the chain
+
+		current->priority_ = priority;
+		hooks::task_priority_changed(*current);
+
+		if (current->is_ready())
+		{
+			ready_.erase(*current);
+			ready_.insert_when(task_control_block::priority_is_lower, *current);
+		}
+
+		current = current->blocked_on_ != nullptr ? current->blocked_on_->owner_ : nullptr;
+	}
+}
+
+void __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release_all_mutexes(task_control_block& task)
+{
+	// A killed task never unwinds, so anything it held would stay locked for
+	// good — and with a blocking mutex that is a permanent deadlock, not a
+	// leak. Release them here and wake whoever was waiting.
+	auto it = locked_mutexes_.begin();
+
+	while (it != locked_mutexes_.end())
+	{
+		auto& held = *it;
+		++it;
+
+		if (held.owner_ != &task)
+			continue;
+
+		locked_mutexes_.erase(held);
+		held.owner_ = nullptr;
+
+		if (auto* next = highest_waiter(held))
+		{
+			next->blocked_on_ = nullptr;
+			take_mutex(held, *next);
+			ready_.insert_when(task_control_block::priority_is_lower, *next);
+			hooks::task_ready(*next);
+		}
+	}
+}
+
 void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_priority(task_control_block& task, task_priority new_priority)
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
@@ -318,6 +416,11 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			task.waiting_ = nullptr;
 		}
 
+		// Anything it still held would stay locked for good, and with a
+		// blocking mutex that is a permanent deadlock for every waiter.
+		release_all_mutexes(task);
+		task.blocked_on_ = nullptr;
+
 		// A runnable-but-not-running task is linked into ready_, and nothing
 		// above unlinks it. Done after the waiting_ branch on purpose: both
 		// lists share the task_lists::waiting node pair, so the task must have
@@ -361,6 +464,82 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		break;
 	}
 
+	case service_call_number::mutex_lock:
+	{
+		assert(is_thread);
+		assert(frame->r0 != 0);
+		auto& target = *reinterpret_cast<mutex*>(frame->r0);
+		auto* current = current_task_.load(std::memory_order_relaxed);
+		assert(current != nullptr);
+
+		if (target.owner_ == nullptr) // freed between the fast path and here
+		{
+			take_mutex(target, *current);
+			break;
+		}
+
+		assert(target.owner_ != current); // not recursive
+
+#ifndef NDEBUG
+		{
+			// Deadlock check: follow what the owner is itself blocked on. If
+			// the chain comes back to us, the two tasks are waiting on each
+			// other and neither will ever run again. Debug only — the walk is
+			// bounded, and in release the system simply hangs, which is what
+			// it would do anyway.
+			auto* ahead = target.owner_;
+			for (std::size_t depth = 0; ahead != nullptr && depth < max_inheritance_depth; ++depth)
+			{
+				assert(ahead != current); // deadlock: circular wait on mutexes
+				ahead = ahead->blocked_on_ != nullptr ? ahead->blocked_on_->owner_ : nullptr;
+			}
+		}
+#endif
+
+		current->blocked_on_ = &target;
+		hooks::mutex_blocked(target, *current);
+
+		// Raise the holder — and whoever it is itself waiting for — so it can
+		// run to the point of releasing rather than being starved by a task
+		// of middling priority.
+		inherit_priority(*target.owner_, current->priority_);
+
+		current_task_.store(nullptr, std::memory_order_relaxed);
+		task_switch = do_switch();
+		break;
+	}
+
+	case service_call_number::mutex_unlock:
+	{
+		assert(is_thread);
+		assert(frame->r0 != 0);
+		auto& target = *reinterpret_cast<mutex*>(frame->r0);
+		auto* current = current_task_.load(std::memory_order_relaxed);
+		assert(current != nullptr);
+		assert(target.owner_ == current); // releasing someone else's mutex
+
+		locked_mutexes_.erase(target);
+		target.owner_ = nullptr;
+		hooks::mutex_released(target, *current);
+
+		if (auto* next = highest_waiter(target))
+		{
+			// Handed straight to the waiter rather than left free: whoever was
+			// blocked owns it on wake, so it cannot be stolen in between.
+			next->blocked_on_ = nullptr;
+			take_mutex(target, *next);
+			ready_.insert_when(task_control_block::priority_is_lower, *next);
+			hooks::task_ready(*next);
+		}
+
+		// The release may drop an inherited priority — though not necessarily
+		// to the base one, if another held mutex still has waiters.
+		(void) recompute_priority(*current);
+
+		task_switch = do_switch();
+		break;
+	}
+
 	case service_call_number::wait:
 	{
 		assert(is_thread); // should not be called from non thread mode
@@ -371,7 +550,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
 		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
 		duration timeout{raw};
-		mutex* mtx = reinterpret_cast<mutex*>(frame->r3);
+		isr_lock* mtx = reinterpret_cast<isr_lock*>(frame->r3);
 
 		if(timeout.count() >= 0)
 		{

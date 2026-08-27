@@ -195,6 +195,36 @@ namespace opsy
 		 * @brief Called when a @c mutex is stored by the system on a @c task
 		 * @param task The @c task for which the system has stored a @c mutex
 		 */
+		/**
+		 * @brief Called when a task takes ownership of a @c mutex
+		 * @param taken The mutex now held
+		 * @param owner The task that holds it
+		 */
+		static constexpr void mutex_taken([[maybe_unused]] mutex& taken, [[maybe_unused]] task_control_block& owner)
+		{
+
+		}
+
+		/**
+		 * @brief Called when a task releases a @c mutex
+		 * @param released The mutex just freed
+		 * @param owner The task that held it
+		 */
+		static constexpr void mutex_released([[maybe_unused]] mutex& released, [[maybe_unused]] task_control_block& owner)
+		{
+
+		}
+
+		/**
+		 * @brief Called when a task blocks waiting for a @c mutex
+		 * @param blocking The mutex it is waiting for
+		 * @param waiter The task now suspended
+		 */
+		static constexpr void mutex_blocked([[maybe_unused]] mutex& blocking, [[maybe_unused]] task_control_block& waiter)
+		{
+
+		}
+
 		static constexpr void mutex_stored_for_task([[maybe_unused]] task_control_block& task)
 		{}
 

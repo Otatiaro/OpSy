@@ -138,7 +138,7 @@ public:
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	void wait(mutex& mtx);
+	void wait(isr_lock& mtx);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and no @c mutex synchronization
@@ -157,7 +157,7 @@ public:
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
-	[[nodiscard]] cv_status wait_for(mutex& mtx, duration timeout);
+	[[nodiscard]] cv_status wait_for(isr_lock& mtx, duration timeout);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
@@ -176,11 +176,11 @@ public:
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
 	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
-	[[nodiscard]] cv_status wait_until(mutex& mtx, time_point timeout_time);
+	[[nodiscard]] cv_status wait_until(isr_lock& mtx, time_point timeout_time);
 
 private:
 
-	mutex mutex_;
+	isr_lock mutex_;
 	embedded_list<task_control_block, task_lists::waiting> waiting_list_;
 
 	/**

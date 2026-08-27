@@ -27,8 +27,8 @@ using namespace std::chrono_literals;
 // and the priority-aware overloads.
 opsy::task<512>          g_task;
 opsy::idle_task<256>     g_idle;
-opsy::mutex              g_mutex_task_only;
-opsy::mutex              g_mutex_with_priority{ opsy::isr_priority{ 0x80 } };
+opsy::isr_lock              g_mutex_task_only;
+opsy::isr_lock              g_mutex_with_priority{ opsy::isr_priority{ 0x80 } };
 opsy::condition_variable g_cv;
 opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 

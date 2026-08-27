@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file    priority_mutex.hpp
+ * @file    isr_lock.hpp
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
@@ -64,7 +64,7 @@ namespace opsy
  * It is used to protect shared data from being simultaneously accessed by multiple @c task or interrupt service routines
  * @remark It is a replacement for @c std::mutex
  */
-class priority_mutex
+class isr_lock
 {
 	friend class scheduler;
 
@@ -75,22 +75,22 @@ public:
 	 * @param priority The @c isr_priority that this @c mutex should lock, or nothing to make a @c task only exclusion (critical section)
 	 * @remark use @c isr_priority with value 0 for a full lock (@c PRIMASK = 1)
 	 */
-	constexpr explicit priority_mutex(std::optional<isr_priority> priority = std::nullopt) :
+	constexpr explicit isr_lock(std::optional<isr_priority> priority = std::nullopt) :
 			priority_(priority)
 	{
 	}
 
-	priority_mutex(const priority_mutex&) = delete;
-	void operator=(const priority_mutex&) = delete;
+	isr_lock(const isr_lock&) = delete;
+	void operator=(const isr_lock&) = delete;
 
 	/**
 	 * @brief Constructs a @c mutex by moving data from another @c mutex
 	 * @param from The @c mutex to move data from
 	 */
-	constexpr priority_mutex(priority_mutex&& from) :
+	constexpr isr_lock(isr_lock&& from) :
 			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
 	{
-		// As in operator=(priority_mutex&&): the lock moved out with the
+		// As in operator=(isr_lock&&): the lock moved out with the
 		// critical_section handle, so the source no longer holds it. Leaving
 		// locked_ set there would let its unlock() -- or its destructor --
 		// release a section this object believes it owns.
@@ -103,7 +103,7 @@ public:
 	 * @return A reference to @c this
 	 * @warning The current @c mutex must NOT be locked before being assigned
 	 */
-	priority_mutex& operator=(priority_mutex&& from)
+	isr_lock& operator=(isr_lock&& from)
 	{
 		assert(!locked_); // trying to override a locked mutex !
 		locked_ = from.locked_;

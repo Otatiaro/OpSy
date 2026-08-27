@@ -78,7 +78,7 @@ opsy::task<512> blinker; // 512 stack slots = 2 KiB on Cortex-M
 namespace mutex_example
 {
 
-opsy::mutex m{opsy::isr_priority{0x80}};
+opsy::isr_lock m{opsy::isr_priority{0x80}};
 
 [[gnu::used]] void from_task()
 {
@@ -94,7 +94,7 @@ opsy::mutex m{opsy::isr_priority{0x80}};
 namespace condition_variable_example
 {
 
-opsy::mutex              m{opsy::isr_priority{0x80}};
+opsy::isr_lock              m{opsy::isr_priority{0x80}};
 opsy::condition_variable cv{opsy::isr_priority{0x80}};
 
 [[gnu::used]] void wait_for_data()

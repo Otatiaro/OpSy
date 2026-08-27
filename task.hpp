@@ -72,6 +72,7 @@ enum class task_priority
 };
 
 class task_control_block;
+class mutex;
 
 namespace task_lists
 {
@@ -296,6 +297,17 @@ public:
 	}
 
 	/**
+	 * @brief Whether this task is sitting in the scheduler's ready list
+	 * @return @c true if it is runnable but not the one running
+	 *
+	 * @remark Derived rather than stored: a started task is in @c ready_
+	 *         unless it is the current one, blocked on a mutex, waiting on a
+	 *         condition variable, or sleeping on a timeout. Keeping a flag
+	 *         would be a second copy of that state.
+	 */
+	[[nodiscard]] bool is_ready() const;
+
+	/**
 	 * @brief Checks if the @c task_control_block is started
 	 * @return @c true if the @c task_control_block is started, @c false otherwise
 	 */
@@ -408,7 +420,17 @@ private:
 	const char* name_ = nullptr;
 	callback<void(void)> entry_;
 	condition_variable* waiting_ = nullptr;
-	mutex* mutex_ = nullptr;
+
+	// The mutex this task is blocked on, or nullptr. Single source of truth
+	// for "what is this task waiting for": the waiters of a mutex are derived
+	// by filtering all_tasks_ on this field, so there is no per-mutex wait
+	// list to keep in step with it.
+	//
+	// A task blocked here is in no list at all — its task_lists::waiting node
+	// stays free, which is why ready_ and condition_variable::waiting_list_
+	// remain that node's only two users.
+	mutex* blocked_on_ = nullptr;
+	isr_lock* mutex_ = nullptr;
 
 	/**
 	 * @brief Trampoline used as the initial PC of every task

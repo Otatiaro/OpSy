@@ -6,14 +6,14 @@
  * @date    01-March-2019
  * @brief   Inline definitions for header-only OpSy primitives
  *
- *          @c critical_section, @c priority_mutex and @c condition_variable have
+ *          @c critical_section, @c isr_lock and @c condition_variable have
  *          no static state of their own, so they live fully in headers. The
  *          catch is that several of their member functions call into
  *          @c scheduler (and conversely @c scheduler holds them by value or
  *          as friends), which creates a header cycle:
  *
  *              critical_section.hpp  <-+
- *              priority_mutex.hpp    <-|-- scheduler.hpp
+ *              isr_lock.hpp    <-|-- scheduler.hpp
  *              condition_variable.hpp<-+   (transitively includes them all)
  *
  *          Defining the bodies inside their own headers is therefore
@@ -86,7 +86,7 @@ inline critical_section::~critical_section()
 		scheduler::critical_section_end();
 }
 
-// --- priority_mutex ----------------------------------------------------------
+// --- isr_lock ----------------------------------------------------------
 
 /**
  * @brief Takes a lock on this @c mutex
@@ -107,7 +107,7 @@ inline critical_section::~critical_section()
 // doesn't correlate has_value() with the subsequent value() across function
 // calls. Operator* / operator-> have a precondition (the optional is engaged)
 // and emit nothing for the empty case, so the abort branch goes away.
-inline void priority_mutex::lock()
+inline void isr_lock::lock()
 {
 	if (priority_.has_value())
 	{
@@ -146,7 +146,7 @@ inline void priority_mutex::lock()
  * @remark Mirror of @c lock: undoes whatever scheme was selected at lock time.
  *         No-op if the mutex is not currently locked.
  */
-inline void priority_mutex::unlock()
+inline void isr_lock::unlock()
 {
 	if (!locked_)
 		return;
@@ -191,7 +191,7 @@ inline void priority_mutex::unlock()
  *         with mutex). The scheduler hands the previously-held @c critical_section
  *         back to the mutex.
  */
-inline uint32_t priority_mutex::relock_from_pend_sv(critical_section section)
+inline uint32_t isr_lock::relock_from_pend_sv(critical_section section)
 {
 	critical_section_ = std::move(section); // it is a task, so critical section is mandatory
 
@@ -214,7 +214,7 @@ inline uint32_t priority_mutex::relock_from_pend_sv(critical_section section)
  *         purpose: the task still owns the logical lock and the scheduler
  *         will restore it via @c relock_from_pend_sv when the task wakes up.
  */
-inline void priority_mutex::release_from_service_call()
+inline void isr_lock::release_from_service_call()
 {
 	assert(locked_);
 
@@ -252,7 +252,7 @@ inline void condition_variable::notify_one()
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<mutex> lock(mutex_);
+		std::lock_guard<isr_lock> lock(mutex_);
 
 		hooks::condition_variable_notify_one(*this);
 
@@ -277,7 +277,7 @@ inline void condition_variable::notify_all()
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<mutex> lock(mutex_);
+		std::lock_guard<isr_lock> lock(mutex_);
 
 		hooks::condition_variable_notify_all(*this);
 
@@ -320,7 +320,7 @@ inline void condition_variable::wait()
  * @brief Waits on this condition variable with no timeout, atomically releasing @p mutex
  * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
  */
-inline void condition_variable::wait(mutex& mtx)
+inline void condition_variable::wait(isr_lock& mtx)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
@@ -382,7 +382,7 @@ inline cv_status condition_variable::wait_for(duration timeout)
  * @param timeout The time limit; the task wakes up with @c cv_status::timeout if it elapses
  * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
+inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
@@ -435,9 +435,101 @@ inline cv_status condition_variable::wait_until(time_point timeout_time)
  * @param timeout_time The absolute time at which the wait expires
  * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
  */
-inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_time)
+inline cv_status condition_variable::wait_until(isr_lock& mtx, time_point timeout_time)
 {
 	return wait_for(mtx, timeout_time - scheduler::now());
+}
+
+inline bool task_control_block::is_ready() const
+{
+	return is_started()
+		&& this != scheduler::current_task()
+		&& blocked_on_ == nullptr
+		&& waiting_ == nullptr
+		&& !wait_until_.has_value();
+}
+
+// --- mutex ----------------------------------------------------------------
+
+/**
+ * @brief Acquires the mutex, blocking until it is free
+ * @remark The fast path — an uncontended mutex — is taken entirely here under
+ *         a critical section, with no service call. Only actually blocking
+ *         needs the scheduler, because it has to unschedule the caller.
+ */
+inline void mutex::lock()
+{
+	assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
+	assert(scheduler::is_os_callable());
+
+	{
+		auto section = scheduler::try_critical_section();
+		assert(static_cast<bool>(section));   // a task cannot already hold one here
+
+		auto* self = scheduler::current_task();
+		assert(self != nullptr);
+		assert(owner_ != self);               // not recursive, like std::mutex
+
+		if (owner_ == nullptr)
+		{
+			scheduler::take_mutex(*this, *self);
+			return;
+		}
+	}
+
+	// Contended: hand over to the service call, which links the caller as a
+	// waiter, applies priority inheritance and switches away. It returns once
+	// this task owns the mutex.
+	// "memory" clobber: see scheduler::trigger_hard_switch.
+	asm volatile(
+			"mov r0, %[mtx] \n\t"
+			"svc %[immediate]"
+			:
+			: [immediate] "I" (scheduler::service_call_number::mutex_lock), [mtx] "r" (this)
+			: "r0", "memory");
+
+	assert(owner_ == scheduler::current_task());
+}
+
+/**
+ * @brief Acquires the mutex if it is free, without blocking
+ */
+inline bool mutex::try_lock()
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(scheduler::is_os_callable());
+
+	auto section = scheduler::try_critical_section();
+	assert(static_cast<bool>(section));
+
+	auto* self = scheduler::current_task();
+	assert(self != nullptr);
+	assert(owner_ != self);                   // not recursive
+
+	if (owner_ != nullptr)
+		return false;
+
+	scheduler::take_mutex(*this, *self);
+	return true;
+}
+
+/**
+ * @brief Releases the mutex and hands it to the highest-priority waiter
+ */
+inline void mutex::unlock()
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(scheduler::is_os_callable());
+	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
+
+	// The service call does the work: electing a waiter can make it more
+	// important than the caller, which is a context switch.
+	asm volatile(
+			"mov r0, %[mtx] \n\t"
+			"svc %[immediate]"
+			:
+			: [immediate] "I" (scheduler::service_call_number::mutex_unlock), [mtx] "r" (this)
+			: "r0", "memory");
 }
 
 // --- task_control_block -------------------------------------------------------

@@ -42,7 +42,7 @@
 #include "config.hpp"
 #include "task.hpp"
 #include "scheduler.hpp"
-#include "priority_mutex.hpp"
+#include "isr_lock.hpp"
 #include "condition_variable.hpp"
 
 namespace opsy

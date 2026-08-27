@@ -23,7 +23,7 @@ opsy::task<1024> g_waiter_b;
 opsy::task<1024> g_notifier;
 
 opsy::condition_variable g_condition;
-opsy::mutex g_mutex;
+opsy::isr_lock g_mutex;
 
 std::atomic<int> g_woken_a = 0;
 std::atomic<int> g_woken_b = 0;

@@ -46,9 +46,40 @@ SCHEDULER_HEADERS = {
     "isr_lock.hpp",
     "condition_variable.hpp",
     "critical_section.hpp",
-    "embedded_list.hpp",
-    "callback.hpp",
 }
+
+# Deliberately not in that set: callback.hpp and embedded_list.hpp. Both are
+# plain data structures -- a type-erased callable with inline storage, and an
+# intrusive list -- that include no scheduler and are useful without one.
+# Treating them as scheduler headers would forbid hooks.hpp, whose signatures
+# name a callback, from being included by anything standalone.
+
+
+def compiles_alone(compiler: str, flags: list[str], root: Path, header: Path) -> None:
+    """Raise unless this header compiles with nothing else included first.
+
+    Separate from the dependency probe, and not a formality. -MM stops after
+    preprocessing, so it reports what a header includes whether or not the
+    result would compile -- a header naming a type nobody declared passes it
+    without complaint. Not hypothetical: hooks.hpp named
+    idle_task_control_block and callback without declaring either, so
+    utility/interrupt_vector.hpp did not compile on its own while this check
+    was calling it standalone. It stayed hidden because the one translation
+    unit including them both includes opsy.hpp first.
+    """
+    probe = '#include "%s"\n' % header.resolve().as_posix()
+
+    result = subprocess.run(
+        [compiler, *flags, "-I", str(root), "-I", str(header.parent),
+         "-fsyntax-only", "-x", "c++", "-"],
+        input=probe, capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "%s does not compile on its own -- so whatever it includes, it is "
+            "not usable without something else included first:\n%s%s"
+            % (header.as_posix(), result.stdout, result.stderr))
 
 
 def dependencies_of(compiler: str, flags: list[str], root: Path, header: Path) -> set[str]:
@@ -92,6 +123,7 @@ def main() -> int:
 
         for header in headers:
             try:
+                compiles_alone(compiler, flags, root_path, header)
                 found = dependencies_of(compiler, flags, root_path, header)
             except RuntimeError as error:
                 failures.append(str(error))

@@ -47,6 +47,16 @@
 
 #pragma once
 
+// callback appears by value in hooks::starting's signature, so a declaration
+// is not enough. It is a plain type-erased callable with inline storage and
+// pulls in no scheduler of its own.
+#include "callback.hpp"
+
+// time_point comes from the project's configuration, and isr_priority is
+// named in the interrupt-tracing signatures. Both appear by value.
+#include "config.hpp"
+#include "isr_priority.hpp"
+
 #if __has_include(<opsy_hooks.hpp>)
 #include <opsy_hooks.hpp>
 #else
@@ -59,7 +69,15 @@ namespace opsy
 // compiler needs. Including their headers instead would not work anyway --
 // this one is pulled in from the middle of the scheduler's include chain, and
 // those headers include the scheduler in turn.
+//
+// idle_task_control_block belongs in this list too: hooks::starting names it,
+// and leaving it out made this header fail to compile on its own -- which in
+// turn made utility/interrupt_vector.hpp, whose only need from OpSy is this
+// header and cortex_m.hpp, fail to compile on its own. It went unnoticed
+// because the one translation unit that includes them both includes opsy.hpp
+// first.
 class task_control_block;
+class idle_task_control_block;
 class condition_variable;
 class mutex;
 class isr_lock;

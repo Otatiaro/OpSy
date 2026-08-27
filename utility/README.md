@@ -137,10 +137,28 @@ opsy::utility::routine_storage<128> g_storage;
 
 void begin(uint8_t address, const uint8_t* data, std::size_t length)
 {
+    g_transfer = opsy::utility::routine{};   // release the previous one first
     g_transfer = write(g_storage, address, data, length);
-    g_transfer.resume();          // runs to the first co_await
+    g_transfer.resume();                     // runs to the first co_await
 }
 ```
+
+That first line matters, and leaving it out is the easiest mistake to
+make here. Writing `g_transfer = write(g_storage, ...)` on its own builds
+the new frame in `g_storage` **before** the assignment releases the old
+one — the right operand is evaluated first — so the new routine is built
+over a frame that is still live, whose destructors then never run, and
+the assignment tears down the new routine believing it is tearing down
+the old. A retry of a failed transfer is exactly this call.
+
+`routine_storage` refuses it rather than letting it happen: it knows
+whether it holds a live routine, and a debug build asserts. Releasing
+first, as above, is all it takes — and `used` goes back to zero when a
+routine is released, so a storage can be reused as often as you like.
+
+Note that `Size` covers both the frame and a few bytes of the storage's
+own bookkeeping (`routine_storage::reserved`, one alignment's worth).
+`used` reports the frame alone, so budget a little above it.
 
 ### What it costs
 

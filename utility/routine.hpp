@@ -33,6 +33,7 @@
 #include <coroutine>
 #include <cstddef>
 #include <utility>
+#include <cstring>
 
 #include "../opsy_assert.hpp"
 
@@ -74,7 +75,37 @@ void the_routine_frame_does_not_fit_its_storage();
 template<std::size_t Size>
 struct routine_storage
 {
+	/**
+	 * @brief Bytes reserved at the front, ahead of the frame
+	 *
+	 *        A routine's frame is released through @c operator @c delete ,
+	 *        which is handed the frame's address and nothing else -- no
+	 *        storage, no size parameter it could deduce one from. So the
+	 *        storage leaves room in front of the frame to record where its
+	 *        own bookkeeping is, and the release reads it back from there.
+	 *
+	 *        Sized by alignment rather than by @c sizeof(void*) so the frame
+	 *        still starts on a boundary every type can live on.
+	 */
+	static constexpr std::size_t reserved = alignof(std::max_align_t);
+
+	static_assert(reserved >= sizeof(void*), "no room in front of the frame for the back-pointer");
+	static_assert(Size > reserved, "Size leaves no room for a frame at all");
+
 	alignas(std::max_align_t) std::byte bytes[Size]{};
+
+	/**
+	 * @brief How many bytes the routine living here took, or 0 if it is free
+	 *
+	 * @remark Doubles as what says the storage is in use. A second routine
+	 *         built into storage that still holds a live one would overwrite
+	 *         it -- and the overwritten one's destructors never run, while the
+	 *         handle to it goes on pointing at what is now someone else's
+	 *         frame. @c operator @c new refuses that.
+	 *
+	 * @remark Useful in its own right for sizing: run once, read this, set
+	 *         @c Size to it.
+	 */
 	std::size_t used = 0;
 };
 
@@ -115,26 +146,56 @@ public:
 		template<std::size_t Size, typename... Arguments>
 		static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&...) noexcept
 		{
+			constexpr std::size_t reserved = routine_storage<Size>::reserved;
+			constexpr std::size_t available = Size - reserved;
+
 #if defined(__OPTIMIZE__)
 			// Fails the build rather than the run. See the declaration for why
 			// this is the only place the frame size can be checked, and why it
 			// takes an optimised build.
-			if(size > Size)
+			if(size > available)
 				the_routine_frame_does_not_fit_its_storage();
 #endif
 
-			assert(size <= Size); // the routine does not fit: raise Size
+			// Storage that still holds a live routine. Building a second one
+			// here would overwrite the first, whose destructors would never
+			// run and whose handle would go on pointing at what is now this
+			// frame -- so destroying the old handle would tear down the new
+			// routine. Destroy the first routine before starting a second.
+			assert(storage.used == 0);
 
-			if(size > Size)
+			assert(size <= available); // the routine does not fit: raise Size
+
+			if(size > available || storage.used != 0)
 				return nullptr;
 
 			storage.used = size;
-			return storage.bytes;
+
+			// Where the release will find its way back to `used`. Written with
+			// memcpy rather than through a cast: the bytes are aligned well
+			// enough, but saying so to the compiler means a cast it is right
+			// to refuse under -Wcast-align. memcpy of a pointer compiles to
+			// the same single store.
+			std::size_t* const slot = &storage.used;
+			std::memcpy(storage.bytes, &slot, sizeof(slot));
+
+			return storage.bytes + reserved;
 		}
 
-		static void operator delete(void*, std::size_t) noexcept
+		/**
+		 * @brief Marks the storage free again
+		 * @remark No memory is returned: the frame is the caller's storage.
+		 *         What this releases is the storage's claim on it, so another
+		 *         routine can be built there.
+		 */
+		static void operator delete(void* frame, std::size_t) noexcept
 		{
-			// Nothing to free: the frame is the caller's storage.
+			const auto* const front = static_cast<std::byte*>(frame) - alignof(std::max_align_t);
+
+			std::size_t* slot = nullptr;
+			std::memcpy(&slot, front, sizeof(slot));
+
+			*slot = 0;
 		}
 
 		static routine get_return_object_on_allocation_failure() noexcept
@@ -165,6 +226,17 @@ public:
 		std::suspend_always final_suspend() const noexcept { return {}; }
 
 		void return_void() const noexcept {}
+
+#ifndef NDEBUG
+		/**
+		 * @brief Whether the routine is currently executing
+		 *
+		 *        Only exists in a debug build, and only so that @ref
+		 *        routine::resume can refuse to re-enter a frame that is
+		 *        already running. See the assert there for what that would do.
+		 */
+		bool running_ = false;
+#endif
 
 		// Required by the language even with -fno-exceptions, where nothing
 		// can call it.
@@ -226,8 +298,37 @@ public:
 	 */
 	void resume() const
 	{
-		if(handle_ && !handle_.done())
-			handle_.resume();
+		if(!handle_ || handle_.done())
+			return;
+
+#ifndef NDEBUG
+		// Re-entering a frame that is already running destroys it: the two
+		// executions share one set of locals and one resume point, and the
+		// inner one leaves the frame at a step the outer one is not at.
+		//
+		// It is easier to arrange than it looks. A routine resumed by a task
+		// may call into the scheduler -- it runs on the task's stack, in
+		// thread mode, so sleep_for and the rest are legal. That suspends the
+		// task *inside* the frame, and an interrupt resuming the same routine
+		// while it is parked there re-enters it. Nothing about either half
+		// looks wrong on its own.
+		//
+		// Without this assert the failure is a fault with nothing pointing at
+		// the cause. A routine that a handler may resume should not call into
+		// the scheduler at all; if it does, the task and the handler must not
+		// be able to reach it at the same time.
+		assert(!handle_.promise().running_); // re-entered while already running
+		handle_.promise().running_ = true;
+#endif
+
+		handle_.resume();
+
+#ifndef NDEBUG
+		// The frame outlives its final suspension -- final_suspend suspends
+		// rather than ending -- so the promise is still there to write to,
+		// whether the routine suspended again or ran to its end.
+		handle_.promise().running_ = false;
+#endif
 	}
 
 private:
@@ -250,6 +351,11 @@ private:
  *         @c [[nodiscard]] on purpose -- reading a register and discarding
  *         what it said is a mistake worth catching, and there is already a
  *         way to say "just wait".
+ *
+ * @warning That @c [[nodiscard]] is not enforced everywhere: clang warns on a
+ *          discarded @c co_await , GCC 14 does not. So it catches the mistake
+ *          in a build compiled by clang, and says nothing in one compiled by
+ *          GCC. Do not read it as a guarantee.
  */
 template<typename Value>
 struct suspended

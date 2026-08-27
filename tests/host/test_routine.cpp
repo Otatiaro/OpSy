@@ -243,3 +243,72 @@ OPSY_TEST(the_frame_fits_in_the_storage_and_reports_its_size)
 // tripped assert abort the process -- correctly, since a test binary has no
 // way to carry on. Checking it would need a build with NDEBUG, where the
 // assert is gone and operator bool is what reports the failure.
+
+namespace
+{
+
+/** @brief Counts objects alive inside a frame, to see destructors run. */
+int g_alive = 0;
+
+struct tracked
+{
+	tracked() { ++g_alive; }
+	tracked(const tracked&) { ++g_alive; }
+	~tracked() { --g_alive; }
+};
+
+opsy::utility::routine holds_an_object(storage&)
+{
+	const tracked held;
+	co_await std::suspend_always{};
+}
+
+} // namespace
+
+OPSY_TEST(storage_is_free_again_once_the_routine_using_it_is_released)
+{
+	g_alive = 0;
+
+	{
+		auto routine = holds_an_object(g_storage);
+		routine.resume();
+
+		CHECK(g_alive == 1);              // the object lives in the frame
+		CHECK(g_storage.used > 0);        // and the storage says it is taken
+	}
+
+	// Releasing the routine destroyed the frame, which ran the destructors of
+	// what it held, and gave the storage back.
+	CHECK(g_alive == 0);
+	CHECK(g_storage.used == 0);
+}
+
+OPSY_TEST(a_storage_can_be_reused_once_released)
+{
+	g_alive = 0;
+
+	// What a driver retrying a transfer does: run one routine to its end,
+	// release it, start another in the same storage.
+	for (int attempt = 0; attempt < 3; ++attempt)
+	{
+		auto routine = holds_an_object(g_storage);
+
+		CHECK(static_cast<bool>(routine));
+		routine.resume();
+		CHECK(g_alive == 1);
+
+		routine.resume();                 // off the end
+		CHECK(routine.done());
+	}
+
+	// No frame outlived its routine, and none was built over a live one.
+	CHECK(g_alive == 0);
+	CHECK(g_storage.used == 0);
+}
+
+// Not covered here: building a routine into storage that still holds a live
+// one. That is what the assert in operator new refuses, and a tripped assert
+// aborts this binary -- correctly, since a test harness cannot carry on past
+// one. What it prevents was reproduced by hand before the assert existed: the
+// second frame was built over the first, the first's destructors never ran,
+// and destroying the first handle tore down the second routine.

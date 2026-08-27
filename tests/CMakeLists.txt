@@ -95,8 +95,13 @@ endif()
 # scheduler's own set. See the script for what is allowed, and why.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
+# Outside the check below on purpose: the CI runs ctest on this build
+# unconditionally, and without enable_testing() there is no CTestTestfile at
+# all -- ctest then fails with "cannot find file", which says nothing about a
+# missing interpreter. With it, a build without Python simply has no tests.
+enable_testing()
+
 if(Python3_Interpreter_FOUND)
-    enable_testing()
 
     # The flags go through a file because they must reach the compiler exactly
     # as they are here -- a target's flags are a list, and flattening one into

@@ -93,6 +93,7 @@ define identify_links
   set $header = $arg0
   set $claimed = *(unsigned int *)($header + 4)
   set $found = -1
+  set $matches = 0
   set $pair = 0
   while $pair < $pairs
     set $offset = $pair * 8
@@ -116,10 +117,21 @@ define identify_links
     if $walkable == 0
       set $agrees = 0
     end
-    if $found == -1 && $agrees == 1 && $node == 0 && $seen == $claimed
+    if $agrees == 1 && $node == 0 && $seen == $claimed
       set $found = $offset
+      set $matches = $matches + 1
     end
     set $pair = $pair + 1
+  end
+
+  # More than one pair fitting means the answer is a guess. It happens: with
+  # two elements, an unrelated pair can form a chain of the same length by
+  # coincidence -- two sleeping tasks are in the timeout list as well as in
+  # ready_, in the same order. Refusing to answer and being asked again at a
+  # later stop is what makes this reliable; taking the first fit picked the
+  # wrong pair about one run in eight.
+  if $matches != 1
+    set $found = -1
   end
 end
 
@@ -186,13 +198,24 @@ delete
 # completion, and the scenario prints no verdict -- which the harness reports
 # as a failure rather than reading as success.
 break SysTick_Handler if *(unsigned int *)($ready_addr + 4) >= 2
-continue
-delete
 
-identify_links $ready_addr
-set $ready_links = $found
-identify_links $all_addr
-set $all_links = $found
+set $ready_links = -1
+set $all_links = -1
+set $attempts = 0
+
+# Asked again at each such tick until both answers are unambiguous. One stop
+# is not always enough -- see identify_links -- and the states that make it
+# ambiguous are transient.
+while ($ready_links < 0 || $all_links < 0 || $ready_links == $all_links) && $attempts < 12
+  continue
+  set $attempts = $attempts + 1
+
+  identify_links $ready_addr
+  set $ready_links = $found
+  identify_links $all_addr
+  set $all_links = $found
+end
+delete
 
 printf "INFO ready_ links at offset %d in a task, all_tasks_ links at offset %d\n", $ready_links, $all_links
 

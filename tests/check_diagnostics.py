@@ -35,9 +35,11 @@ CASES = [
 
             static volatile uint32_t g_register;
 
-            // Eight bytes cannot hold a frame with parameters, a loop counter
-            // and a resume point.
-            opsy::utility::routine demo(opsy::utility::routine_storage<8>&, uint32_t count)
+            // Enough for the storage's own bookkeeping, nowhere near enough
+            // for a frame holding parameters, a loop counter and a resume
+            // point. A smaller figure would be rejected by routine_storage's
+            // own static_assert instead, which is a different diagnostic.
+            opsy::utility::routine demo(opsy::utility::routine_storage<24>&, uint32_t count)
             {
                 for (uint32_t i = 0; i < count; ++i)
                 {
@@ -46,7 +48,7 @@ CASES = [
                 }
             }
 
-            static opsy::utility::routine_storage<8> g_storage;
+            static opsy::utility::routine_storage<24> g_storage;
             extern "C" void use() { auto r = demo(g_storage, 3); r.resume(); }
         """,
     },
@@ -94,7 +96,7 @@ def main() -> int:
 
         # The control: the same code with room to spare has to build, or the
         # case above proves nothing about the size.
-        control = case["source"].replace("routine_storage<8>", f"routine_storage<{CONTROL_STORAGE}>")
+        control = case["source"].replace("routine_storage<24>", f"routine_storage<{CONTROL_STORAGE}>")
         status, output = compile_snippet(compiler, flags, root_path, control)
 
         if status != 0:

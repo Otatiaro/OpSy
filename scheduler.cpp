@@ -200,7 +200,12 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
 
+	task.base_priority_ = new_priority;
+	// Effective priority follows the base one for now; once a task can inherit
+	// from a mutex waiter, this becomes a recomputation from base_priority_ and
+	// whatever the task currently holds.
 	task.priority_ = new_priority;
+
 	if(task.is_started()) // check task is started
 	{
 		if(&task == current_task_.load(std::memory_order_relaxed)

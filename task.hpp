@@ -308,9 +308,19 @@ public:
 	 * @brief Gets the current @c task_priority of the @c task_control_block
 	 * @return The current @c task_priority of the @c task_control_block
 	 */
+	/**
+	 * @brief The priority this task was given
+	 * @return The requested priority, not the effective one
+	 *
+	 * @remark Returns @ref base_priority_ : what a caller set through
+	 *         @ref priority(task_priority) , which is the only value they can
+	 *         reason about. The effective priority may be temporarily higher
+	 *         through inheritance, and reporting that would make
+	 *         @c t.priority(p); @c t.priority() @c == @c p fail unpredictably.
+	 */
 	constexpr inline task_priority priority() const
 	{
-		return priority_;
+		return base_priority_;
 	}
 
 	/**
@@ -386,7 +396,13 @@ private:
 	std::atomic_bool active_ { false };
 	std::atomic_bool stop_requested_ { false };   // cooperative stop, see request_stop
 	stack_item* stack_pointer_ = nullptr;
-	task_priority priority_ {};                   // set to task_priority::lowest by start_impl
+	// Two priorities, because they can differ: base_priority_ is what the user
+	// asked for, priority_ is what the scheduler actually orders by. They are
+	// equal until priority inheritance raises the effective one so a task
+	// holding a mutex cannot be starved by a middle-priority task while a
+	// higher-priority one waits behind it.
+	task_priority base_priority_ {};              // set to task_priority::lowest by start_impl
+	task_priority priority_ {};                   // effective; base_priority_ unless inherited
 	time_point last_started_ = startup;           // startup == time_point{0}, BSS-friendly
 	std::optional<time_point> wait_until_;
 	const char* name_ = nullptr;

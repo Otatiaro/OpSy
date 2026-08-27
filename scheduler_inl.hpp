@@ -470,7 +470,8 @@ inline bool task_control_block::start_impl(stack_item* stack_base, std::size_t s
 
 	stack_base_ = stack_base;
 	stack_size_ = stack_size;
-	priority_   = task_priority::lowest;
+	base_priority_ = task_priority::lowest;
+	priority_      = task_priority::lowest;   // no inheritance on a fresh task
 	stop_requested_.store(false, std::memory_order_relaxed); // a reused slot starts clean
 
 	entry_ = std::move(entry);

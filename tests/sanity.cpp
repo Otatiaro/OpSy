@@ -18,7 +18,7 @@
 #include <opsy.hpp>
 
 #include <chrono>
-#include <mutex>
+#include <concepts>
 
 namespace {
 
@@ -63,37 +63,42 @@ opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 	if (g_mutex.try_lock())
 		g_mutex.unlock();
 
-	std::lock_guard<opsy::mutex> guard(g_second_mutex);
+	g_second_mutex.lock();
+	g_second_mutex.unlock();
 }
 
-/**
- * @brief Checks that @c opsy::mutex satisfies the standard @c Lockable concept
- *
- *        @c std::lock takes several mutexes at once, in an order of its own
- *        choosing, so that two tasks locking the same pair cannot deadlock by
- *        taking them in opposite orders. To do so it needs each one to provide
- *        @c lock() , @c try_lock() and @c unlock() , with @c try_lock()
- *        declining rather than blocking so the algorithm can back out and
- *        retry. Instantiating it here is what checks that @c opsy::mutex
- *        provides all three with the right signatures.
- *
- *        This lives in the compile-only build rather than in the on-target
- *        suite because it cannot be linked into an image: @c std::lock pulls
- *        in the ARM unwinder even under @c -fno-exceptions , and the linker
- *        scripts for the test images discard the exception index tables it
- *        needs. Nothing here is ever linked or run, so the instantiation
- *        costs nothing and still typechecks every call.
- *
- * @remark @c std::scoped_lock would express the same thing as a guard object,
- *         but the freestanding libstdc++ shipped with the bare-metal ARM
- *         toolchain does not define it.
- */
-[[gnu::used]] void use_mutex_as_lockable()
+// A mutex has to satisfy the standard's Lockable requirements, or none of the
+// library's lock utilities work with it: std::lock_guard, and the algorithms
+// that take several mutexes at once in an order of their own choosing so two
+// tasks locking the same pair cannot deadlock by taking them in opposite
+// orders. Those algorithms need try_lock() to decline rather than block, so
+// they can back out of a partial acquisition and retry.
+//
+// Stated as concepts rather than by instantiating std::lock against the type.
+// The standard library shipped with a bare-metal ARM toolchain is a
+// freestanding one, and what it provides varies: the GNU toolchain's has
+// std::lock but not std::scoped_lock, and the LLVM Embedded Toolchain for
+// Arm's has neither. A check written against those would be testing which
+// library happens to be installed. The requirements themselves do not vary.
+//
+// That std::lock_guard actually drives opsy::mutex is checked where it can
+// run, in the on-target suite: std_lock_guard_works_with_it.
+
+template<typename T>
+concept basic_lockable = requires(T& lock)
 {
-	std::lock(g_mutex, g_second_mutex);
-	std::lock_guard<opsy::mutex> first(g_mutex, std::adopt_lock);
-	std::lock_guard<opsy::mutex> second(g_second_mutex, std::adopt_lock);
-}
+	{ lock.lock() } -> std::same_as<void>;
+	{ lock.unlock() } -> std::same_as<void>;
+};
+
+template<typename T>
+concept lockable = basic_lockable<T> && requires(T& lock)
+{
+	{ lock.try_lock() } -> std::same_as<bool>;
+};
+
+static_assert(basic_lockable<opsy::mutex>, "opsy::mutex must work with std::lock_guard");
+static_assert(lockable<opsy::mutex>, "opsy::mutex must work with the multi-mutex algorithms");
 
 [[gnu::used]] void use_condition_variable()
 {

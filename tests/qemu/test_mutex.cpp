@@ -895,19 +895,20 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 //
 // Both take several mutexes at once, in an order of their own choosing, so
 // that two tasks locking the same pair cannot deadlock by taking them in
-// opposite orders. opsy::mutex satisfies what they need -- lock(), try_lock()
-// and unlock() -- and that it does is checked where it can be: in the
-// compile-only build, tests/sanity.cpp, which instantiates std::lock against
-// it.
+// opposite orders. opsy::mutex provides what they need -- lock(), try_lock()
+// and unlock() -- and that it does is asserted where it belongs, in the
+// compile-only build (tests/sanity.cpp), as a concept check.
 //
-// It cannot be checked by running it. std::lock's implementation pulls in the
-// ARM unwinder even under -fno-exceptions, and the linker script for these
-// images discards the exception index tables, so an image containing a call
-// to it does not link. Discarding them is the right default for an RTOS built
-// without exceptions -- the tables are dead weight in flash -- so the test
-// gives way, not the linker script.
+// Neither can be checked by running it here. std::lock's implementation pulls
+// in the ARM unwinder even under -fno-exceptions, and the linker scripts for
+// these images discard the exception index tables, so an image containing a
+// call to it does not link. Discarding them is the right default for an RTOS
+// built without exceptions -- the tables are dead weight in flash -- so the
+// test gives way, not the linker script.
 //
-// std::scoped_lock is a further step away: the freestanding libstdc++ that
-// ships with the bare-metal ARM toolchain does not define it at all.
+// Availability is the other half of it: what a freestanding standard library
+// provides varies by toolchain. The GNU bare-metal ARM toolchain has
+// std::lock but not std::scoped_lock; the LLVM Embedded Toolchain for Arm has
+// neither. std::lock_guard is in both, which is why the case above uses it.
 
 } // namespace

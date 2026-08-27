@@ -114,7 +114,7 @@ jobs:
         run: ctest --test-dir build-host --output-on-failure
 
   qemu-tests:
-    name: QEMU tests (cortex-${{ matrix.target }})
+    name: QEMU and GDB tests (cortex-${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

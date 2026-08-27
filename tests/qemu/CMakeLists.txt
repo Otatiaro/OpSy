@@ -126,3 +126,8 @@ add_test(
 )
 
 set_tests_properties(opsy_qemu_tests_${OPSY_TARGET} PROPERTIES TIMEOUT 120)
+
+# The debugger-driven scenarios run against this same image: they stop it at
+# chosen instructions to reach states the suite above cannot produce on its
+# own. See tests/gdb/scenarios.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../gdb/scenarios.cmake)

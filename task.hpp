@@ -279,11 +279,18 @@ public:
 	 *
 	 * @remark The flag is cleared when the task is next started, so a task slot
 	 *         can be reused.
+	 * @warning The task must be started. On one that is not, the request is
+	 *          lost: launching a task clears the flag so a reused task slot
+	 *          begins with none pending. Asserted in debug.
+	 *
+	 * @remark Safe to call from an interrupt handler, including one more
+	 *         urgent than OpSy: it writes a relaxed atomic and touches
+	 *         nothing else.
+	 *
+	 * @remark Defined inline in @c scheduler_inl.hpp , which is where the
+	 *         assert can reach the scheduler.
 	 */
-	void request_stop()
-	{
-		stop_requested_.store(true, std::memory_order_relaxed);
-	}
+	void request_stop();
 
 	/**
 	 * @brief Whether a cooperative stop has been requested
@@ -354,6 +361,11 @@ public:
 	 * @brief Dynamically change the @c task_priority of the @c task_control_block
 	 * @param new_priority the new @c task_priority
 	 * @remark This may trigger a @c task_control_block switch from the system to make sure the most important @c task_control_block is always executed
+	 *
+	 * @warning The task must be started, and this must not be called from an
+	 *          interrupt handler more urgent than OpSy. Both are asserted in
+	 *          debug; see the definition for what each one prevents.
+	 *
 	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c scheduler::update_priority).
 	 */
 	void priority(task_priority new_priority);
@@ -370,11 +382,22 @@ public:
 	/**
 	 * @brief Sets the name of the @c task_control_block
 	 * @param name The new name of the @c task_control_block
+	 *
+	 * @warning The name is stored as the pointer given, not copied, so it must
+	 *          outlive the task. A string literal does; a buffer on the
+	 *          caller's stack does not, and nothing here can detect it.
+	 *
+	 * @warning The task must be started, and this must not be called from an
+	 *          interrupt handler more urgent than OpSy. Both are asserted in
+	 *          debug; see the definition for what each one prevents.
+	 *
+	 * @remark To name a task at launch, pass the name to @c task::start
+	 *         instead -- that is what start's @c name parameter is for.
+	 *
+	 * @remark Defined inline in @c scheduler_inl.hpp , which is where the
+	 *         assert can reach the scheduler.
 	 */
-	constexpr void set_name(const char* name)
-	{
-		name_ = name;
-	}
+	void set_name(const char* name);
 
 	/**
 	 * @brief Orders two tasks by which one should run first

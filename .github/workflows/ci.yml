@@ -114,19 +114,39 @@ jobs:
         run: ctest --test-dir build-host --output-on-failure
 
   qemu-tests:
-    name: QEMU and GDB tests (cortex-${{ matrix.target }})
+    name: QEMU and GDB tests (${{ matrix.compiler }} / cortex-${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        compiler: [gcc, clang]
         target: [m3, m4, m7, m33]
     steps:
       - uses: actions/checkout@v5
 
+      # Installed for both compilers: the clang jobs still need
+      # arm-none-eabi-gdb, which the debugger-driven scenarios drive, and
+      # arm-none-eabi-nm, which the no-heap check reads the image with.
+      # Neither cares which compiler produced the image.
       - name: Install GCC ARM toolchain
         uses: carlosperate/arm-none-eabi-gcc-action@v1
         with:
           release: '14.3.Rel1'
+
+      - name: Install LLVM Embedded Toolchain for Arm
+        if: matrix.compiler == 'clang'
+        env:
+          LLVM_ET_ARM_VERSION: '19.1.5'
+        run: |
+          set -euo pipefail
+          url="https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${LLVM_ET_ARM_VERSION}/LLVM-ET-Arm-${LLVM_ET_ARM_VERSION}-Linux-x86_64.tar.xz"
+          curl --fail --silent --show-error --location --retry 3 -o llvm-et-arm.tar.xz "$url"
+          mkdir -p "$HOME/llvm-et-arm"
+          tar -xJf llvm-et-arm.tar.xz -C "$HOME/llvm-et-arm" --strip-components=1
+          if ! "$HOME/llvm-et-arm/bin/clang" --version >/dev/null 2>&1; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+          echo "$HOME/llvm-et-arm/bin" >> "$GITHUB_PATH"
 
       - name: Install Ninja and QEMU
         run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
@@ -136,7 +156,7 @@ jobs:
           cmake -S tests/qemu -B build-qemu
           -G Ninja
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
-          -DOPSY_COMPILER=gcc
+          -DOPSY_COMPILER=${{ matrix.compiler }}
           -DOPSY_TARGET=${{ matrix.target }}
 
       - name: Build
@@ -146,11 +166,12 @@ jobs:
         run: ctest --test-dir build-qemu --output-on-failure
 
   qemu-tests-optimised:
-    name: QEMU tests (cortex-${{ matrix.target }}, ${{ matrix.config.name }})
+    name: QEMU tests (${{ matrix.compiler }} / cortex-${{ matrix.target }}, ${{ matrix.config.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        compiler: [gcc]
         target: [m3, m4, m7, m33]
         # Two configurations rather than every -O level: what these jobs look
         # for is a defect that only exists once the optimiser is allowed to
@@ -165,13 +186,47 @@ jobs:
             flags: -DOPSY_OPTIMISATION=-Os
           - name: "-O3 + LTO"
             flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+        # clang on two cores rather than four. What is under test here is the
+        # optimiser, not the core, and every core is already covered under
+        # both compilers by the unoptimised jobs; m4 and m33 are one ARMv7-M
+        # and one ARMv8-M, which is the difference that could still matter.
+        include:
+          - compiler: clang
+            target: m4
+            config: { name: "-Os", flags: -DOPSY_OPTIMISATION=-Os }
+          - compiler: clang
+            target: m4
+            config: { name: "-O3 + LTO", flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON }
+          - compiler: clang
+            target: m33
+            config: { name: "-Os", flags: -DOPSY_OPTIMISATION=-Os }
+          - compiler: clang
+            target: m33
+            config: { name: "-O3 + LTO", flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON }
     steps:
       - uses: actions/checkout@v5
 
+      # arm-none-eabi-nm is what the no-heap check reads the image with, so
+      # the GNU toolchain is installed for the clang jobs too.
       - name: Install GCC ARM toolchain
         uses: carlosperate/arm-none-eabi-gcc-action@v1
         with:
           release: '14.3.Rel1'
+
+      - name: Install LLVM Embedded Toolchain for Arm
+        if: matrix.compiler == 'clang'
+        env:
+          LLVM_ET_ARM_VERSION: '19.1.5'
+        run: |
+          set -euo pipefail
+          url="https://github.com/ARM-software/LLVM-embedded-toolchain-for-Arm/releases/download/release-${LLVM_ET_ARM_VERSION}/LLVM-ET-Arm-${LLVM_ET_ARM_VERSION}-Linux-x86_64.tar.xz"
+          curl --fail --silent --show-error --location --retry 3 -o llvm-et-arm.tar.xz "$url"
+          mkdir -p "$HOME/llvm-et-arm"
+          tar -xJf llvm-et-arm.tar.xz -C "$HOME/llvm-et-arm" --strip-components=1
+          if ! "$HOME/llvm-et-arm/bin/clang" --version >/dev/null 2>&1; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+          echo "$HOME/llvm-et-arm/bin" >> "$GITHUB_PATH"
 
       - name: Install Ninja and QEMU
         run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
@@ -185,7 +240,7 @@ jobs:
           cmake -S tests/qemu -B build-qemu-optimised
           -G Ninja
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
-          -DOPSY_COMPILER=gcc
+          -DOPSY_COMPILER=${{ matrix.compiler }}
           -DOPSY_TARGET=${{ matrix.target }}
           ${{ matrix.config.flags }}
 

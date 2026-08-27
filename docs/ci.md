@@ -9,7 +9,7 @@ triggered on pushes to `master` and on pull requests targeting it. It is
 not triggered on pushes to other branches, so **work on a branch is not
 checked until you open the pull request**.
 
-36 jobs, all running in parallel on `ubuntu-latest`. A full run takes
+44 jobs, all running in parallel on `ubuntu-latest`. A full run takes
 about a minute and a half. `fail-fast` is off everywhere: one broken
 axis does not cancel the others, so a single run tells you whether a
 failure is specific to one compiler or target, or general.
@@ -20,8 +20,8 @@ failure is specific to one compiler or target, or general.
 |---|---|---|---|
 | **Build** | `{gcc, clang}` × `{m3, m4, m7, m33}` × `{c++23, c++26}` | 16 | The whole public API and every `utility/` and `algorithms/` header compiles, on both compilers, all four cores, both standards, under a strict warning set with `-Werror`. Nothing is linked or run. |
 | **Host tests** | `{gcc, clang}` × `{c++23, c++26}` | 4 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
-| **QEMU and GDB tests** | `{m3, m4, m7, m33}` | 4 | The scheduler behaves on an emulated Cortex-M: 81 on-target cases, 6 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
-| **QEMU tests, optimised** | `{m3, m4, m7, m33}` × `{-Os, -O3 + LTO}` | 8 | The same on-target cases and no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units. |
+| **QEMU and GDB tests** | `{gcc, clang}` × `{m3, m4, m7, m33}` | 8 | The scheduler behaves on an emulated Cortex-M: 81 on-target cases, 6 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
+| **QEMU tests, optimised** | gcc × `{m3, m4, m7, m33}` × `{-Os, -O3 + LTO}`, clang × `{m4, m33}` × the same two | 12 | The same on-target cases and no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units. |
 | **Codegen checks** | `{m3, m4, m7, m33}` | 4 | The optimiser left the memory-mapped accesses and the stack alignment alone. Built at `-O2` and read out of the disassembly. |
 
 [`tests/README.md`](../tests/README.md) describes what each suite covers
@@ -59,9 +59,24 @@ name, and an optimised build has inlined those functions into their
 callers. There is no breakpoint to set. The on-target cases have no such
 limit, which is why they are what covers the optimised configuration.
 
-**Only gcc runs code.** The clang axis is compile-only. Running the
-suites under clang as well would be worth having; the linker scripts and
-startup are set up for the GNU toolchain, and nobody has done that work.
+**Both compilers run the code**, not just compile it. Two things make an
+image link with the LLVM Embedded Toolchain for Arm, and both are worth
+knowing before adding to the build:
+
+- `-Wl,--no-warn-rwx-segments` is passed only to GNU ld. lld does not
+  warn about a RWX segment, does not know the option, and fails the link
+  on the unknown argument rather than ignoring it.
+- `-fno-exceptions` and `-fno-rtti` are repeated in the *link* options,
+  not just the compile options. That toolchain ships one runtime per
+  configuration and picks which to link from the flags given at link
+  time; without them it links the variant built with exceptions and
+  RTTI, which drags in the unwinder — and the unwinder needs `stderr`,
+  which a bare-metal image has not got.
+
+The clang jobs still install the GNU toolchain, because the GDB
+scenarios drive `arm-none-eabi-gdb` and the no-heap check reads the
+image with `arm-none-eabi-nm`. Neither cares which compiler produced the
+image.
 
 ## What is pinned, and why
 
@@ -144,6 +159,10 @@ one of them ships passes locally and breaks half the CI. Prefer
 asserting the requirement — a concept, a `static_assert` — over
 instantiating a library utility to prove the same thing.
 
+**English only, everywhere.** Code, comments, commit messages,
+documentation, branch names, test case names. Nothing in this repository
+is in any other language, and nothing added to it should be.
+
 **The strict warning set is `-Werror`.** `-Wall -Wextra -Wpedantic
 -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference -Wconversion
 -Wsign-conversion -Wdouble-promotion`, plus `-Wlogical-op
@@ -194,6 +213,11 @@ cmake -S tests/codegen -B build-codegen -G Ninja \
       -DOPSY_COMPILER=gcc -DOPSY_TARGET=m4
 cmake --build build-codegen --parallel && ctest --test-dir build-codegen --output-on-failure
 ```
+
+To run any of the above with clang instead, pass
+`-DOPSY_COMPILER=clang` and put the LLVM Embedded Toolchain for Arm on
+`PATH`. The GNU toolchain still has to be there too, for
+`arm-none-eabi-gdb` and `arm-none-eabi-nm`.
 
 Needs `arm-none-eabi-gcc`, `qemu-system-arm`, `ninja`, and — for the GDB
 scenarios — `arm-none-eabi-gdb` and a Python interpreter. Without the

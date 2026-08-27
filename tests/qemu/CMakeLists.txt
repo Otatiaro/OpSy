@@ -111,13 +111,24 @@ endif()
 
 target_link_options(opsy_qemu_tests PRIVATE
     ${OPSY_CPU_FLAGS}
+    # Repeated at link time, not just when compiling: the LLVM Embedded
+    # Toolchain for Arm ships one runtime per configuration and picks which
+    # to link from the flags it is given here. Without these it links the
+    # variant built with exceptions and RTTI, which drags in the unwinder --
+    # and the unwinder needs stderr, which a bare-metal image has not got.
+    # Harmless with GCC, which has a single runtime.
+    -fno-exceptions
+    -fno-rtti
     -T${OPSY_LINKER_SCRIPT_PATH}
     -nostartfiles
     -Wl,--gc-sections
     # The image is one RWX load segment by design: code, .data's load image
     # and the vector table share the board's ZBT SRAM, and there is no MPU or
-    # loader here to care. Binutils 2.39+ warns about it on every link.
-    -Wl,--no-warn-rwx-segments
+    # loader here to care. Binutils 2.39+ warns about it on every link, so the
+    # warning is turned off -- but only for GNU ld: lld does not warn about
+    # it, does not know the option, and fails the link on the unknown
+    # argument rather than ignoring it.
+    $<$<CXX_COMPILER_ID:GNU>:-Wl,--no-warn-rwx-segments>
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/opsy_qemu_tests.map
 )
 

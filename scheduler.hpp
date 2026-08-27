@@ -198,6 +198,17 @@ public:
 	}
 
 	/**
+	 * @brief The task elected by @c do_switch but not yet switched to
+	 * @remark Between election and @c PendSV running, a task is in no list at
+	 *         all — neither @c ready_ nor running. Anything reasoning about
+	 *         where a task lives has to account for that window.
+	 */
+	[[nodiscard]] static inline task_control_block* next_task()
+	{
+		return next_task_.load(std::memory_order_relaxed);
+	}
+
+	/**
 	 * @brief Whether the caller is running at a level where OpSy may be entered
 	 *
 	 *        OpSy deliberately leaves the priority levels above its own free
@@ -252,7 +263,10 @@ private:
 	enum class service_call_number
 		: uint8_t
 		{
-			terminate, sleep, context_switch, wait, mutex_lock, mutex_unlock,
+			// No mutex entry here: lock/unlock mask BASEPRI and call do_switch
+			// directly. A service call is only needed when the operation has
+			// to touch the caller's stack frame — see docs/architecture.md.
+			terminate, sleep, context_switch, wait,
 	};
 
 	// All flags / pointers below are read or written from both task and ISR
@@ -382,6 +396,20 @@ private:
 	static void take_mutex(mutex& m, task_control_block& task);
 
 	/**
+	 * @brief Records @p task as blocked on @p m and pays the priority donation
+	 * @remark One place for the three steps, so the two callers — a contended
+	 *         lock, and waking to a mutex someone else took — cannot drift on
+	 *         the order they fire the hook and the inheritance in.
+	 */
+	static void block_on(mutex& m, task_control_block& task);
+
+	/** @brief Clears @c current_task_ so @c do_switch leaves the caller out of @c ready_ */
+	static inline void clear_current_task()
+	{
+		current_task_.store(nullptr, std::memory_order_relaxed);
+	}
+
+	/**
 	 * @brief Releases @p m , handing it straight to its highest-priority waiter
 	 * @remark Shared by the unlock service call and by a condition variable
 	 *         wait, which has to release the mutex it was given so another
@@ -411,13 +439,16 @@ private:
 	/**
 	 * @brief Recomputes @p task 's effective priority from its base one and
 	 *        every task waiting on a mutex it holds
-	 * @return @c true if the effective priority changed
+	 *
+	 * @warning Does not re-sort @c ready_ . Callers either know the task is
+	 *          not linked there (it is the one running), or re-sort it
+	 *          themselves — @c update_priority does.
 	 * @remark This is the other half of priority inheritance: raising happens
 	 *         when a waiter arrives, this restores the right level when a
 	 *         mutex is released — which may still be an inherited one, if the
 	 *         task holds another contended mutex.
 	 */
-	static bool recompute_priority(task_control_block& task);
+	static void recompute_priority(task_control_block& task);
 
 	/**
 	 * @brief Raises @p owner to at least @p priority, following the chain of
@@ -425,8 +456,17 @@ private:
 	 */
 	static void inherit_priority(task_control_block& owner, task_priority priority);
 
-	/** @brief Releases every mutex held by @p task, waking the waiters */
-	static void release_all_mutexes(task_control_block& task);
+	/**
+	 * @brief Releases every mutex held by @p task, waking the waiters
+	 * @return @c true if at least one task was made runnable
+	 */
+	static bool release_all_mutexes(task_control_block& task);
+
+	/**
+	 * @brief Gives a just-released mutex to its highest-priority waiter
+	 * @return @c true if a task was made runnable
+	 */
+	static bool hand_over(mutex& m);
 	static void update_priority(task_control_block& task, task_priority new_priority);
 
 	static void update_name(task_control_block& task)

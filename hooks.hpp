@@ -53,6 +53,20 @@
 
 namespace opsy
 {
+
+// Forward declarations rather than includes: hooks.hpp names these types in
+// signatures only, and is itself included from the middle of the scheduler's
+// include chain. Relying on whoever includes it first to have defined them is
+// how it compiled until now.
+class task_control_block;
+class condition_variable;
+class mutex;
+class isr_lock;
+
+}
+
+namespace opsy
+{
 	/**
 	 * @brief Methods called by OpSy at various places in the code
 	 */
@@ -192,10 +206,6 @@ namespace opsy
 		{}
 
 		/**
-		 * @brief Called when a @c mutex is stored by the system on a @c task
-		 * @param task The @c task for which the system has stored a @c mutex
-		 */
-		/**
 		 * @brief Called when a task takes ownership of a @c mutex
 		 * @param taken The mutex now held
 		 * @param owner The task that holds it
@@ -225,6 +235,17 @@ namespace opsy
 
 		}
 
+		/**
+		 * @brief Called when a wait releases the lock a task was holding
+		 * @param task The task whose lock was released on its behalf
+		 *
+		 * @warning Pairs with @ref mutex_restored_for_task only for an
+		 *          @c isr_lock . An @c opsy::mutex is re-acquired on wake
+		 *          rather than during the switch, so its counterpart is
+		 *          @ref mutex_taken from the wake path. A tracer pairing
+		 *          stored/restored one-to-one will drift by one per mutex
+		 *          wait.
+		 */
 		static constexpr void mutex_stored_for_task([[maybe_unused]] task_control_block& task)
 		{}
 

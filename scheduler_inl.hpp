@@ -243,16 +243,16 @@ inline void isr_lock::release_from_service_call()
 
 /**
  * @brief Wakes one waiting task, if any
- * @remark Synchronization is performed by locking @c mutex_ around the
+ * @remark Synchronization is performed by locking @c notify_lock_ around the
  *         pop+wakeup pair so notifications cannot race with @c wait.
  */
 inline void condition_variable::notify_one()
 {
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<isr_lock> lock(mutex_);
+		std::lock_guard<isr_lock> guard(notify_lock_);
 
 		hooks::condition_variable_notify_one(*this);
 
@@ -273,11 +273,11 @@ inline void condition_variable::notify_one()
  */
 inline void condition_variable::notify_all()
 {
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	{
-		std::lock_guard<isr_lock> lock(mutex_);
+		std::lock_guard<isr_lock> guard(notify_lock_);
 
 		hooks::condition_variable_notify_all(*this);
 
@@ -291,24 +291,18 @@ inline void condition_variable::notify_all()
 }
 
 /**
- * @brief Waits on this condition variable with no timeout and no mutex
- * @remark The @c SVC instruction encodes the variant via the @c r1:r2 (timeout
- *         = -1 means none) and @c r3 (mutex pointer, 0 means none) registers.
- *         The actual handling lives in @c scheduler::service_call_handler.
+ * @brief Issues the wait service call
  */
 /**
  * @brief Records on the running task the lock this wait must release
  */
-inline void condition_variable::record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
+static inline void record_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
 {
 	auto* current = scheduler::current_task();
 	assert(current != nullptr);
-	current->released_lock_ = lock;
+	current->record_released_lock(lock);
 }
 
-/**
- * @brief Issues the wait service call
- */
 inline cv_status condition_variable::do_wait(duration timeout)
 {
 	const auto count = timeout.count();
@@ -319,7 +313,6 @@ inline cv_status condition_variable::do_wait(duration timeout)
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, %[count_lo] \n\t"
 			"mov r2, %[count_hi] \n\t"
-			"mov r3, #0 \n\t"
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
@@ -327,7 +320,7 @@ inline cv_status condition_variable::do_wait(duration timeout)
 			  [this_ptr] "r" (this),
 			  [count_lo] "r" (static_cast<uint32_t>(count)),
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
-			: "r0", "r1", "r2", "r3", "memory");
+			: "r0", "r1", "r2", "memory");
 
 	assert(result == 0 || result == 1);
 	return static_cast<cv_status>(result);
@@ -337,16 +330,16 @@ inline void condition_variable::wait()
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 
-	record_released_lock(std::monostate{});
+	record_lock(std::monostate{});
 	(void) do_wait(duration{-1}); // negative count means "no timeout"
 }
 
 inline void condition_variable::wait(isr_lock& mtx)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
-	record_released_lock(&mtx);
+	record_lock(&mtx);
 	(void) do_wait(duration{-1});
 }
 
@@ -355,7 +348,7 @@ inline void condition_variable::wait(mutex& mtx)
 	assert(cortex_m::ipsr() == 0);
 	assert(mtx.owner_ == scheduler::current_task()); // must be held by the caller
 
-	record_released_lock(&mtx);
+	record_lock(&mtx);
 	(void) do_wait(duration{-1});
 }
 
@@ -371,19 +364,19 @@ inline cv_status condition_variable::wait_for(duration timeout)
 	if (timeout.count() < 0)
 		return cv_status::timeout;
 
-	record_released_lock(std::monostate{});
+	record_lock(std::monostate{});
 	return do_wait(timeout);
 }
 
 inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
 	if (timeout.count() < 0)
 		return cv_status::timeout;
 
-	record_released_lock(&mtx);
+	record_lock(&mtx);
 	return do_wait(timeout);
 }
 
@@ -395,7 +388,7 @@ inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 	if (timeout.count() < 0)
 		return cv_status::timeout;
 
-	record_released_lock(&mtx);
+	record_lock(&mtx);
 	return do_wait(timeout);
 }
 
@@ -428,8 +421,13 @@ inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_t
  */
 inline bool task_control_block::is_ready() const
 {
+	// next_task_ matters as much as current_task_: a task do_switch() has
+	// elected is popped out of ready_ and sits in no list at all until PendSV
+	// runs. Treating it as ready makes ready_.erase() a silent no-op and the
+	// following insert link it a second time.
 	return is_started()
 		&& this != scheduler::current_task()
+		&& this != scheduler::next_task()
 		&& blocked_on_ == nullptr
 		&& waiting_ == nullptr
 		&& !wait_until_.has_value();
@@ -437,40 +435,41 @@ inline bool task_control_block::is_ready() const
 
 /**
  * @brief Acquires the mutex, blocking until it is free
- * @remark The uncontended path is taken entirely here, under a critical
- *         section and with no service call. Only actually blocking needs the
- *         scheduler, because it has to unschedule the caller.
+ *
+ * @remark No service call. Masking to @c service_call_priority is enough and
+ *         is what every other writer of the scheduler's mutex state already
+ *         does — see the note on service calls in @c docs/architecture.md .
+ *         The scheduler's critical section alone would *not* be: it masks
+ *         nothing, so SysTick could run @c resume_waiter and hand the same
+ *         mutex to a timing-out waiter in the middle of the check.
  */
 inline void mutex::lock()
 {
 	assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
 	assert(scheduler::is_os_callable());
 
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+
+	auto* self = scheduler::current_task();
+	assert(self != nullptr);
+	assert(owner_ != self);                   // not recursive, like std::mutex
+
+	if (owner_ == nullptr)
 	{
-		auto section = scheduler::try_critical_section();
-		assert(static_cast<bool>(section));
-
-		auto* self = scheduler::current_task();
-		assert(self != nullptr);
-		assert(owner_ != self);               // not recursive, like std::mutex
-
-		if (owner_ == nullptr)
-		{
-			scheduler::take_mutex(*this, *self);
-			return;
-		}
+		scheduler::take_mutex(*this, *self);
+		cortex_m::set_basepri(previous);
+		return;
 	}
 
-	// Contended: the service call links the caller as a waiter, applies
-	// priority inheritance and switches away. It returns owning the mutex.
-	// "memory" clobber: see scheduler::trigger_hard_switch.
-	asm volatile(
-			"mov r0, %[mtx] \n\t"
-			"svc %[immediate]"
-			:
-			: [immediate] "I" (scheduler::service_call_number::mutex_lock), [mtx] "r" (this)
-			: "r0", "memory");
+	// Held: block on it. do_switch() only leaves the caller out of ready_ if
+	// current_task_ is already cleared, which is how a task suspends itself
+	// without a handler.
+	scheduler::block_on(*this, *self);
+	scheduler::clear_current_task();
+	scheduler::do_switch();
 
+	cortex_m::set_basepri(previous);          // PendSV runs here, and this task
+	                                          // resumes below owning the mutex
 	assert(owner_ == scheduler::current_task());
 }
 
@@ -482,18 +481,18 @@ inline bool mutex::try_lock()
 	assert(cortex_m::ipsr() == 0);
 	assert(scheduler::is_os_callable());
 
-	auto section = scheduler::try_critical_section();
-	assert(static_cast<bool>(section));
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
 
 	auto* self = scheduler::current_task();
 	assert(self != nullptr);
 	assert(owner_ != self);                   // not recursive
 
-	if (owner_ != nullptr)
-		return false;
+	const bool taken = owner_ == nullptr;
+	if (taken)
+		scheduler::take_mutex(*this, *self);
 
-	scheduler::take_mutex(*this, *self);
-	return true;
+	cortex_m::set_basepri(previous);
+	return taken;
 }
 
 /**
@@ -503,16 +502,14 @@ inline void mutex::unlock()
 {
 	assert(cortex_m::ipsr() == 0);
 	assert(scheduler::is_os_callable());
+
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
 	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
 
-	// Through the service call: electing a waiter can make it more important
-	// than the caller, which is a context switch.
-	asm volatile(
-			"mov r0, %[mtx] \n\t"
-			"svc %[immediate]"
-			:
-			: [immediate] "I" (scheduler::service_call_number::mutex_unlock), [mtx] "r" (this)
-			: "r0", "memory");
+	scheduler::release_mutex(*this, *scheduler::current_task());
+	scheduler::do_switch();                   // a woken waiter may outrank us
+
+	cortex_m::set_basepri(previous);
 }
 
 // --- task_control_block -------------------------------------------------------
@@ -618,10 +615,13 @@ inline bool task_control_block::kill()
  */
 inline void task_control_block::priority(task_priority new_priority)
 {
-	if(new_priority == priority_)
+	// Compared against the requested priority, not the effective one: while
+	// this task is boosted by a waiter, priority_ is the inherited value, and
+	// comparing to it would silently drop a genuine change.
+	if(new_priority == base_priority_)
 		return;
-	else
-		scheduler::update_priority(*this, new_priority);
+
+	scheduler::update_priority(*this, new_priority);
 }
 
 /**

@@ -1,5 +1,8 @@
 #include "scheduler.hpp"
 
+#include <algorithm>
+#include <ranges>
+
 // Per-function "do not optimize this body" attribute. The exception
 // handlers below are also @c naked (no compiler-emitted prologue or
 // epilogue) so that the inline asm has full control of the stack and
@@ -200,10 +203,8 @@ void __attribute__((section(".text.opsy.resumewaiter"))) scheduler::resume_waite
 		if (target.owner_ != nullptr)
 		{
 			// Not free: the wake becomes a block on the mutex instead. The
-			// task is in no list, carrying blocked_on_.
-			task.blocked_on_ = &target;
-			inherit_priority(*target.owner_, task.priority_);
-			hooks::mutex_blocked(target, task);
+			// task ends up in no list, carrying blocked_on_.
+			block_on(target, task);
 			return;
 		}
 
@@ -250,54 +251,68 @@ void __attribute__((section(".text.opsy.releasemutex"))) scheduler::release_mute
 	m.owner_ = nullptr;
 	hooks::mutex_released(m, owner);
 
-	if (auto* next = highest_waiter(m))
-	{
-		// Handed over rather than left free: whoever was blocked owns it on
-		// wake, so it cannot be taken by someone else in between.
-		next->blocked_on_ = nullptr;
-		take_mutex(m, *next);
-		ready_.insert_when(task_control_block::priority_is_lower, *next);
-		hooks::task_ready(*next);
-	}
+	hand_over(m);
 
 	// Releasing may drop an inherited priority — though not necessarily to the
 	// base one, if another held mutex still has waiters of its own.
-	(void) recompute_priority(owner);
+	recompute_priority(owner);
+}
+
+bool __attribute__((section(".text.opsy.handover"))) scheduler::hand_over(mutex& m)
+{
+	assert(m.owner_ == nullptr);
+
+	auto* next = highest_waiter(m);
+	if (next == nullptr)
+		return false;
+
+	// Handed over rather than left free: whoever was blocked owns it on wake,
+	// so it cannot be taken by someone else in between.
+	next->blocked_on_ = nullptr;
+	take_mutex(m, *next);
+	ready_.insert_when(task_control_block::priority_is_lower, *next);
+	hooks::task_ready(*next);
+	return true;
+}
+
+void __attribute__((section(".text.opsy.blockon"))) scheduler::block_on(mutex& m, task_control_block& task)
+{
+	assert(m.owner_ != nullptr);
+	assert(m.owner_ != &task);
+
+	task.blocked_on_ = &m;
+	hooks::mutex_blocked(m, task);
+
+	// Raise the holder — and whoever it is itself waiting for — so it can run
+	// to the point of releasing rather than being starved by a task of
+	// middling priority.
+	inherit_priority(*m.owner_, task.priority_);
 }
 
 task_control_block* __attribute__((section(".text.opsy.highestwaiter"))) scheduler::highest_waiter(const mutex& m)
 {
-	task_control_block* best = nullptr;
-
 	// Walked rather than looked up: the waiters of a mutex are derived from
 	// task::blocked_on_, which is the only place the relation is stored. A
 	// per-mutex wait list would be a second copy of it, and a second thing to
 	// keep in step.
-	for (auto& task : all_tasks_)
-		if (task.blocked_on_ == &m
-			&& (best == nullptr || task_control_block::priority_is_lower(task, *best)))
-			best = &task;
+	auto waiters = all_tasks_ | std::views::filter([&m](const auto& task) { return task.blocked_on_ == &m; });
 
-	return best;
+	const auto best = std::ranges::min_element(waiters, task_control_block::priority_is_lower);
+	return best == std::ranges::end(waiters) ? nullptr : &*best;
 }
 
-bool __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompute_priority(task_control_block& task)
+void __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompute_priority(task_control_block& task)
 {
 	auto effective = task.base_priority_;
 
 	// Still-held mutexes may have waiters of their own, so releasing one does
-	// not necessarily drop the task back to its base priority.
-	for (auto& held : locked_mutexes_)
-		if (held.owner_ == &task)
-			for (auto& waiter : all_tasks_)
-				if (waiter.blocked_on_ == &held && waiter.priority_ < effective)
-					effective = waiter.priority_;
-
-	if (effective == task.priority_)
-		return false;
+	// not necessarily drop the task back to its base priority: the strongest
+	// donation still owed wins over the requested priority.
+	for (const auto& held : locked_mutexes_ | std::views::filter([&task](const auto& m) { return m.owner_ == &task; }))
+		if (const auto* waiter = highest_waiter(held); waiter != nullptr && waiter->priority_ < effective)
+			effective = waiter->priority_;
 
 	task.priority_ = effective;
-	return true;
 }
 
 void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_priority(task_control_block& owner, task_priority priority)
@@ -326,8 +341,10 @@ void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_p
 	}
 }
 
-void __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release_all_mutexes(task_control_block& task)
+bool __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release_all_mutexes(task_control_block& task)
 {
+	bool woke = false;
+
 	// A killed task never unwinds, so anything it held would stay locked for
 	// good — and with a blocking mutex that is a permanent deadlock, not a
 	// leak. Release them here and wake whoever was waiting.
@@ -343,15 +360,12 @@ void __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release
 
 		locked_mutexes_.erase(held);
 		held.owner_ = nullptr;
+		hooks::mutex_released(held, task); // a tracer must see every take paired
 
-		if (auto* next = highest_waiter(held))
-		{
-			next->blocked_on_ = nullptr;
-			take_mutex(held, *next);
-			ready_.insert_when(task_control_block::priority_is_lower, *next);
-			hooks::task_ready(*next);
-		}
+		woke |= hand_over(held);
 	}
+
+	return woke;
 }
 
 void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_priority(task_control_block& task, task_priority new_priority)
@@ -359,10 +373,13 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
 
 	task.base_priority_ = new_priority;
-	// Effective priority follows the base one for now; once a task can inherit
-	// from a mutex waiter, this becomes a recomputation from base_priority_ and
-	// whatever the task currently holds.
-	task.priority_ = new_priority;
+
+	// Recomputed, not assigned: the task may be holding a mutex a more
+	// important one is waiting for, and lowering it here would re-open the
+	// very inversion the inheritance exists to close. recompute_priority
+	// takes the stronger of the requested priority and every donation still
+	// owed to it.
+	(void) recompute_priority(task);
 
 	if(task.is_started()) // check task is started
 	{
@@ -374,8 +391,17 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 			task.waiting_->remove_waiting(task); // remove
 			task.waiting_->add_waiting(task); // then re-insert back the task in the list
 		}
-		else if(!task.wait_until_.has_value()) // task is not current or next, is not waiting for a condition variable, and not waiting for a timeout, then it is in ready list
+		else if(task.blocked_on_ != nullptr)
 		{
+			// Blocked on a mutex, so in no list to re-sort — but the holder
+			// may now owe it more than before, and the chain has to hear it.
+			inherit_priority(*task.blocked_on_->owner_, task.priority_);
+		}
+		else if(task.is_ready())
+		{
+			// is_ready() rather than a hand-rolled condition: it is the one
+			// predicate that knows every state a task can be in, next_task_
+			// and blocked_on_ included.
 			ready_.erase(task); // remove the task from ready list
 			ready_.insert_when(task_control_block::priority_is_lower, task); // then re insert it, this will update its order
 			if(&ready_.front() == &task) // this brought the task to the first place in the ready list
@@ -482,8 +508,19 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 
 		// Anything it still held would stay locked for good, and with a
 		// blocking mutex that is a permanent deadlock for every waiter.
-		release_all_mutexes(task);
-		task.blocked_on_ = nullptr;
+		const bool woke_someone = release_all_mutexes(task);
+
+		if (task.blocked_on_ != nullptr)
+		{
+			// It was waiting on someone else's mutex, so it was donating its
+			// priority to the holder. Stop, or the holder keeps running raised
+			// for the rest of its hold — preempting work that genuinely
+			// outranks it.
+			auto* const holder = task.blocked_on_->owner_;
+			task.blocked_on_ = nullptr;
+			if (holder != nullptr)
+				recompute_priority(*holder);
+		}
 
 		// A runnable-but-not-running task is linked into ready_, and nothing
 		// above unlinks it. Done after the waiting_ branch on purpose: both
@@ -498,6 +535,12 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			current_task_.store(nullptr, std::memory_order_relaxed);
 			task_switch = do_switch();
 		}
+		// A waiter handed a mutex may outrank whoever called kill(), and
+		// nothing else here would ask for the switch when the dying task was
+		// not the running one.
+		if (woke_someone)
+			task_switch = do_switch() || task_switch;
+
 		hooks::task_terminated(task);
 		break;
 	}
@@ -524,65 +567,6 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 	{
 		assert(is_thread); // should not be called from non thread mode
 		assert(!critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
-		task_switch = do_switch();
-		break;
-	}
-
-	case service_call_number::mutex_lock:
-	{
-		assert(is_thread);
-		assert(frame->r0 != 0);
-		auto& target = *reinterpret_cast<mutex*>(frame->r0);
-		auto* current = current_task_.load(std::memory_order_relaxed);
-		assert(current != nullptr);
-
-		if (target.owner_ == nullptr) // freed between the fast path and here
-		{
-			take_mutex(target, *current);
-			break;
-		}
-
-		assert(target.owner_ != current); // not recursive
-
-#ifndef NDEBUG
-		{
-			// Deadlock check: follow what the owner is itself blocked on. If
-			// the chain comes back to us, the two tasks are waiting on each
-			// other and neither will ever run again. Debug only — the walk is
-			// bounded, and in release the system simply hangs, which is what
-			// it would do anyway.
-			auto* ahead = target.owner_;
-			for (std::size_t depth = 0; ahead != nullptr && depth < max_inheritance_depth; ++depth)
-			{
-				assert(ahead != current); // deadlock: circular wait on mutexes
-				ahead = ahead->blocked_on_ != nullptr ? ahead->blocked_on_->owner_ : nullptr;
-			}
-		}
-#endif
-
-		current->blocked_on_ = &target;
-		hooks::mutex_blocked(target, *current);
-
-		// Raise the holder — and whoever it is itself waiting for — so it can
-		// run to the point of releasing rather than being starved by a task
-		// of middling priority.
-		inherit_priority(*target.owner_, current->priority_);
-
-		current_task_.store(nullptr, std::memory_order_relaxed);
-		task_switch = do_switch();
-		break;
-	}
-
-	case service_call_number::mutex_unlock:
-	{
-		assert(is_thread);
-		assert(frame->r0 != 0);
-		auto& target = *reinterpret_cast<mutex*>(frame->r0);
-		auto* current = current_task_.load(std::memory_order_relaxed);
-		assert(current != nullptr);
-		assert(target.owner_ == current); // releasing someone else's mutex
-
-		release_mutex(target, *current);
 		task_switch = do_switch();
 		break;
 	}

@@ -88,7 +88,7 @@ public:
 	 * @param priority The @c mutex priority used for @c notify and @c notify_all
 	 */
 	constexpr explicit condition_variable(std::optional<isr_priority> priority = std::nullopt) :
-			mutex_(priority)
+			notify_lock_(priority)
 	{
 
 	}
@@ -225,10 +225,7 @@ private:
 	 */
 	cv_status do_wait(duration timeout);
 
-	/** @brief Records on the running task the lock the wait must release */
-	static void record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock);
-
-	isr_lock mutex_;
+	isr_lock notify_lock_;   // guards waiting_list_ against a notifying ISR
 	embedded_list<task_control_block, task_lists::waiting> waiting_list_;
 
 	/**

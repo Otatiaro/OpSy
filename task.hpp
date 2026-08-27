@@ -74,6 +74,7 @@ enum class task_priority
 
 class task_control_block;
 class mutex;
+class isr_lock;
 
 namespace task_lists
 {
@@ -194,8 +195,6 @@ class task_control_block: private task_lists::timeout, private task_lists::waiti
 	template<typename T, typename I>
 	friend class embedded_const_iterator;
 	friend class scheduler;
-	// records released_lock_ before a wait service call
-	friend class condition_variable;
 	friend class hooks;
 
 public:
@@ -294,6 +293,19 @@ public:
 	 * @remark Meant to be polled by the task itself:
 	 *         @code while (!self.stop_requested()) { ... } @endcode
 	 */
+	/**
+	 * @brief Records the lock a condition variable wait must release
+	 * @param lock The lock held by this task, or @c monostate for none
+	 *
+	 * @remark Lives here rather than on @c condition_variable because it only
+	 *         ever writes this task's state. Putting it there meant making
+	 *         @c condition_variable a friend of this class for one assignment.
+	 */
+	void record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
+	{
+		released_lock_ = lock;
+	}
+
 	[[nodiscard]] bool stop_requested() const
 	{
 		return stop_requested_.load(std::memory_order_relaxed);

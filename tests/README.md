@@ -17,6 +17,10 @@ construct reaching the global `operator new` or `delete` is enough for
 the linker to pull in `malloc`, `free` and `_sbrk` — silently, since
 none of that fails to build. See `qemu/check_no_heap.cmake`.
 
+[`../docs/ci.md`](../docs/ci.md) describes how these suites are wired
+into the CI, which axes each one runs on, and what you have to add so a
+new file of yours is actually built and run.
+
 The cross build cannot check behaviour: it produces a static library
 that is never linked or run. The host suite covers the part of OpSy
 that is plain C++ — the containers, the allocator, the numerics. The

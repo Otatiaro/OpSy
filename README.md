@@ -106,6 +106,12 @@ and why they sit at those priorities), what the three lists hold, how a
 task moves between them, and the two different exclusion mechanisms that
 are easy to confuse. Read it before changing anything in `scheduler.cpp`.
 
+[`docs/ci.md`](docs/ci.md) covers what is checked, and — if you are
+adding code — where your new file has to be mentioned for anything to
+compile and run it. Nothing here discovers files on its own, so a
+translation unit nobody lists is one the whole matrix passes without
+ever having built.
+
 ## Naming convention
 
 Identifiers follow the C++ standard library style: `snake_case` types and

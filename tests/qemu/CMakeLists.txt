@@ -50,6 +50,16 @@ endif()
 set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(OPSY_LINKER_SCRIPT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/${OPSY_LINKER_SCRIPT})
 
+# Optimisation level. The default (empty) is no -O at all, which is what makes
+# the image debuggable. The CI also builds this suite at -O2: a whole class of
+# defect -- a missing volatile on a memory-mapped register, a missing "memory"
+# clobber on inline assembly -- exists only once the optimiser is allowed to
+# reorder, cache and eliminate, so a suite built without -O proves nothing
+# about them.
+if(DEFINED OPSY_OPTIMISATION)
+    add_compile_options(${OPSY_OPTIMISATION})
+endif()
+
 add_executable(opsy_qemu_tests
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp

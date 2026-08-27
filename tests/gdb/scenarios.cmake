@@ -47,9 +47,35 @@ if(NOT opsy_gdb_status EQUAL 0)
     return()
 endif()
 
+# The scenarios stop the CPU at named functions and read named variables, so
+# they need those to still exist in the image. An optimised build inlines
+# scheduler::take_mutex and scheduler::try_critical_section into their callers
+# and drops the frames the scenarios walk to find a return address -- the
+# breakpoints then never fire, and the scenario reports no verdict or fails on
+# a state it could not reach. That is a limit of stopping at a function by
+# name, not something to work around: there is no function left to stop at.
+#
+# So they are registered only for a build with no -O. The on-target suite next
+# door has no such limit and is what covers the optimised configuration.
+set(opsy_build_is_optimised FALSE)
+
+if(DEFINED OPSY_OPTIMISATION AND NOT "${OPSY_OPTIMISATION}" MATCHES "-O0")
+    set(opsy_build_is_optimised TRUE)
+elseif("${CMAKE_CXX_FLAGS}" MATCHES "(^| )-O[123sgz]")
+    set(opsy_build_is_optimised TRUE)
+endif()
+
+if(opsy_build_is_optimised)
+    message(STATUS "GDB scenarios skipped: they need a build with no -O, which keeps the functions they stop at")
+    return()
+endif()
+
 set(OPSY_GDB_DIR ${CMAKE_CURRENT_LIST_DIR})
 
-file(GLOB OPSY_GDB_SCENARIOS ${OPSY_GDB_DIR}/*.gdb)
+# CONFIGURE_DEPENDS so that dropping a new scenario in this directory is
+# enough: without it the glob is evaluated once at configure time and a later
+# `cmake --build` never sees the new file.
+file(GLOB OPSY_GDB_SCENARIOS CONFIGURE_DEPENDS ${OPSY_GDB_DIR}/*.gdb)
 
 foreach(scenario ${OPSY_GDB_SCENARIOS})
     get_filename_component(scenario_name ${scenario} NAME_WE)

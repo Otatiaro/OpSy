@@ -18,6 +18,7 @@
 #include <opsy.hpp>
 
 #include <chrono>
+#include <mutex>
 
 namespace {
 
@@ -27,8 +28,11 @@ using namespace std::chrono_literals;
 // and the priority-aware overloads.
 opsy::task<512>          g_task;
 opsy::idle_task<256>     g_idle;
-opsy::isr_lock              g_mutex_task_only;
-opsy::isr_lock              g_mutex_with_priority{ opsy::isr_priority{ 0x80 } };
+opsy::isr_lock           g_isr_lock;
+opsy::isr_lock           g_isr_lock_with_priority{ opsy::isr_priority{ 0x80 } };
+// Two of them: the standard multi-mutex algorithms below need more than one.
+opsy::mutex              g_mutex;
+opsy::mutex              g_second_mutex;
 opsy::condition_variable g_cv;
 opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 
@@ -43,11 +47,52 @@ opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 	(void) g_task.kill();
 }
 
+[[gnu::used]] void use_isr_lock()
+{
+	g_isr_lock_with_priority.lock();
+	(void) g_isr_lock_with_priority.priority();
+	g_isr_lock_with_priority.unlock();
+}
+
 [[gnu::used]] void use_mutex()
 {
-	g_mutex_with_priority.lock();
-	(void) g_mutex_with_priority.priority();
-	g_mutex_with_priority.unlock();
+	g_mutex.lock();
+	(void) g_mutex.is_locked();
+	g_mutex.unlock();
+
+	if (g_mutex.try_lock())
+		g_mutex.unlock();
+
+	std::lock_guard<opsy::mutex> guard(g_second_mutex);
+}
+
+/**
+ * @brief Checks that @c opsy::mutex satisfies the standard @c Lockable concept
+ *
+ *        @c std::lock takes several mutexes at once, in an order of its own
+ *        choosing, so that two tasks locking the same pair cannot deadlock by
+ *        taking them in opposite orders. To do so it needs each one to provide
+ *        @c lock() , @c try_lock() and @c unlock() , with @c try_lock()
+ *        declining rather than blocking so the algorithm can back out and
+ *        retry. Instantiating it here is what checks that @c opsy::mutex
+ *        provides all three with the right signatures.
+ *
+ *        This lives in the compile-only build rather than in the on-target
+ *        suite because it cannot be linked into an image: @c std::lock pulls
+ *        in the ARM unwinder even under @c -fno-exceptions , and the linker
+ *        scripts for the test images discard the exception index tables it
+ *        needs. Nothing here is ever linked or run, so the instantiation
+ *        costs nothing and still typechecks every call.
+ *
+ * @remark @c std::scoped_lock would express the same thing as a guard object,
+ *         but the freestanding libstdc++ shipped with the bare-metal ARM
+ *         toolchain does not define it.
+ */
+[[gnu::used]] void use_mutex_as_lockable()
+{
+	std::lock(g_mutex, g_second_mutex);
+	std::lock_guard<opsy::mutex> first(g_mutex, std::adopt_lock);
+	std::lock_guard<opsy::mutex> second(g_second_mutex, std::adopt_lock);
 }
 
 [[gnu::used]] void use_condition_variable()
@@ -55,11 +100,18 @@ opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 	g_cv.notify_one();
 	g_cv.notify_all();
 	g_cv.wait();
-	g_cv.wait(g_mutex_task_only);
+	g_cv.wait(g_isr_lock);
 	(void) g_cv.wait_for(10ms);
-	(void) g_cv.wait_for(g_mutex_task_only, 10ms);
+	(void) g_cv.wait_for(g_isr_lock, 10ms);
 	(void) g_cv.wait_until(opsy::scheduler::now() + 10ms);
-	(void) g_cv.wait_until(g_mutex_task_only, opsy::scheduler::now() + 10ms);
+	(void) g_cv.wait_until(g_isr_lock, opsy::scheduler::now() + 10ms);
+
+	// The same three overloads with the other lock type. A condition variable
+	// accepts either an isr_lock or a mutex, so both have to be instantiated
+	// here or half of that surface never reaches a compiler.
+	g_cv.wait(g_mutex);
+	(void) g_cv.wait_for(g_mutex, 10ms);
+	(void) g_cv.wait_until(g_mutex, opsy::scheduler::now() + 10ms);
 }
 
 [[gnu::used]] void use_scheduler()

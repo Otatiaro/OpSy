@@ -55,6 +55,8 @@
 #include <optional>
 #include <memory>
 
+#include "opsy_assert.hpp"
+
 namespace opsy
 {
 /**
@@ -250,6 +252,39 @@ public:
 		virtual ReturnType apply(Arguments&&... arguments) const = 0;
 		virtual ReturnType apply(Arguments&&... arguments) = 0;
 		virtual ~i_callback() = default;
+
+		/**
+		 * @brief Never called, and present so that nothing here reaches a heap
+		 *
+		 *        A class with a virtual destructor gets a second, hidden
+		 *        destructor in its vtable -- the "deleting" one, which runs
+		 *        the destructor and then frees the storage. The compiler emits
+		 *        it whether or not any @c delete is ever written, and it calls
+		 *        whichever @c operator @c delete is visible from the class.
+		 *
+		 *        With only the global one visible, that pulls @c operator
+		 *        @c delete into the image, and with it @c free , @c malloc and
+		 *        @c _sbrk -- a heap, in an RTOS that has none, and one that a
+		 *        linker script with no heap region may not even be able to
+		 *        satisfy.
+		 *
+		 *        Declaring one here means the deleting destructor calls this
+		 *        instead, and nothing outside is needed. It cannot be reached:
+		 *        a callback owns its target inside its own storage, destroys
+		 *        it through @c std::destroy_at , and never allocates it, so no
+		 *        @c delete is ever applied to one. @c i_callback is a private
+		 *        nested class, so nothing outside can write one either. The
+		 *        assert says as much, and would fire if that ever stopped
+		 *        being true.
+		 *
+		 * @remark Deleting it instead of defining it does not work: the
+		 *         deleting destructor still has to be emitted, and would
+		 *         then fail to compile.
+		 */
+		static void operator delete(void*, std::size_t)
+		{
+			assert(false); // a callback's target is never heap-allocated
+		}
 	};
 
 	static constexpr std::size_t FullSize = sizeof(i_callback) + StorageSize * sizeof(void*);

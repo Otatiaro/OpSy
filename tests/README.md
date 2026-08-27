@@ -10,6 +10,13 @@ Five suites, answering five different questions.
 | [Codegen checks](#codegen-checks) (`codegen/`) | does the optimiser leave the memory-mapped accesses alone? | no — it reads the disassembly |
 | [GDB scenarios](gdb/README.md) (`gdb/`) | does OpSy hold up in the states a running test never reaches? | yes, emulated and driven through a debugger |
 
+The QEMU suite also carries one check that runs no code: `opsy_no_heap`
+inspects the symbols of the linked image and fails if an allocator is in
+it. OpSy never allocates, but nothing in the source says so, and one
+construct reaching the global `operator new` or `delete` is enough for
+the linker to pull in `malloc`, `free` and `_sbrk` — silently, since
+none of that fails to build. See `qemu/check_no_heap.cmake`.
+
 The cross build cannot check behaviour: it produces a static library
 that is never linked or run. The host suite covers the part of OpSy
 that is plain C++ — the containers, the allocator, the numerics. The

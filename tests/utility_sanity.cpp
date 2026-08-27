@@ -48,9 +48,9 @@ static_assert(std::is_trivially_copyable_v<opsy::utility::quaternion<float>>);
 // Constexpr surface: ctor, size(), available(), empty(), run_check().
 
 static_assert(opsy::utility::allocator<10, true>{}.size() == 8 * sizeof(int));
-// available() now reports what allocate() will actually accept: the trailing
-// free chunk minus the 2 indicator slots that any new allocation must push
-// in for the new free chunk that follows it.
+// available() reports what allocate() will actually accept, which is less
+// than the trailing free chunk: any new allocation has to push in 2 more
+// indicator slots, for the free chunk that follows it.
 static_assert(opsy::utility::allocator<10, true>{}.available() == 6 * sizeof(int));
 static_assert(opsy::utility::allocator<10, true>{}.empty());
 static_assert(opsy::utility::allocator<10, true>{}.run_check());

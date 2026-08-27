@@ -38,8 +38,8 @@ constexpr uint32_t never_ran = 0xFFFFFFFFu;
  *        NVIC implements differs between the boards this suite runs on, and a
  *        number outside that range is ignored in silence -- set_pending does
  *        nothing, nothing ever fires, and the case fails for a reason that
- *        looks nothing like its cause. Which is exactly what a hard-coded 32
- *        did here.
+ *        looks nothing like its cause. A number written down here would be
+ *        right on some of these boards and quietly inert on the others.
  *
  *        Searched downwards, so the one picked is as far as possible from the
  *        low slots the boards wire to real peripherals.

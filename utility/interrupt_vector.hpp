@@ -64,11 +64,12 @@
 #include <cstdint>
 #include <array>
 
-// cortex_m.hpp, not the opsy.hpp umbrella: the only thing needed from OpSy
-// here is cortex_m::isr_handler_t, the type of a vector table entry. Pulling
-// the umbrella dragged in the scheduler, the tasks and the locks -- so a
-// vector table, which is useful to any Cortex-M project whether or not it
-// runs an RTOS, could not be used without one.
+// Two headers, and deliberately not the opsy.hpp umbrella. All this one
+// needs from OpSy is cortex_m::isr_handler_t, the type of a vector table
+// entry, and hooks::decorate_isr just below. The umbrella would supply both,
+// and the scheduler, the tasks and the locks with them -- which would make a
+// vector table unusable without an RTOS, in a project that may well not run
+// one.
 #include "../cortex_m.hpp"
 
 // For hooks::decorate_isr, which wraps each peripheral handler so a configured

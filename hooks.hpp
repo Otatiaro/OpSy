@@ -70,12 +70,13 @@ namespace opsy
 // this one is pulled in from the middle of the scheduler's include chain, and
 // those headers include the scheduler in turn.
 //
-// idle_task_control_block belongs in this list too: hooks::starting names it,
-// and leaving it out made this header fail to compile on its own -- which in
-// turn made utility/interrupt_vector.hpp, whose only need from OpSy is this
-// header and cortex_m.hpp, fail to compile on its own. It went unnoticed
-// because the one translation unit that includes them both includes opsy.hpp
-// first.
+// Every type named below has to be here, or in one of the includes above.
+// Miss one and this header no longer compiles on its own -- and neither does
+// anything standalone that includes it, such as
+// utility/interrupt_vector.hpp. That is easy to miss rather than obvious:
+// most translation units reaching this header have included opsy.hpp first,
+// which declares everything, so the omission shows up only where the header
+// is used on its own.
 class task_control_block;
 class idle_task_control_block;
 class condition_variable;

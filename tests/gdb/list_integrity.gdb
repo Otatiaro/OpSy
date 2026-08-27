@@ -124,12 +124,12 @@ define identify_links
     set $pair = $pair + 1
   end
 
-  # More than one pair fitting means the answer is a guess. It happens: with
-  # two elements, an unrelated pair can form a chain of the same length by
-  # coincidence -- two sleeping tasks are in the timeout list as well as in
-  # ready_, in the same order. Refusing to answer and being asked again at a
-  # later stop is what makes this reliable; taking the first fit picked the
-  # wrong pair about one run in eight.
+  # More than one pair fitting means the answer would be a guess, so there is
+  # no answer. On a list of two this is common rather than exotic: two
+  # sleeping tasks are in the timeout list as well as in ready_, and in the
+  # same order, so the timeout pair forms a chain of exactly the same length
+  # whenever that happens. Answering only when one pair fits, and being asked
+  # again at a later tick, is what makes the identification trustworthy.
   if $matches != 1
     set $found = -1
   end

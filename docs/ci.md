@@ -86,12 +86,13 @@ STM32CubeIDE 2.2.0 ships, so the compiler that builds the CI is the one
 most users will build with.
 
 **LLVM Embedded Toolchain for Arm, 19.1.5**, installed by downloading
-the upstream release tarball directly rather than through an action.
-Two reasons, both learned the hard way: the action that used to do it
-`apt`-installs `libtinfo5`, which Ubuntu 24.04 no longer ships, so every
-clang job died before compiling anything; and it capped the version at
-19.1.1. The step also symlinks `libtinfo.so.6` to `.so.5` if — and only
-if — `clang --version` fails without it.
+the upstream release tarball directly rather than through a third-party
+action. The actions available for this `apt`-install `libtinfo5`, which
+Ubuntu 24.04 no longer ships — every clang job then dies before
+compiling anything — and they lag the upstream releases. Fetching the
+tarball avoids both. The step also symlinks `libtinfo.so.6` to `.so.5`
+if — and only if — `clang --version` fails without it, since some LLVM
+builds still look for the older name.
 
 **g++-14 explicitly, on the host C++26 axis.** The runner's default GNU
 compiler does not know `c++26` and fails at configure time with "the

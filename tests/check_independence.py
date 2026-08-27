@@ -60,12 +60,12 @@ def compiles_alone(compiler: str, flags: list[str], root: Path, header: Path) ->
 
     Separate from the dependency probe, and not a formality. -MM stops after
     preprocessing, so it reports what a header includes whether or not the
-    result would compile -- a header naming a type nobody declared passes it
-    without complaint. Not hypothetical: hooks.hpp named
-    idle_task_control_block and callback without declaring either, so
-    utility/interrupt_vector.hpp did not compile on its own while this check
-    was calling it standalone. It stayed hidden because the one translation
-    unit including them both includes opsy.hpp first.
+    result would compile: one naming a type nobody declared passes it without
+    complaint. A header can therefore be standalone by its dependencies and
+    unusable on its own, which is the state this whole check exists to rule
+    out -- and the state hardest to notice, since translation units that
+    include such a header usually include the umbrella first and so declare
+    everything for it.
     """
     probe = '#include "%s"\n' % header.resolve().as_posix()
 

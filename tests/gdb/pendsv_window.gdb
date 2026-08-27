@@ -44,6 +44,19 @@
 # the window closes -- watching current_task_ instead would stop while
 # next_task_ still held the elected task and report a window that is simply
 # not closed yet.
+#
+# The breakpoint is on scheduler::pend_sv_handler, the C++ body, and not on
+# PendSV_Handler, the assembly entry point that calls it. The entry point
+# raises BASEPRI before calling, and until it does, SysTick -- which is more
+# urgent than PendSV -- can preempt it and run the scheduler, electing a
+# different task and writing next_task_ again. That is correct behaviour, and
+# it makes the few instructions before the mask a place where the invariants
+# below do not hold yet. Stopping in the C++ body puts every read here after
+# the mask, where they do.
+#
+# It matters more under a debugger than it would on hardware: the emulator's
+# clock keeps running while the debugger holds the CPU stopped, so ticks
+# accumulate during a stop and fire as soon as it resumes.
 
 set confirm off
 set pagination off
@@ -66,7 +79,9 @@ set $running_at_entry = 0
 set $window_left_open = 0
 set $wrong_task_installed = 0
 
-break PendSV_Handler
+break opsy::scheduler::pend_sv_handler
+set $handler_bp = $bpnum
+
 while $switches < 6
   continue
   set $switches = $switches + 1
@@ -83,9 +98,19 @@ while $switches < 6
     set $to_idle = $to_idle + 1
   else
     # Stop at the instant the handler clears next_task_.
+    #
+    # The breakpoint on the handler is disabled first. Left armed, the
+    # continue below can stop on the *next* switch instead of on the
+    # watchpoint -- and there next_task_ holds a freshly elected task and
+    # current_task_ is null, which reads exactly like the failure this
+    # scenario looks for. What it would be reporting is its own confusion
+    # about which stop it got.
+    disable $handler_bp
     watch *(unsigned long *)$next_addr
+    set $window_wp = $bpnum
     continue
-    delete $bpnum
+    delete $window_wp
+    enable $handler_bp
 
     if *(unsigned long *)$next_addr != 0
       set $window_left_open = $window_left_open + 1

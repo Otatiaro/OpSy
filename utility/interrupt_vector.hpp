@@ -64,10 +64,10 @@
 #include <cstdint>
 #include <array>
 
-// hooks.hpp references task_control_block / condition_variable / isr_priority
-// in its method signatures and is not self-sufficient — pulling the umbrella
-// header is the simplest way to make sure every type it touches is visible.
-#include "../opsy.hpp"
+// Not <opsy.hpp>: the umbrella would bring the scheduler with it, and a
+// vector table is useful to a project that runs no RTOS.
+#include "../cortex_m.hpp"
+#include "../hooks.hpp"
 
 namespace opsy::utility
 {

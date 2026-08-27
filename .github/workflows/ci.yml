@@ -72,6 +72,12 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      # Not just a build: this project also carries the check that the
+      # standalone directories really are standalone, which needs no image and
+      # so lives with the compile-only build.
+      - name: Check
+        run: ctest --test-dir build --output-on-failure
+
   host-tests:
     name: Host tests (${{ matrix.compiler }} / c++${{ matrix.standard }})
     runs-on: ubuntu-latest

@@ -86,12 +86,13 @@ STM32CubeIDE 2.2.0 ships, so the compiler that builds the CI is the one
 most users will build with.
 
 **LLVM Embedded Toolchain for Arm, 19.1.5**, installed by downloading
-the upstream release tarball directly rather than through an action.
-Two reasons, both learned the hard way: the action that used to do it
-`apt`-installs `libtinfo5`, which Ubuntu 24.04 no longer ships, so every
-clang job died before compiling anything; and it capped the version at
-19.1.1. The step also symlinks `libtinfo.so.6` to `.so.5` if — and only
-if — `clang --version` fails without it.
+the upstream release tarball directly rather than through a third-party
+action. The actions available for this `apt`-install `libtinfo5`, which
+Ubuntu 24.04 no longer ships — every clang job then dies before
+compiling anything — and they lag the upstream releases. Fetching the
+tarball avoids both. The step also symlinks `libtinfo.so.6` to `.so.5`
+if — and only if — `clang --version` fails without it, since some LLVM
+builds still look for the older name.
 
 **g++-14 explicitly, on the host C++26 axis.** The runner's default GNU
 compiler does not know `c++26` and fails at configure time with "the
@@ -158,6 +159,22 @@ to __exidx_start`.
 one of them ships passes locally and breaks half the CI. Prefer
 asserting the requirement — a concept, a `static_assert` — over
 instantiating a library utility to prove the same thing.
+
+**A diagnostic meant to stop the build has to be shown to still stop it.**
+`opsy_diagnostics` compiles snippets that must *not* compile, and checks
+the error says what it should — plus a control with the mistake removed,
+so the case proves something about the mistake rather than about the
+snippet. A diagnostic that quietly stops firing leaves no other trace:
+everything simply goes on building. Add a case to
+`tests/check_diagnostics.py` whenever you add one.
+
+**Standalone directories stay standalone.** `utility/` and `algorithms/`
+are usable without the scheduler, and their READMEs say so.
+`opsy_independence` asks the compiler what each of their headers
+transitively includes and fails on anything from the scheduler's own set.
+Adding a header to one of those directories means it has to hold, and the
+convenient `#include <opsy.hpp>` is exactly what breaks it. See
+`tests/check_independence.py` for what is allowed and why.
 
 **English only, everywhere.** Code, comments, commit messages,
 documentation, branch names, test case names. Nothing in this repository

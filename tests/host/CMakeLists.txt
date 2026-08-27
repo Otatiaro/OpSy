@@ -32,6 +32,7 @@ set(OPSY_HOST_TEST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/test_callback.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_ellipsoid_fit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_embedded_list.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_routine.cpp
 )
 
 if(OPSY_HOST_TESTS_M32)

@@ -19,7 +19,12 @@
 #include <algorithms/ellipsoid_fit.hpp>
 #include <utility/allocator.hpp>
 #include <utility/biquad.hpp>
+// The vector table built below uses OpSy's own handlers, so this test -- unlike
+// the header it exercises, which needs only cortex_m and hooks -- does depend
+// on the scheduler.
+#include <opsy.hpp>
 #include <utility/interrupt_vector.hpp>
+#include <utility/routine.hpp>
 #include <utility/matrix.hpp>
 #include <utility/memory.hpp>
 #include <utility/quaternion.hpp>
@@ -43,9 +48,9 @@ static_assert(std::is_trivially_copyable_v<opsy::utility::quaternion<float>>);
 // Constexpr surface: ctor, size(), available(), empty(), run_check().
 
 static_assert(opsy::utility::allocator<10, true>{}.size() == 8 * sizeof(int));
-// available() now reports what allocate() will actually accept: the trailing
-// free chunk minus the 2 indicator slots that any new allocation must push
-// in for the new free chunk that follows it.
+// available() reports what allocate() will actually accept, which is less
+// than the trailing free chunk: any new allocation has to push in 2 more
+// indicator slots, for the free chunk that follows it.
 static_assert(opsy::utility::allocator<10, true>{}.available() == 6 * sizeof(int));
 static_assert(opsy::utility::allocator<10, true>{}.empty());
 static_assert(opsy::utility::allocator<10, true>{}.run_check());
@@ -778,4 +783,55 @@ static_assert(offsetof(decltype(g_vectors), peripherals_) == 16 * sizeof(void*))
 	return &g_vectors;
 }
 
+}
+
+// ============================== routine =================================
+#include <cstdint>
+
+namespace
+{
+
+// Stands in for a peripheral's status register.
+volatile uint32_t g_status;
+volatile uint32_t g_data;
+
+opsy::utility::routine_storage<128> g_storage;
+
+/**
+ * @brief A routine with the shapes that matter: a loop, an early return, and
+ *        a suspension whose result is read back.
+ */
+opsy::utility::routine send(opsy::utility::routine_storage<128>&, const uint8_t* bytes, std::size_t count)
+{
+	for (std::size_t i = 0; i < count; ++i)
+	{
+		g_data = bytes[i];
+
+		if ((co_await opsy::utility::suspended<uint32_t>{ &g_status }) & 1u)
+			co_return;                       // the peripheral said no
+	}
+
+	co_await std::suspend_always{};
+}
+
+opsy::utility::routine g_current;
+
+} // namespace
+
+[[gnu::used]] void use_routine_from_a_handler()
+{
+	// What an interrupt handler does, in full.
+	g_current.resume();
+}
+
+[[gnu::used]] void use_routine_lifecycle()
+{
+	static constexpr uint8_t payload[] { 1, 2, 3 };
+
+	g_current = send(g_storage, payload, sizeof(payload));
+
+	if (static_cast<bool>(g_current))    // it fitted in the storage
+		g_current.resume();              // runs to its first suspension
+
+	(void) g_current.done();
 }

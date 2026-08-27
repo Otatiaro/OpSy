@@ -65,6 +65,8 @@
 #include "config.hpp"
 #include "task.hpp"
 #include "mutex.hpp"
+#include "critical_section.hpp"
+#include "isr_lock.hpp"
 #include "condition_variable.hpp"
 #include "hooks.hpp"
 

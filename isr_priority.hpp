@@ -40,6 +40,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace opsy
 {
 

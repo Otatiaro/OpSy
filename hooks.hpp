@@ -47,6 +47,10 @@
 
 #pragma once
 
+#include "callback.hpp"
+#include "config.hpp"
+#include "isr_priority.hpp"
+
 #if __has_include(<opsy_hooks.hpp>)
 #include <opsy_hooks.hpp>
 #else
@@ -54,12 +58,13 @@
 namespace opsy
 {
 
-// Forward declarations rather than includes: this header names these types in
-// signatures only, never touching their members, so a declaration is all the
-// compiler needs. Including their headers instead would not work anyway --
-// this one is pulled in from the middle of the scheduler's include chain, and
-// those headers include the scheduler in turn.
+// Declared, not included: these appear in signatures only, and their headers
+// include this one back. Every type the signatures below name has to be
+// listed -- an omission stops this header compiling on its own, and with it
+// anything standalone that includes it, while most callers go on building
+// because they included <opsy.hpp> first.
 class task_control_block;
+class idle_task_control_block;
 class condition_variable;
 class mutex;
 class isr_lock;

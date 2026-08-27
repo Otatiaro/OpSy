@@ -51,6 +51,7 @@
 #include "task.hpp"
 #include "cortex_m.hpp"
 #include "mutex.hpp"
+#include "isr_lock.hpp"
 
 #include <variant>
 

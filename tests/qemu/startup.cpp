@@ -83,6 +83,32 @@ alignas(512) handler_t g_vectors[16 + 64];
 
 } // namespace
 
+/**
+ * @brief The ARM EHABI personality routine, defined so nothing has to provide
+ *        a real one
+ *
+ *        Clang emits an .ARM.exidx entry for every coroutine even under
+ *        -fno-exceptions, and each entry names this routine. The linker script
+ *        discards those tables -- there are no exceptions here, so they are
+ *        dead weight -- but the relocation naming this symbol survives the
+ *        discard, and the link fails on it. Pulling in the real one would
+ *        bring the unwinder, which wants stderr, which a bare-metal image has
+ *        not got.
+ *
+ *        It is never called: reaching it would mean an exception was being
+ *        propagated, in a build compiled without them. Trapping says so.
+ *
+ * @remark Only clang needs it, and only without optimisation; GCC emits no
+ *         such reference. Defined unconditionally all the same, since a
+ *         definition nobody references costs nothing and a build that needs
+ *         it and has not got it fails at link time with a message that says
+ *         nothing about coroutines.
+ */
+extern "C" void __aeabi_unwind_cpp_pr0()
+{
+	fault_handler();
+}
+
 extern "C" void Default_Handler()
 {
 	fault_handler();

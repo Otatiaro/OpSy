@@ -68,6 +68,7 @@ add_executable(opsy_qemu_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/test_critical_section.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_isr_lock.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_mutex.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_routine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_time.cpp

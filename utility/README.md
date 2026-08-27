@@ -161,6 +161,25 @@ Around 180 bytes of flash and 32 of RAM, against a protocol you can read.
 fit, the routine is not created, `operator bool` reports it, and a debug
 build asserts. It does not overflow.
 
+### Two things that surprise people
+
+**A routine takes one more resumption than it has steps.** After the last
+`co_await` it is suspended on that `co_await`, not finished: it needs one
+further `resume()` to run off the end of its body and report `done()`. A
+driver that stops resuming at what it thinks is the last event leaves the
+routine suspended for good.
+
+**Clang, without optimisation, needs `__aeabi_unwind_cpp_pr0` to exist.**
+It emits an `.ARM.exidx` entry for every coroutine even under
+`-fno-exceptions`, and each entry names the ARM personality routine. A
+linker script that discards those tables — the right thing in a build
+without exceptions — still leaves the relocation naming the symbol, and
+the link fails on it. Providing the real one drags in the unwinder, which
+wants `stderr`. Define an empty one, or one that traps: in a build
+without exceptions it is never called. GCC emits no such reference, and
+neither compiler does at `-O1` or above. The test image defines one in
+`tests/qemu/startup.cpp`.
+
 ### What you cannot do in one
 
 A routine runs in interrupt context. It must not call into OpSy: no

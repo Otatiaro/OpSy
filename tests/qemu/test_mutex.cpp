@@ -28,6 +28,17 @@ opsy::task<1024> g_low;
 opsy::task<1024> g_middle;
 opsy::task<1024> g_high;
 
+/**
+ * @brief A task that does nothing but consume CPU, to reveal who outranks whom
+ *
+ *        Effective priority -- what a task is ordered by once inheritance has
+ *        raised it -- is not readable through the API: task::priority()
+ *        deliberately reports what the caller asked for. So the cases that
+ *        care about it observe it instead: they place this task at a priority
+ *        between two candidates and see which one runs.
+ */
+opsy::task<1024> g_observer;
+
 opsy::mutex g_a;
 opsy::mutex g_b;
 
@@ -39,7 +50,24 @@ std::atomic<int> g_middle_ran  = 0;
 std::atomic<int> g_inside      = 0;
 std::atomic<int> g_max_inside  = 0;
 std::atomic<int> g_iterations  = 0;
+std::atomic<int> g_observer_ran = 0;
 std::atomic<bool> g_stop       = false;
+
+/**
+ * @brief The instant at which the tasks competing for the CPU are released
+ *
+ *        The cases that compare who runs first need their tasks to become
+ *        runnable at the same moment. Two tasks sleeping for the same
+ *        duration do not: they fall asleep at different instants, so they wake
+ *        on different ticks, and whoever wakes first runs first whatever the
+ *        priorities are. Sleeping until one shared deadline puts both in the
+ *        same tick, where the scheduler has to choose between them -- which is
+ *        the choice under test.
+ *
+ *        Plain, not atomic: the runner writes it before starting any task that
+ *        reads it, and nothing writes it afterwards.
+ */
+opsy::time_point g_deadline{};
 
 void record(int who)
 {
@@ -57,8 +85,10 @@ void stop_all()
 	(void) g_low.kill();
 	(void) g_middle.kill();
 	(void) g_high.kill();
+	(void) g_observer.kill();
 	for (int guard = 0; guard < 200 &&
-	     (g_low.is_started() || g_middle.is_started() || g_high.is_started()); ++guard)
+	     (g_low.is_started() || g_middle.is_started() || g_high.is_started()
+	      || g_observer.is_started()); ++guard)
 		opsy::sleep_for(1ms);
 	g_stop = false;
 }
@@ -578,6 +608,13 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 	g_middle_ran = 0;
 	g_stop = false;
 
+	// The three priorities here are chosen relative to the task running this
+	// case, which the harness puts at task_priority::high. The holder is
+	// raised to the waiter's priority for as long as the waiter is blocked,
+	// and it never yields, so a waiter above the runner would leave the
+	// raised holder above the runner too -- and the runner would never get
+	// another turn to kill anything. The waiter therefore sits at normal,
+	// below the runner, and the holder and the observer below that.
 	CHECK(g_low.start([]
 	{
 		g_a.lock();
@@ -588,18 +625,20 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 			busy_wait(200);
 		g_a.unlock();
 	}, "holder"));
-	g_low.priority(opsy::task_priority::low);
+	g_low.priority(opsy::task_priority::lowest);
 	opsy::sleep_for(5ms);
 	CHECK(g_low_ran == 1);
 
 	// Boost the holder, then kill the task doing the boosting.
 	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }, "waiter"));
-	g_high.priority(opsy::task_priority::highest);
+	g_high.priority(opsy::task_priority::normal);
 	opsy::sleep_for(5ms);
 	CHECK(g_high.kill());
 
-	// With the donation gone, a normal-priority task must be able to preempt
-	// the holder again — it is back to `low`.
+	// With the donation gone, a task above the holder's own priority must be
+	// able to preempt it again — it is back to `lowest`, so `low` outranks it.
+	// While the donation was in effect it did not, the holder being at
+	// `normal`, which is what makes this a check of the donation ending.
 	CHECK(g_middle.start([]
 	{
 		while (!g_stop)
@@ -607,8 +646,8 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 			g_middle_ran = 1;
 			opsy::sleep_for(1ms);
 		}
-	}, "normal"));
-	g_middle.priority(opsy::task_priority::normal);
+	}, "observer"));
+	g_middle.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(20ms);
 	CHECK(g_middle_ran == 1);
@@ -616,5 +655,259 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 	g_stop = true;
 	stop_all();
 }
+
+
+// ──────────────── priority inheritance along a chain of mutexes ────────────
+// The cases above raise one holder for one waiter. Inheritance also has to
+// travel: when the task that would be raised is itself blocked on a second
+// mutex, the raise has to carry on to whoever holds that one, and so on down
+// the chain. Otherwise the task at the far end -- the one actually holding
+// everything up -- keeps running at its own low priority and the inversion is
+// only moved, not removed.
+//
+// The chain built here is three deep:
+//
+//   bottom  holds A                          priority lowest
+//   middle  holds B, blocked on A            priority low
+//   top     blocked on B                     priority highest
+//
+// top's priority has to reach bottom, two links away. What tells whether it
+// did is g_observer, placed at normal -- above middle's own priority, below
+// top's. If the raise stopped at middle, bottom would be running at low, the
+// observer would outrank it and go first. If the raise travelled, bottom runs
+// at highest and finishes before the observer gets a turn.
+//
+// The order the four tasks record is the verdict; the first entry is enough
+// to tell the two apart.
+
+OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
+{
+	g_order_index = 0;
+	g_low_ran = 0;
+	g_middle_ran = 0;
+	g_high_ran = 0;
+	g_observer_ran = 0;
+	g_stop = false;
+
+	// Far enough ahead that the whole arrangement below is in place before
+	// anything is released, and the same instant for both competitors.
+	g_deadline = opsy::scheduler::now() + 80ms;
+
+	// bottom: takes A, then waits for the go-ahead before doing the work that
+	// the observer is competing with. It sleeps while waiting so the other
+	// tasks get to start and take their positions in the chain.
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		opsy::sleep_until(g_deadline);
+		busy_wait(2000);
+		record(1);
+		g_a.unlock();
+		g_low_ran = 2;
+	}, "bottom"));
+	g_low.priority(opsy::task_priority::lowest);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 1);
+	CHECK(g_a.is_locked());
+
+	// middle: takes B, then blocks on A. This raises bottom to middle's own
+	// priority -- one link of the chain.
+	CHECK(g_middle.start([]
+	{
+		g_b.lock();
+		g_middle_ran = 1;
+		g_a.lock();
+		record(3);
+		g_a.unlock();
+		g_b.unlock();
+		g_middle_ran = 2;
+	}, "middle"));
+	g_middle.priority(opsy::task_priority::low);
+
+	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_middle_ran == 1);   // took B, and is now blocked on A
+	CHECK(g_b.is_locked());
+
+	// top: blocks on B. This raises middle, and has to carry on to bottom.
+	CHECK(g_high.start([]
+	{
+		g_b.lock();
+		record(4);
+		g_b.unlock();
+		g_high_ran = 1;
+	}, "top"));
+	g_high.priority(opsy::task_priority::highest);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);      // still blocked behind the chain
+
+	// The observer sits between middle's priority and top's, and starts
+	// competing at the same moment bottom does.
+	CHECK(g_observer.start([]
+	{
+		opsy::sleep_until(g_deadline);
+		record(2);
+		g_observer_ran = 1;
+		while (!g_stop)
+			busy_wait(50);
+	}, "observer"));
+	g_observer.priority(opsy::task_priority::normal);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_observer_ran == 0);  // nothing has been released yet
+
+	// Both competitors are asleep until the shared deadline; wait past it.
+	while (opsy::scheduler::now() < g_deadline)
+		opsy::sleep_for(1ms);
+
+	// Wait for the first step to be recorded, which is what decides the case.
+	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+
+	// The verdict: bottom ran before the observer, so it was ordered at top's
+	// priority -- two links up the chain -- and not at middle's.
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 1);
+
+	// Ordering has been decided, so let the observer stop. It never yields,
+	// and each task drops back to its own priority the moment it releases its
+	// last mutex, so without this the two lower-priority ones would never get
+	// another turn and could not report that they finished.
+	g_stop = true;
+
+	for (int guard = 0; guard < 400 &&
+	     (g_low_ran != 2 || g_middle_ran != 2 || g_high_ran != 1); ++guard)
+		opsy::sleep_for(1ms);
+
+	CHECK(g_low_ran == 2);       // bottom released A
+	CHECK(g_middle_ran == 2);    // middle took A, then released both
+	CHECK(g_high_ran == 1);      // top finally got B
+
+	// The whole chain unwound in order: bottom, then middle, then top.
+	CHECK(g_order_index == 4);
+	CHECK(g_order[1] == 3 || g_order[2] == 3);
+	CHECK(g_order[2] == 4 || g_order[3] == 4);
+
+	stop_all();
+	CHECK(!g_a.is_locked());
+	CHECK(!g_b.is_locked());
+}
+
+// A task can hold several mutexes, each with its own waiters. Releasing one
+// of them must recompute what the holder is owed from the mutexes it still
+// holds -- not drop it straight back to its own priority. Otherwise a holder
+// released the first of two mutexes falls back below the task waiting for the
+// second, and the inversion returns for as long as it keeps that one.
+
+OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
+{
+	g_order_index = 0;
+	g_low_ran = 0;
+	g_high_ran = 0;
+	g_observer_ran = 0;
+	g_stop = false;
+
+	// Far enough ahead that the whole arrangement below is in place before
+	// anything is released, and the same instant for both competitors.
+	g_deadline = opsy::scheduler::now() + 80ms;
+
+	// The holder takes both, releases A on the go-ahead, then keeps working
+	// with B still held.
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_b.lock();
+		g_low_ran = 1;
+		opsy::sleep_until(g_deadline);
+		g_a.unlock();            // nobody wants A; B is still held
+		busy_wait(2000);
+		record(1);
+		g_b.unlock();
+		g_low_ran = 2;
+	}, "holder"));
+	g_low.priority(opsy::task_priority::lowest);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 1);
+	CHECK(g_a.is_locked());
+	CHECK(g_b.is_locked());
+
+	// One waiter, on B, at the top priority: the holder is owed that priority
+	// for as long as it holds B, whatever happens to A.
+	CHECK(g_high.start([]
+	{
+		g_b.lock();
+		record(3);
+		g_b.unlock();
+		g_high_ran = 1;
+	}, "waiter on B"));
+	g_high.priority(opsy::task_priority::highest);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);
+
+	CHECK(g_observer.start([]
+	{
+		opsy::sleep_until(g_deadline);
+		record(2);
+		g_observer_ran = 1;
+		while (!g_stop)
+			busy_wait(50);
+	}, "observer"));
+	g_observer.priority(opsy::task_priority::normal);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_observer_ran == 0);
+
+	// Both competitors are asleep until the shared deadline; wait past it.
+	while (opsy::scheduler::now() < g_deadline)
+		opsy::sleep_for(1ms);
+
+	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+
+	// The holder ran to the end of its work before the observer got a turn,
+	// so releasing A did not cost it the priority B owed it.
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 1);
+
+	// Ordering has been decided; let the observer stop so the holder, back at
+	// its own priority once it released B, can report that it finished.
+	g_stop = true;
+
+	for (int guard = 0; guard < 400 && (g_low_ran != 2 || g_high_ran != 1); ++guard)
+		opsy::sleep_for(1ms);
+
+	CHECK(g_low_ran == 2);
+	CHECK(g_high_ran == 1);
+
+	stop_all();
+	CHECK(!g_a.is_locked());
+	CHECK(!g_b.is_locked());
+}
+
+// Why there is no case here for std::lock or std::scoped_lock
+//
+// Both take several mutexes at once, in an order of their own choosing, so
+// that two tasks locking the same pair cannot deadlock by taking them in
+// opposite orders. opsy::mutex satisfies what they need -- lock(), try_lock()
+// and unlock() -- and that it does is checked where it can be: in the
+// compile-only build, tests/sanity.cpp, which instantiates std::lock against
+// it.
+//
+// It cannot be checked by running it. std::lock's implementation pulls in the
+// ARM unwinder even under -fno-exceptions, and the linker script for these
+// images discards the exception index tables, so an image containing a call
+// to it does not link. Discarding them is the right default for an RTOS built
+// without exceptions -- the tables are dead weight in flash -- so the test
+// gives way, not the linker script.
+//
+// std::scoped_lock is a further step away: the freestanding libstdc++ that
+// ships with the bare-metal ARM toolchain does not define it at all.
 
 } // namespace

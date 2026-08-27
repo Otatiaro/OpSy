@@ -377,16 +377,29 @@ public:
 	}
 
 	/**
-	 * @brief Compares priority of two @c task_control_block
+	 * @brief Orders two tasks by which one should run first
 	 * @param left The left operand
 	 * @param right The right operand
-	 * @return @c true if @p left is more important that @p right, @c false otherwise
+	 * @return @c true if @p left is more important than @p right
+	 *
+	 * @remark Compares @ref priority_ , the effective priority, and not what
+	 *         @ref priority() reports, which is the priority the caller asked
+	 *         for. The two differ exactly while priority inheritance has
+	 *         raised a task that holds a mutex a more important one is waiting
+	 *         for -- which is the case this ordering exists to handle.
+	 *         Ordering by the requested priority instead leaves the raise with
+	 *         no effect whatsoever: the holder is recorded as raised and still
+	 *         scheduled behind the middle-priority task it was raised to
+	 *         overtake, which is the inversion inheritance is there to close.
+	 *
+	 * @remark Ties go to whoever last started running longer ago, so tasks of
+	 *         equal priority take turns rather than one always winning.
 	 */
 	static constexpr bool priority_is_lower(const task_control_block& left, const task_control_block& right)
 	{
-		if (left.priority() > right.priority())
+		if (left.priority_ > right.priority_)
 			return false;
-		if (left.priority() < right.priority())
+		if (left.priority_ < right.priority_)
 			return true;
 		return left.last_started_ < right.last_started_;
 	}

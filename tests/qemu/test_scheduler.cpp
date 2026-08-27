@@ -26,7 +26,7 @@ using namespace std::chrono_literals;
 opsy::task<1024> g_helper;
 opsy::task<1024> g_second_helper;
 opsy::condition_variable g_condition;
-opsy::mutex g_mutex;
+opsy::isr_lock g_mutex;
 
 std::atomic<int> g_helper_ran = 0;
 std::atomic<int> g_second_ran = 0;

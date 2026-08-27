@@ -50,12 +50,23 @@ endif()
 set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(OPSY_LINKER_SCRIPT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/${OPSY_LINKER_SCRIPT})
 
+# Optimisation level. The default (empty) is no -O at all, which is what makes
+# the image debuggable. The CI also builds this suite at -O2: a whole class of
+# defect -- a missing volatile on a memory-mapped register, a missing "memory"
+# clobber on inline assembly -- exists only once the optimiser is allowed to
+# reorder, cache and eliminate, so a suite built without -O proves nothing
+# about them.
+if(DEFINED OPSY_OPTIMISATION)
+    add_compile_options(${OPSY_OPTIMISATION})
+endif()
+
 add_executable(opsy_qemu_tests
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qemu_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_condition_variable.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_critical_section.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_isr_lock.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_mutex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_task.cpp
@@ -125,3 +136,32 @@ add_test(
 )
 
 set_tests_properties(opsy_qemu_tests_${OPSY_TARGET} PROPERTIES TIMEOUT 120)
+
+# OpSy never allocates, so an image built on it should contain no allocator.
+# Checked on the linked image because that is where one appears: a single
+# construct reaching the global operator new or delete is enough for the
+# linker to pull in malloc, free and the _sbrk under them, and nothing about
+# it fails to build. See check_no_heap.cmake.
+get_filename_component(OPSY_TOOLCHAIN_BIN ${CMAKE_CXX_COMPILER} DIRECTORY)
+
+find_program(OPSY_NM
+    NAMES ${CMAKE_CXX_COMPILER_TARGET}-nm arm-none-eabi-nm llvm-nm nm
+    HINTS ${OPSY_TOOLCHAIN_BIN}
+)
+
+if(OPSY_NM)
+    add_test(
+        NAME opsy_no_heap_${OPSY_TARGET}
+        COMMAND ${CMAKE_COMMAND}
+                -DNM=${OPSY_NM}
+                -DIMAGE=$<TARGET_FILE:opsy_qemu_tests>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/check_no_heap.cmake
+    )
+else()
+    message(STATUS "no-heap check skipped: no nm found next to ${CMAKE_CXX_COMPILER}")
+endif()
+
+# The debugger-driven scenarios run against this same image: they stop it at
+# chosen instructions to reach states the suite above cannot produce on its
+# own. See tests/gdb/scenarios.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../gdb/scenarios.cmake)

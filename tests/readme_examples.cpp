@@ -73,28 +73,48 @@ opsy::task<512> blinker; // 512 stack slots = 2 KiB on Cortex-M
 
 } // namespace blinky
 
-// ─────────────────────────── "opsy::mutex" ─────────────────────────────────
+// ─────────────────────── "opsy::mutex — between tasks" ─────────────────────
 
 namespace mutex_example
 {
 
-opsy::mutex m{opsy::isr_priority{0x80}};
+opsy::mutex m;
 
 [[gnu::used]] void from_task()
 {
 	std::lock_guard guard{m};
-	// critical section, masks both task switch
-	// and any ISR with priority numerically >= 0x80
+	// exclusive against other tasks; interrupts keep running
 }
 
 } // namespace mutex_example
+
+// ────────────────── "opsy::isr_lock — between a task and an ISR" ───────────
+
+namespace isr_lock_example
+{
+
+opsy::isr_lock l{opsy::isr_priority{0x80}};
+
+[[gnu::used]] void from_task()
+{
+	std::lock_guard guard{l};
+	// masks every ISR at priority numerically >= 0x80,
+	// and task switching along with it
+}
+
+[[gnu::used]] void from_isr()
+{
+	std::lock_guard guard{l};   // same lock, from the handler side
+}
+
+} // namespace isr_lock_example
 
 // ─────────────────────── "opsy::condition_variable" ────────────────────────
 
 namespace condition_variable_example
 {
 
-opsy::mutex              m{opsy::isr_priority{0x80}};
+opsy::isr_lock           m{opsy::isr_priority{0x80}};
 opsy::condition_variable cv{opsy::isr_priority{0x80}};
 
 [[gnu::used]] void wait_for_data()

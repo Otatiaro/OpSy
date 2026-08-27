@@ -77,5 +77,11 @@ SECTIONS
   . = ALIGN(8);
   _estack = ORIGIN(RAM) + LENGTH(RAM);
 
+  /* Discarded: nothing here unwinds. -fno-exceptions means no personality
+     routine, and no code in the image references the ARM unwinder.
+     If a link ever fails on __exidx_start / __exidx_end, something pulled
+     unwind-arm.o in — find what rather than defining the symbols here.
+     std::unique_lock is one such thing: its unlock() builds a
+     std::system_error on the failure path. */
   /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

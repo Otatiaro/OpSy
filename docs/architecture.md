@@ -19,6 +19,13 @@ Everything the scheduler owns is static: there is no allocation, and
 `scheduler.cpp` is the only translation unit precisely because it holds
 that static state and the two naked ISRs.
 
+**Sized for a few dozen tasks.** Several structures are derived by
+walking a list rather than stored as one, which keeps the state minimal
+and impossible to desynchronise, at the price of walks that are linear
+in the number of tasks. That is the right trade for a Cortex-M
+application with a handful of tasks; it is the wrong one for hundreds.
+See [what that costs](#what-that-costs-and-the-system-size-it-implies).
+
 ## Three exceptions, three jobs
 
 The scheduler runs entirely out of three ARM exceptions, each at a fixed
@@ -79,6 +86,9 @@ one task can sit in three lists at once without them interfering:
 > variable's list. When touching either, check which list owns the task
 > first.
 
+A task blocked on a `mutex` is in `all_tasks_` and nothing else — it
+carries `blocked_on_` instead of being linked anywhere.
+
 A task that sleeps with a timeout is in `all_tasks_` **and** `timeouts_`.
 A task waiting on a condition variable with a timeout is in `all_tasks_`,
 `timeouts_`, and the condition variable's list. A running task is in
@@ -113,7 +123,10 @@ to do anything while a critical section is held, recording
                │                                      │ cv.wait
         ┌──────┴───────────────┐                      │
         │  timeouts_ and/or    │◄─────────────────────┘
-        │  cv.waiting_list_    │
+        │  cv.waiting_list_    │   sleep_for / cv.wait
+        │                      │
+        │  or blocked_on_ a    │◄──── mutex.lock() on a
+        │  mutex (in no list)  │      mutex someone holds
         └──────────────────────┘
                  │
                  │ kill(), or the entry callback returns
@@ -128,43 +141,167 @@ already reported as terminated.
 
 ## The service calls
 
-`SVC` carries one of four numbers (`scheduler::service_call_number`):
+`SVC` carries one of four numbers (`scheduler::service_call_number`). The
+mutex operations are deliberately absent — see [above](#service-call-or-just-masking).
 
 | Call | What the handler does |
 |---|---|
 | `sleep` | Sets `wait_until_`, inserts into `timeouts_`, clears `current_task_`, switches. |
-| `wait` | Same, plus links the task into the condition variable's list and releases the mutex atomically. A negative duration means "no timeout". |
+| `wait` | Same, plus links the task into the condition variable's list and releases the lock the caller recorded — dropping `BASEPRI` for an `isr_lock`, handing ownership to a waiter for a `mutex`. A negative duration means "no timeout". |
 | `context_switch` | Just re-runs `do_switch()` — used after a priority change. |
-| `terminate` | Unlinks from every list, clears `current_task_` if it was running, fires the `task_terminated` hook. |
+| `terminate` | Unlinks from every list, releases every mutex the task held, clears `current_task_` if it was running, fires the `task_terminated` hook. |
 
 The duration for `sleep` and `wait` is passed as a 64-bit count split
 across `r1`/`r2`. **A negative count is the sentinel for "no timeout"** —
 which is why `wait_for` and `sleep_for` reject negative durations before
 issuing the call rather than passing them through.
 
-## Exclusion: two different mechanisms
+## Service call, or just masking?
 
-They are easy to confuse, and they do not do the same thing.
+Not every scheduler operation needs an `SVC`. Four of them do not —
+`wake_up`, `update_priority`, `trigger_soft_switch`, `add_task` — and
+neither do `mutex::lock` / `unlock`. They all follow the same shape:
 
-**`BASEPRI`** masks exceptions at or numerically above its value. Since
-`PendSV` sits at 255, *any* non-zero `BASEPRI` masks it — so raising
-`BASEPRI` at all stops context switching outright. That is how a
-`priority_mutex` with an `isr_priority` excludes both tasks and
-interrupts up to its level.
+```
+const auto previous = cortex_m::set_basepri(service_call_priority);
+... mutate the lists ...
+do_switch();                     // pends PendSV
+cortex_m::set_basepri(previous); // PendSV runs here
+```
 
-**The scheduler's critical section** (`critical_section_`) does not mask
-anything. It makes `do_switch()` decline to mutate the lists, recording
-that a switch is due. It matters when `SysTick` is *not* masked — with a
-mutex at `0x80`, `SysTick` at 127 still runs and would otherwise reorder
-`ready_` under the lock holder's feet.
+**A service call is needed for exactly one reason: the operation has to
+touch the calling task's `stack_frame`.** In practice that means
+returning a value the task cannot compute itself — `cv_status` from a
+wait, decided by whoever notifies or by the timeout. Only the handler
+can reach the frame to write it.
 
-So: `BASEPRI` stops the switch, the critical section freezes the
-scheduler's own state. A `priority_mutex` in task context takes both.
+Everything else can mask instead:
 
-> `opsy::mutex` is an alias for `priority_mutex`, and it is **not**
-> `std::mutex`: no owner, no blocking, exclusion is global rather than
-> per object, and releases must be strictly LIFO. See the warnings on
-> `priority_mutex::lock`.
+- **Mutating scheduler state** — masking to `service_call_priority`
+  gives the same exclusion the handler would have run under. That *is*
+  the priority the handler runs at.
+- **Switching** — `do_switch()` only pends `PendSV`, which runs when
+  `BASEPRI` drops. Whether it was pended from a handler or from task
+  code makes no difference.
+- **Suspending the caller** — no handler required either: `do_switch()`
+  leaves the current task out of `ready_` if `current_task_` is already
+  cleared. Clearing it yourself is all "suspend me" means. `mutex::lock`
+  blocks that way.
+
+The saving is not academic. An `SVC` costs exception entry, dispatch and
+exit — tens of cycles — on an operation whose useful work is a handful
+of instructions. `unlock()` used to pay that on *every* call, contended
+or not.
+
+> **The scheduler's critical section is not a substitute for masking.**
+> It makes `do_switch()` decline; it stops no interrupt. Anything
+> reachable from `SysTick` — which includes `resume_waiter`, and through
+> it `take_mutex` — can run right through it. A fast path guarded only
+> by `try_critical_section()` is racy, and `mutex::lock` was, until this
+> was written down.
+
+## Exclusion: three mechanisms, one per problem
+
+Which one to reach for follows from *who* you are excluding.
+
+**`opsy::mutex`** — between tasks. A real mutex: it has an owner, and a
+task that cannot take it is suspended and resumes owning it. Releases in
+any order, several held at once, `try_lock`, priority inheritance. Use
+it for state shared between tasks.
+
+**`opsy::isr_lock`** — with an interrupt handler. Masking, because an
+ISR cannot be suspended: `lock()` raises `BASEPRI` to the lock's
+priority, so every interrupt at or numerically above it is held off.
+Since `PendSV` sits at 255, *any* non-zero `BASEPRI` masks it too, and
+task switching stops for the duration. No owner, no blocking, no
+waiting: exclusion comes from nothing else running.
+
+**The scheduler's critical section** (`critical_section_`) — internal.
+It masks nothing. It makes `do_switch()` decline to mutate the lists,
+recording that a switch is due. It matters when `SysTick` is *not*
+masked: with an `isr_lock` at `0x80`, `SysTick` at 127 still runs and
+would otherwise reorder `ready_` under the holder's feet.
+
+So `BASEPRI` stops the switch, the critical section freezes the
+scheduler's own state, and `mutex` is the only one of the three that
+actually makes a task wait.
+
+## How the mutex stores what it knows
+
+Every relation is stored exactly once. Nothing is duplicated, so nothing
+can disagree:
+
+| Question | Answer |
+|---|---|
+| Who owns `m`? | `m.owner_` |
+| What is `t` blocked on? | `t.blocked_on_` |
+| Who is waiting on `m`? | **derived** — the tasks in `all_tasks_` whose `blocked_on_` is `&m` |
+| What does `t` hold? | **derived** — the mutexes in `locked_mutexes_` owned by `t` |
+
+The two derived rows are the ones a textbook implementation would store
+as lists: a wait queue in each mutex, and a held-mutex list in each
+task. Both were deliberately not kept, because a bidirectional graph
+maintained by hand is two structures that can drift apart — which is the
+shape of most of the list-corruption bugs this scheduler has had.
+
+A consequence worth noting: a task blocked on a mutex is in **no list at
+all**. Its `task_lists::waiting` node stays free, which is why `ready_`
+and `condition_variable::waiting_list_` remain that node's only two
+users.
+
+### What that costs, and the system size it implies
+
+Deriving instead of storing means walking a list where a direct
+implementation would follow a pointer:
+
+| Operation | Cost | When |
+|---|---|---|
+| `lock()`, uncontended | O(1) | the common path |
+| `try_lock()` | O(1) | — |
+| priority inheritance | O(1), O(depth) if transitive | on contention |
+| `unlock()` with waiters | O(tasks) — elect the highest-priority waiter | every contended release |
+| recompute priority after `unlock()` | O(held mutexes x tasks) | every release by a task that held several |
+| `kill()` | O(locked mutexes) | rare |
+
+**This is a deliberate trade, and it sets a ceiling on system size.**
+OpSy is built for a few dozen tasks at most — the usual shape of a
+Cortex-M application, where a handful of tasks each own a peripheral or
+an activity. At that scale the walks are a few dozen iterations of a
+pointer chase, far below the cost of the context switch that follows,
+and the simplicity is worth more than the cycles.
+
+It does **not** scale to hundreds of tasks. `unlock()` under contention
+is linear in the total number of tasks, not in the number of waiters, and
+the priority recomputation is a product of two counts. With 500 tasks and
+50 mutexes, a contended release would walk tens of thousands of entries
+inside a critical section — where a wait queue per mutex would have
+walked one. If you need that many tasks, this is the design decision to
+revisit first, and the fix is mechanical: give each mutex its own wait
+list and each task its own held list, at the cost of keeping them in step.
+
+### Waking with a lock held
+
+A task that waited holding a lock has to get it back before it may run,
+and the two kinds are re-acquired at different moments:
+
+- an **`isr_lock`** is a `BASEPRI` level, which belongs to the context —
+  it is restored inside `PendSV`, as part of the switch;
+- a **`mutex`** is ownership, which is not per-context — it is taken back
+  when the task is woken. And taking it back can fail, if someone else
+  holds it by then, in which case the wake turns straight into blocking
+  on the mutex.
+
+That second case is why `resume_waiter()` decides about the mutex
+*before* inserting into `ready_`, never after. A task woken to a mutex it
+cannot have goes into no list at all, carrying `blocked_on_`. Inserting
+first and correcting afterwards is what once put a task in two lists at
+the same time.
+
+Which lock to release is recorded on the task before the service call, as
+a `std::variant<std::monostate, mutex*, isr_lock*>` — 8 bytes on
+Cortex-M, and no `bad_variant_access` path under `-fno-exceptions`. There
+was no register left in the service call frame to carry a discriminant,
+and a bare pointer could not say which kind it pointed at.
 
 ## The clock
 

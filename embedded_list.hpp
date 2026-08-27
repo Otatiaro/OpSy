@@ -706,12 +706,13 @@ public:
 	 *
 	 * @warning Named @c insert_after, not @c insert, because it is the mirror
 	 *          image of @c std::list::insert -- which inserts *before* its
-	 *          position. Under the old name the two differed on every call:
-	 *          on @c [1,2] , @c insert(begin(),9) gave @c [1,9,2] where
-	 *          @c std::list gives @c [9,1,2] , and @c insert(end(),9) put the
-	 *          item at the *head* rather than the tail. The name now says
-	 *          which side it lands on, and no longer invites the assumption.
-	 *          @c std::forward_list uses the same @c insert_after convention.
+	 *          position. Called @c insert, it would differ from the standard
+	 *          one on every call: on @c [1,2] it gives @c [1,9,2] where
+	 *          @c std::list::insert(begin(),9) gives @c [9,1,2] , and at
+	 *          @c end() it would put the item at the *head* rather than the
+	 *          tail. The name says which side the item lands on, so no such
+	 *          assumption can be carried over. @c std::forward_list uses the
+	 *          same @c insert_after convention.
 	 */
 	iterator insert_after(iterator previous, Item& item)
 	{

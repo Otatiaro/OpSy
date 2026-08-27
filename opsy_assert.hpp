@@ -27,9 +27,9 @@
  *          and the source expression — nothing useful is lost, only the
  *          duplicate copy that lived in flash at runtime.
  *
- *          Every OpSy header that previously included @c <cassert>
- *          includes this header instead, so the override is not silently
- *          re-clobbered by a later @c <cassert> include in the chain. The
+ *          No OpSy header includes @c <cassert> ; they all include this
+ *          one instead, so the override is not silently re-clobbered by a
+ *          later @c <cassert> include further down the chain. The
  *          file is left at the top level of OpSy on purpose so it can be
  *          included from any subdirectory with @c "opsy_assert.hpp".
  ******************************************************************************

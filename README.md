@@ -75,7 +75,8 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
 | `scheduler_inl.hpp` | Inline definitions for the header-only primitives, included from the bottom of `scheduler.hpp`. Never include this directly. |
 | `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
-| `priority_mutex.hpp` | `priority_mutex` (the default `mutex` alias). |
+| `mutex.hpp` | `mutex` — blocking, owning mutual exclusion between tasks, with priority inheritance. |
+| `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |
 | `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
@@ -104,6 +105,12 @@ exception does what (`SVC` decides, `SysTick` counts, `PendSV` switches,
 and why they sit at those priorities), what the three lists hold, how a
 task moves between them, and the two different exclusion mechanisms that
 are easy to confuse. Read it before changing anything in `scheduler.cpp`.
+
+[`docs/ci.md`](docs/ci.md) covers what is checked, and — if you are
+adding code — where your new file has to be mentioned for anything to
+compile and run it. Nothing here discovers files on its own, so a
+translation unit nobody lists is one the whole matrix passes without
+ever having built.
 
 ## Naming convention
 
@@ -193,30 +200,68 @@ own CPU.
 OpSy mirrors the standard library API, so the synchronization patterns
 you are used to from `<thread>` / `<mutex>` translate directly.
 
-### `opsy::mutex` (alias for `priority_mutex`)
+### `opsy::mutex` — between tasks
+
+A real mutex, with the semantics of `std::mutex`: it has an owner, and a
+task that cannot take it is **suspended** until the holder releases,
+then resumes owning it.
 
 ```cpp
 #include <mutex>
 #include <opsy.hpp>
 
-opsy::mutex m{opsy::isr_priority{0x80}};
+opsy::mutex m;
 
 void from_task()
 {
     std::lock_guard guard{m};
-    // critical section, masks both task switch
-    // and any ISR with priority numerically >= 0x80
+    // exclusive against other tasks; interrupts keep running
 }
 ```
 
-A `priority_mutex` constructed without an `isr_priority` only synchronizes
-between tasks (a critical section). With an `isr_priority`, locking the
-mutex sets `BASEPRI` to that level, masking every interrupt at or below
-that priority for the duration of the lock — that is how you protect
-shared state between a task and an ISR.
+Locks may be released in any order, a task may hold several at once, and
+`try_lock()` is available. A holder is raised to the priority of the
+most important task waiting behind it, so a middle-priority task cannot
+starve it — the classic priority inversion.
 
-A `priority_mutex(isr_priority{0})` is the strongest form: a full lock
-that disables all maskable interrupts (`PRIMASK = 1`).
+Not recursive, like `std::mutex`. Locking one you already hold, unlocking
+one you do not own, and destroying a held one each trip an assert in
+debug and cost nothing in release.
+
+`lock()` blocks, so it must be called from a task — never from an
+interrupt handler, which has nothing to suspend. For that, use:
+
+### `opsy::isr_lock` — between a task and an ISR
+
+An interrupt cannot be suspended, so exclusion against one can only be
+masking. `lock()` raises `BASEPRI` to the lock's priority for the
+duration.
+
+```cpp
+opsy::isr_lock l{opsy::isr_priority{0x80}};
+
+void from_task()
+{
+    std::lock_guard guard{l};
+    // masks every ISR at priority numerically >= 0x80,
+    // and task switching along with it
+}
+
+void from_isr()
+{
+    std::lock_guard guard{l};   // same lock, from the handler side
+}
+```
+
+`isr_lock` has no owner and never blocks: exclusion comes from nothing
+else being allowed to run. Constructed without an `isr_priority` it only
+holds off other tasks; with `isr_priority{0}` it is a full lock that
+disables all maskable interrupts (`PRIMASK = 1`).
+
+> Because it is a mask rather than a lock, releases across several
+> `isr_lock`s must be strictly LIFO, and it must not be held across a
+> sleep. `opsy::mutex` has neither restriction. See
+> [`docs/architecture.md`](docs/architecture.md) for why.
 
 ### `opsy::condition_variable`
 
@@ -291,7 +336,7 @@ The scheduler runs at one specific NVIC preemption level
 value (so higher hardware priority) than OpSy **must not** call any OpSy
 API: such an ISR can preempt the SVC handler and break atomicity. ISRs
 at a numerically *higher* preempt value (lower priority) can use OpSy's
-synchronization primitives normally, as long as the `priority_mutex` or
+synchronization primitives normally, as long as the `isr_lock` or
 `condition_variable` they touch was constructed with an `isr_priority`
 that masks them.
 
@@ -308,7 +353,7 @@ for the EzManta project, which needed more concurrent activities and a
 richer synchronization model. The current iteration drops C++14 baggage
 in favour of C++23 features (`constexpr` everywhere, `std::optional`,
 `std::chrono`, `[[nodiscard]]`, ...) and a cleaner header layout — the
-core primitives (`task`, `priority_mutex`, `condition_variable`,
+core primitives (`task`, `mutex`, `isr_lock`, `condition_variable`,
 `critical_section`) are header-only; only the scheduler itself needs a
 translation unit, because of its static state and the inline assembly in
 `PendSV_Handler` / `SVC_Handler`.

@@ -25,7 +25,7 @@
  * 			otherwise atomicity of system calls can not be guaranteed.
  *
  * 			The @c mutex concrete implementation is also defined here, by default
- * 			it is set to @c priority_mutex, which is the correct implementation
+ * 			it is set to @c isr_lock, which is the correct implementation
  * 			for the vast majority of projects. But this using allows for special
  * 			types of mutex to be used (e.g. multi-processor semaphores).
  *
@@ -68,7 +68,7 @@
 
 #pragma once
 
-#include "priority_mutex.hpp"
+#include "isr_lock.hpp"
 #include <cstdint>
 #include <chrono>
 #include <ratio>
@@ -127,9 +127,29 @@ constexpr uint32_t preemption_bits = 2;
 constexpr uint32_t opsy_preemption = 1;
 
 /**
- * @brief Defines the concrete implementation of @c mutex used in this project.
+ * @brief How far priority inheritance follows a chain of blocked tasks
+ *
+ *        A task blocked on a mutex may be holding another, so raising one
+ *        holder can require raising the one it is itself waiting for. The walk
+ *        is bounded so a cycle — which is a deadlock, and asserted separately —
+ *        cannot spin forever.
  */
-using mutex = priority_mutex;
+static constexpr std::size_t max_inheritance_depth = 8;
+
+// Note for code written against an OpSy older than the two-lock split: this
+// file used to alias opsy::mutex onto the ISR-facing lock, which is now
+// called isr_lock. The two are not interchangeable, so such an alias would be
+// actively misleading and there is none here.
+//
+//   isr_lock   masks interrupts. No owner, never blocks. Use it to share
+//              state with an interrupt handler, which cannot be suspended.
+//   mutex      (in mutex.hpp) blocks. Has an owner, and the semantics of
+//              std::mutex. Use it to share state between tasks.
+//
+// isr_lock is the extension point for projects that need a different
+// implementation of the ISR-facing lock: define opsy_config.hpp and provide
+// your own.
+
 
 /**
  * @brief Trap the running task / system on an unrecoverable internal error.
@@ -209,7 +229,7 @@ static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption b
 static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
 
 // Pull in our assert override AFTER all OpSy and standard headers config.hpp
-// transitively brings in (priority_mutex.hpp etc., several of which include
+// transitively brings in (isr_lock.hpp etc., several of which include
 // <cassert>). opsy_assert.hpp wins because it does its own #undef just before
 // installing the trap-based macro, and OpSy headers replace their direct
 // #include <cassert> by an include of opsy_assert.hpp so nothing re-clobbers

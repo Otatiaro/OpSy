@@ -47,6 +47,7 @@
 #include <tuple>
 #include <atomic>
 #include <optional>
+#include <variant>
 
 #include "config.hpp"
 #include "embedded_list.hpp"
@@ -72,6 +73,8 @@ enum class task_priority
 };
 
 class task_control_block;
+class mutex;
+class isr_lock;
 
 namespace task_lists
 {
@@ -290,10 +293,34 @@ public:
 	 * @remark Meant to be polled by the task itself:
 	 *         @code while (!self.stop_requested()) { ... } @endcode
 	 */
+	/**
+	 * @brief Records the lock a condition variable wait must release
+	 * @param lock The lock held by this task, or @c monostate for none
+	 *
+	 * @remark Lives here rather than on @c condition_variable because it only
+	 *         ever writes this task's state. Putting it there meant making
+	 *         @c condition_variable a friend of this class for one assignment.
+	 */
+	void record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
+	{
+		released_lock_ = lock;
+	}
+
 	[[nodiscard]] bool stop_requested() const
 	{
 		return stop_requested_.load(std::memory_order_relaxed);
 	}
+
+	/**
+	 * @brief Whether this task is sitting in the scheduler's ready list
+	 * @return @c true if it is runnable but not the one running
+	 *
+	 * @remark Derived rather than stored: a started task is in @c ready_
+	 *         unless it is the current one, blocked on a mutex, waiting on a
+	 *         condition variable, or sleeping on a timeout. Keeping a flag
+	 *         would be a second copy of that state.
+	 */
+	[[nodiscard]] bool is_ready() const;
 
 	/**
 	 * @brief Checks if the @c task_control_block is started
@@ -308,9 +335,19 @@ public:
 	 * @brief Gets the current @c task_priority of the @c task_control_block
 	 * @return The current @c task_priority of the @c task_control_block
 	 */
+	/**
+	 * @brief The priority this task was given
+	 * @return The requested priority, not the effective one
+	 *
+	 * @remark Returns @ref base_priority_ : what a caller set through
+	 *         @ref priority(task_priority) , which is the only value they can
+	 *         reason about. The effective priority may be temporarily higher
+	 *         through inheritance, and reporting that would make
+	 *         @c t.priority(p); @c t.priority() @c == @c p fail unpredictably.
+	 */
 	constexpr inline task_priority priority() const
 	{
-		return priority_;
+		return base_priority_;
 	}
 
 	/**
@@ -340,16 +377,29 @@ public:
 	}
 
 	/**
-	 * @brief Compares priority of two @c task_control_block
+	 * @brief Orders two tasks by which one should run first
 	 * @param left The left operand
 	 * @param right The right operand
-	 * @return @c true if @p left is more important that @p right, @c false otherwise
+	 * @return @c true if @p left is more important than @p right
+	 *
+	 * @remark Compares @ref priority_ , the effective priority, and not what
+	 *         @ref priority() reports, which is the priority the caller asked
+	 *         for. The two differ exactly while priority inheritance has
+	 *         raised a task that holds a mutex a more important one is waiting
+	 *         for -- which is the case this ordering exists to handle.
+	 *         Ordering by the requested priority instead leaves the raise with
+	 *         no effect whatsoever: the holder is recorded as raised and still
+	 *         scheduled behind the middle-priority task it was raised to
+	 *         overtake, which is the inversion inheritance is there to close.
+	 *
+	 * @remark Ties go to whoever last started running longer ago, so tasks of
+	 *         equal priority take turns rather than one always winning.
 	 */
 	static constexpr bool priority_is_lower(const task_control_block& left, const task_control_block& right)
 	{
-		if (left.priority() > right.priority())
+		if (left.priority_ > right.priority_)
 			return false;
-		if (left.priority() < right.priority())
+		if (left.priority_ < right.priority_)
 			return true;
 		return left.last_started_ < right.last_started_;
 	}
@@ -386,13 +436,35 @@ private:
 	std::atomic_bool active_ { false };
 	std::atomic_bool stop_requested_ { false };   // cooperative stop, see request_stop
 	stack_item* stack_pointer_ = nullptr;
-	task_priority priority_ {};                   // set to task_priority::lowest by start_impl
+	// Two priorities, because they can differ: base_priority_ is what the user
+	// asked for, priority_ is what the scheduler actually orders by. They are
+	// equal until priority inheritance raises the effective one so a task
+	// holding a mutex cannot be starved by a middle-priority task while a
+	// higher-priority one waits behind it.
+	task_priority base_priority_ {};              // set to task_priority::lowest by start_impl
+	task_priority priority_ {};                   // effective; base_priority_ unless inherited
 	time_point last_started_ = startup;           // startup == time_point{0}, BSS-friendly
 	std::optional<time_point> wait_until_;
 	const char* name_ = nullptr;
 	callback<void(void)> entry_;
 	condition_variable* waiting_ = nullptr;
-	mutex* mutex_ = nullptr;
+
+	// The mutex this task is blocked on, or nullptr. Single source of truth
+	// for "what is this task waiting for": the waiters of a mutex are derived
+	// by filtering all_tasks_ on this field, so there is no per-mutex wait
+	// list to keep in step with it.
+	//
+	// A task blocked here is in no list at all — its task_lists::waiting node
+	// stays free, which is why ready_ and condition_variable::waiting_list_
+	// remain that node's only two users.
+	mutex* blocked_on_ = nullptr;
+	// The lock a condition variable wait released on this task's behalf, to be
+	// re-acquired on wake. A variant rather than two pointers or a tagged one:
+	// the two kinds are re-acquired by completely different means — an
+	// isr_lock restores BASEPRI during the context switch, a mutex takes
+	// ownership back when the task is woken — and the type system should be
+	// the thing that keeps them apart.
+	std::variant<std::monostate, mutex*, isr_lock*> released_lock_;
 
 	/**
 	 * @brief Trampoline used as the initial PC of every task

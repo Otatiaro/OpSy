@@ -1,6 +1,6 @@
 # OpSy tests
 
-Four suites, answering four different questions.
+Five suites, answering five different questions.
 
 | Suite | Question | Runs code? |
 |---|---|---|
@@ -8,6 +8,18 @@ Four suites, answering four different questions.
 | [Host tests](#host-tests) (`host/`) | does the portable half of OpSy still *behave*? | yes, natively |
 | [QEMU tests](#qemu-tests) (`qemu/`) | does the *scheduler* behave, on a real Cortex-M? | yes, emulated |
 | [Codegen checks](#codegen-checks) (`codegen/`) | does the optimiser leave the memory-mapped accesses alone? | no — it reads the disassembly |
+| [GDB scenarios](gdb/README.md) (`gdb/`) | does OpSy hold up in the states a running test never reaches? | yes, emulated and driven through a debugger |
+
+The QEMU suite also carries one check that runs no code: `opsy_no_heap`
+inspects the symbols of the linked image and fails if an allocator is in
+it. OpSy never allocates, but nothing in the source says so, and one
+construct reaching the global `operator new` or `delete` is enough for
+the linker to pull in `malloc`, `free` and `_sbrk` — silently, since
+none of that fails to build. See `qemu/check_no_heap.cmake`.
+
+[`../docs/ci.md`](../docs/ci.md) describes how these suites are wired
+into the CI, which axes each one runs on, and what you have to add so a
+new file of yours is actually built and run.
 
 The cross build cannot check behaviour: it produces a static library
 that is never linked or run. The host suite covers the part of OpSy
@@ -15,6 +27,13 @@ that is plain C++ — the containers, the allocator, the numerics. The
 QEMU suite covers the rest: task switching, service calls, condition
 variable timeouts, all of which only exist once the scheduler owns a
 CPU.
+
+What none of those can reach is the state a system only gets into
+rarely: a race window a couple of instructions wide, a counter 49.7 days
+from wrapping, a list caught halfway through being re-stitched. The
+emulator is deterministic, so waiting for such a moment to happen by
+itself never works. The GDB scenarios create it instead — they stop the
+CPU where the situation begins and build it by hand.
 
 ## Cortex-M sanity build
 

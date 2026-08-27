@@ -53,6 +53,21 @@
 
 namespace opsy
 {
+
+// Forward declarations rather than includes: this header names these types in
+// signatures only, never touching their members, so a declaration is all the
+// compiler needs. Including their headers instead would not work anyway --
+// this one is pulled in from the middle of the scheduler's include chain, and
+// those headers include the scheduler in turn.
+class task_control_block;
+class condition_variable;
+class mutex;
+class isr_lock;
+
+}
+
+namespace opsy
+{
 	/**
 	 * @brief Methods called by OpSy at various places in the code
 	 */
@@ -192,8 +207,45 @@ namespace opsy
 		{}
 
 		/**
-		 * @brief Called when a @c mutex is stored by the system on a @c task
-		 * @param task The @c task for which the system has stored a @c mutex
+		 * @brief Called when a task takes ownership of a @c mutex
+		 * @param taken The mutex now held
+		 * @param owner The task that holds it
+		 */
+		static constexpr void mutex_taken([[maybe_unused]] mutex& taken, [[maybe_unused]] task_control_block& owner)
+		{
+
+		}
+
+		/**
+		 * @brief Called when a task releases a @c mutex
+		 * @param released The mutex just freed
+		 * @param owner The task that held it
+		 */
+		static constexpr void mutex_released([[maybe_unused]] mutex& released, [[maybe_unused]] task_control_block& owner)
+		{
+
+		}
+
+		/**
+		 * @brief Called when a task blocks waiting for a @c mutex
+		 * @param blocking The mutex it is waiting for
+		 * @param waiter The task now suspended
+		 */
+		static constexpr void mutex_blocked([[maybe_unused]] mutex& blocking, [[maybe_unused]] task_control_block& waiter)
+		{
+
+		}
+
+		/**
+		 * @brief Called when a wait releases the lock a task was holding
+		 * @param task The task whose lock was released on its behalf
+		 *
+		 * @warning Pairs with @ref mutex_restored_for_task only for an
+		 *          @c isr_lock . An @c opsy::mutex is re-acquired on wake
+		 *          rather than during the switch, so its counterpart is
+		 *          @ref mutex_taken from the wake path. A tracer pairing
+		 *          stored/restored one-to-one will drift by one per mutex
+		 *          wait.
 		 */
 		static constexpr void mutex_stored_for_task([[maybe_unused]] task_control_block& task)
 		{}

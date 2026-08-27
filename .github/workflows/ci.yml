@@ -114,7 +114,7 @@ jobs:
         run: ctest --test-dir build-host --output-on-failure
 
   qemu-tests:
-    name: QEMU tests (cortex-${{ matrix.target }})
+    name: QEMU and GDB tests (cortex-${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -144,6 +144,56 @@ jobs:
 
       - name: Run
         run: ctest --test-dir build-qemu --output-on-failure
+
+  qemu-tests-optimised:
+    name: QEMU tests (cortex-${{ matrix.target }}, ${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+        # Two configurations rather than every -O level: what these jobs look
+        # for is a defect that only exists once the optimiser is allowed to
+        # reorder, cache, eliminate or inline across translation units -- a
+        # missing volatile on a memory-mapped register, a missing "memory"
+        # clobber on inline assembly, an assumption that a naked function
+        # keeps its frame. -Os and -O3 sit at opposite ends of what the
+        # optimiser will do, and LTO adds the cross-TU dimension neither has
+        # on its own, so -O2 in the middle is bracketed by the two.
+        config:
+          - name: "-Os"
+            flags: -DOPSY_OPTIMISATION=-Os
+          - name: "-O3 + LTO"
+            flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja and QEMU
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
+
+      # The GDB scenarios do not run here, and register themselves out: they
+      # stop the CPU at functions an optimised build has inlined away. The
+      # on-target cases and the no-heap check have no such limit, and are
+      # what these jobs are for.
+      - name: Configure
+        run: >
+          cmake -S tests/qemu -B build-qemu-optimised
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+          ${{ matrix.config.flags }}
+
+      - name: Build
+        run: cmake --build build-qemu-optimised --parallel
+
+      - name: Run
+        run: ctest --test-dir build-qemu-optimised --output-on-failure
 
   codegen-checks:
     name: Codegen checks (cortex-${{ matrix.target }})

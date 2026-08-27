@@ -64,10 +64,16 @@
 #include <cstdint>
 #include <array>
 
-// hooks.hpp references task_control_block / condition_variable / isr_priority
-// in its method signatures and is not self-sufficient — pulling the umbrella
-// header is the simplest way to make sure every type it touches is visible.
-#include "../opsy.hpp"
+// cortex_m.hpp, not the opsy.hpp umbrella: the only thing needed from OpSy
+// here is cortex_m::isr_handler_t, the type of a vector table entry. Pulling
+// the umbrella dragged in the scheduler, the tasks and the locks -- so a
+// vector table, which is useful to any Cortex-M project whether or not it
+// runs an RTOS, could not be used without one.
+#include "../cortex_m.hpp"
+
+// For hooks::decorate_isr, which wraps each peripheral handler so a configured
+// tracing hook fires around it. hooks.hpp includes nothing itself.
+#include "../hooks.hpp"
 
 namespace opsy::utility
 {

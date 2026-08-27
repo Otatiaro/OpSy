@@ -24,11 +24,6 @@
  * 			preemption level above the system MUST NOT use OpSy at all,
  * 			otherwise atomicity of system calls can not be guaranteed.
  *
- * 			The @c mutex concrete implementation is also defined here, by default
- * 			it is set to @c isr_lock, which is the correct implementation
- * 			for the vast majority of projects. But this using allows for special
- * 			types of mutex to be used (e.g. multi-processor semaphores).
- *
  * 			Finally OpSy defines the default @c duration with a time base of 1ms
  * 			and @c time_point as a 64 bit derivative of @c duration.
  * 			1ms is often use as high level time base, it is a compromise between
@@ -68,7 +63,6 @@
 
 #pragma once
 
-#include "isr_lock.hpp"
 #include <cstdint>
 #include <chrono>
 #include <ratio>
@@ -228,11 +222,11 @@ static constexpr time_point startup = time_point{ duration{ 0 } };
 static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption bits is more than what is available in the system");
 static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
 
-// Pull in our assert override AFTER all OpSy and standard headers config.hpp
-// transitively brings in (isr_lock.hpp etc., several of which include
-// <cassert>). opsy_assert.hpp wins because it does its own #undef just before
-// installing the trap-based macro, and OpSy headers replace their direct
-// #include <cassert> by an include of opsy_assert.hpp so nothing re-clobbers
-// it later in the include chain.
+// Pull in our assert override AFTER every header config.hpp brings in, since
+// a standard header may include <cassert> and define the standard macro.
+// opsy_assert.hpp wins because it does its own #undef just before installing
+// the trap-based macro, and no OpSy header includes <cassert> directly -- they
+// all include opsy_assert.hpp instead, so nothing re-clobbers it later in the
+// chain.
 #include "opsy_assert.hpp"
 

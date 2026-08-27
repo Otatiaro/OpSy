@@ -159,6 +159,14 @@ one of them ships passes locally and breaks half the CI. Prefer
 asserting the requirement — a concept, a `static_assert` — over
 instantiating a library utility to prove the same thing.
 
+**Standalone directories stay standalone.** `utility/` and `algorithms/`
+are usable without the scheduler, and their READMEs say so.
+`opsy_independence` asks the compiler what each of their headers
+transitively includes and fails on anything from the scheduler's own set.
+Adding a header to one of those directories means it has to hold, and the
+convenient `#include <opsy.hpp>` is exactly what breaks it. See
+`tests/check_independence.py` for what is allowed and why.
+
 **English only, everywhere.** Code, comments, commit messages,
 documentation, branch names, test case names. Nothing in this repository
 is in any other language, and nothing added to it should be.

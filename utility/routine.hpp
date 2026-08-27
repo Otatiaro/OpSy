@@ -40,6 +40,28 @@ namespace opsy::utility
 {
 
 /**
+ * @brief Declared and never defined, so that calling it fails the build
+ *
+ *        A routine's frame size is worked out by the compiler and is not
+ *        available to the program: there is no standard way to ask for it, no
+ *        constant to put in a @c static_assert . So the check is made where
+ *        the size *is* known -- inside the allocation, after the compiler has
+ *        substituted it as a constant -- and reported by calling a function
+ *        that cannot be called.
+ *
+ *        The name is what the user reads in the error, so it says the whole
+ *        problem.
+ *
+ * @remark Only in optimised builds. Without @c -O the allocation is a real
+ *         call, its size argument is not a constant there, and the comparison
+ *         cannot be folded away -- the build would fail whatever the size. An
+ *         unoptimised build gets the runtime assert instead, which catches
+ *         the same mistake one step later.
+ */
+[[gnu::error("this routine's frame does not fit the routine_storage it was given: raise its Size")]]
+void the_routine_frame_does_not_fit_its_storage();
+
+/**
  * @brief Storage for one suspended routine, provided by the caller
  * @tparam Size The size in bytes
  *
@@ -93,7 +115,16 @@ public:
 		template<std::size_t Size, typename... Arguments>
 		static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&...) noexcept
 		{
+#if defined(__OPTIMIZE__)
+			// Fails the build rather than the run. See the declaration for why
+			// this is the only place the frame size can be checked, and why it
+			// takes an optimised build.
+			if(size > Size)
+				the_routine_frame_does_not_fit_its_storage();
+#endif
+
 			assert(size <= Size); // the routine does not fit: raise Size
+
 			if(size > Size)
 				return nullptr;
 

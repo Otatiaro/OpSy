@@ -157,9 +157,32 @@ above, Cortex-M4, `-Os`:
 
 Around 180 bytes of flash and 32 of RAM, against a protocol you can read.
 
-`routine_storage<Size>` is checked, not guessed: if the frame does not
-fit, the routine is not created, `operator bool` reports it, and a debug
-build asserts. It does not overflow.
+### Sizing the storage
+
+The compiler works out the frame size, but there is no standard way to
+ask it: no constant to put in a `static_assert`, and the size is not
+available where you declare the storage. So it is checked twice, and
+neither check lets it overflow.
+
+**In an optimised build, too small is a compile error.** The size is a
+constant by the time the allocation is inlined, so the mismatch is caught
+there and reported by calling a function that cannot be called:
+
+```
+error: call to 'opsy::utility::the_routine_frame_does_not_fit_its_storage'
+declared with attribute error: this routine's frame does not fit the
+routine_storage it was given: raise its Size
+```
+
+Both GCC and clang, from `-O1` up. Without `-O` the allocation is a real
+call and the size is not a constant there, so the check cannot be made:
+the build succeeds, the routine is not created, `operator bool` is false
+and a debug build asserts. Same mistake, caught one step later.
+
+**To find the size rather than bracket it**, give the storage more than
+it can need, run once, and read `used` — it holds exactly what the frame
+took. Then set `Size` to that. The compile error is what stops you
+setting it too low afterwards, so trimming is safe.
 
 ### Two things that surprise people
 

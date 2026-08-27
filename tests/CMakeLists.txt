@@ -122,6 +122,26 @@ if(Python3_Interpreter_FOUND)
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/independence_flags.txt
         CONTENT "${OPSY_INDEPENDENCE_FLAGS_TEXT}")
 
+    # Diagnostics meant to stop the build are checked by trying to build
+    # something that must not compile. A diagnostic that stops firing leaves
+    # no trace otherwise -- everything simply goes on building. Needs -O: the
+    # size it folds is not a constant without one, which is also why this is
+    # a separate invocation rather than a flag added to the check above.
+    set(OPSY_DIAGNOSTIC_FLAGS ${OPSY_INDEPENDENCE_FLAGS} -O1)
+    list(JOIN OPSY_DIAGNOSTIC_FLAGS " " OPSY_DIAGNOSTIC_FLAGS_TEXT)
+    file(GENERATE
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/diagnostic_flags.txt
+        CONTENT "${OPSY_DIAGNOSTIC_FLAGS_TEXT}")
+
+    add_test(
+        NAME opsy_diagnostics_${OPSY_TARGET}
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/check_diagnostics.py
+                ${CMAKE_CXX_COMPILER}
+                ${OPSY_ROOT}
+                ${CMAKE_CURRENT_BINARY_DIR}/diagnostic_flags.txt
+    )
+
     add_test(
         NAME opsy_independence_${OPSY_TARGET}
         COMMAND ${Python3_EXECUTABLE}

@@ -159,6 +159,14 @@ one of them ships passes locally and breaks half the CI. Prefer
 asserting the requirement — a concept, a `static_assert` — over
 instantiating a library utility to prove the same thing.
 
+**A diagnostic meant to stop the build has to be shown to still stop it.**
+`opsy_diagnostics` compiles snippets that must *not* compile, and checks
+the error says what it should — plus a control with the mistake removed,
+so the case proves something about the mistake rather than about the
+snippet. A diagnostic that quietly stops firing leaves no other trace:
+everything simply goes on building. Add a case to
+`tests/check_diagnostics.py` whenever you add one.
+
 **Standalone directories stay standalone.** `utility/` and `algorithms/`
 are usable without the scheduler, and their READMEs say so.
 `opsy_independence` asks the compiler what each of their headers

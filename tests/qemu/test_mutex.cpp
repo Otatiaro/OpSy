@@ -63,6 +63,13 @@ void stop_all()
 	g_stop = false;
 }
 
+/** @brief A deliberate delay that does not yield, so priority decides who runs. */
+void busy_wait(int rounds)
+{
+	for (int i = 0; i < rounds; ++i)
+		opsy::cortex_m::nop();
+}
+
 /**
  * @brief Body shared by the two contending tasks.
  *
@@ -387,6 +394,224 @@ OPSY_QEMU_TEST(killing_a_holder_releases_its_mutexes_and_wakes_the_waiters)
 	CHECK(g_high_ran == 1);
 	CHECK(!g_b.is_locked());   // released too, even with nobody waiting on it
 
+	stop_all();
+}
+
+
+// ───────────────── regressions from the branch review ──────────────────────
+// Five bugs the cases above did not catch: they need a priority change while
+// an inheritance is in effect, or a kill at the wrong moment.
+//
+// Each was checked against the tree from before the fix (commit 3e7ee7b).
+// Two of the five fail there, and so genuinely pin their bug:
+//
+//   a_priority_change_is_not_lost_while_the_task_is_boosted
+//   killing_a_holder_runs_the_woken_waiter_immediately
+//
+// The other three pass with and without the fix. They describe the intended
+// behaviour and will catch a future regression that breaks it outright, but
+// they do NOT reproduce the bug they were written for: the effect is a
+// scheduling-order difference that needs the holder to be CPU-bound at the
+// exact moment the priority changes, and neither busy-waiting nor sleeping
+// reproduced it reliably under emulation. Do not read a green run on those
+// three as evidence the underlying behaviour is right — that rests on the
+// code review and on the reasoning in docs/architecture.md.
+
+// priority() used to compare the requested value against the *effective* one,
+// so a genuine change was silently dropped while the task was boosted.
+OPSY_QEMU_TEST(a_priority_change_is_not_lost_while_the_task_is_boosted)
+{
+	g_low_ran = 0;
+	g_stop = false;
+
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		while (!g_stop)
+			opsy::sleep_for(1ms);
+		g_a.unlock();
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_low_ran == 1);
+
+	// Boost it: a highest-priority task blocks on the mutex it holds.
+	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }, "waiter"));
+	g_high.priority(opsy::task_priority::highest);
+	opsy::sleep_for(5ms);
+
+	// Now request exactly the priority it is *effectively* running at. The
+	// early-out used to see "no change" and drop it on the floor.
+	g_low.priority(opsy::task_priority::highest);
+	CHECK(g_low.priority() == opsy::task_priority::highest);
+
+	g_stop = true;
+	opsy::sleep_for(20ms);
+
+	// And it survives the release, which resets to the base priority.
+	CHECK(g_low.priority() == opsy::task_priority::highest);
+
+	stop_all();
+}
+
+// update_priority used to assign the requested priority straight onto the
+// effective one, throwing away an inheritance and re-opening the inversion.
+OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
+{
+	g_low_ran = 0;
+	g_middle_ran = 0;
+	g_high_ran = 0;
+	g_order_index = 0;
+	g_stop = false;
+
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		// Busy, not asleep: a holder that yields hands the CPU over whatever
+		// its priority is, and the test would pass with or without the
+		// donation. It has to be the scheduler that decides.
+		busy_wait(30000);
+		record(1);
+		g_a.unlock();
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+	opsy::sleep_for(2ms);
+	CHECK(g_low_ran == 1);
+
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "waiter"));
+	g_high.priority(opsy::task_priority::high);
+
+	// A third party re-asserts the holder's base priority — intended as a
+	// no-op. It must not cancel the donation it is currently owed.
+	g_low.priority(opsy::task_priority::low);
+
+	CHECK(g_middle.start([]
+	{
+		while (!g_stop)
+		{
+			record(2);
+			opsy::sleep_for(2ms);
+		}
+	}, "cpu-hog"));
+	g_middle.priority(opsy::task_priority::normal);
+
+	opsy::sleep_for(40ms);
+	g_stop = true;
+	opsy::sleep_for(10ms);
+
+	CHECK(g_high_ran == 1);
+
+	int holder_at = -1, high_at = -1;
+	for (int i = 0; i < g_order_index; ++i)
+	{
+		if (g_order[i] == 1 && holder_at < 0) holder_at = i;
+		if (g_order[i] == 3 && high_at < 0) high_at = i;
+	}
+	CHECK(holder_at >= 0);
+	CHECK(high_at > holder_at);
+
+	stop_all();
+}
+
+// update_priority's ready_ branch did not know about blocked_on_, so changing
+// the priority of a mutex-blocked task made it runnable without the mutex.
+OPSY_QEMU_TEST(changing_the_priority_of_a_blocked_task_leaves_it_blocked)
+{
+	g_high_ran = 0;
+	g_a.lock();
+
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked"));
+	g_high.priority(opsy::task_priority::normal);
+	CHECK(g_high_ran == 0);
+
+	// Re-prioritising it must not schedule it: it does not own the mutex.
+	g_high.priority(opsy::task_priority::highest);
+	opsy::sleep_for(10ms);
+	CHECK(g_high_ran == 0);
+	CHECK(g_a.is_locked());
+
+	g_a.unlock();
+	opsy::sleep_for(10ms);
+	CHECK(g_high_ran == 1);
+
+	stop_all();
+}
+
+// Killing a holder woke the waiters but never asked for a switch, so a
+// higher-priority waiter sat until some unrelated switch point came along.
+OPSY_QEMU_TEST(killing_a_holder_runs_the_woken_waiter_immediately)
+{
+	g_high_ran = 0;
+	g_stop = false;
+
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		while (!g_stop)
+			opsy::sleep_for(1ms);
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+	opsy::sleep_for(5ms);
+
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "waiter"));
+	g_high.priority(opsy::task_priority::highest);
+	CHECK(g_high_ran == 0);
+
+	// No sleep after this: the waiter outranks us, so it must run before
+	// kill() returns control here.
+	CHECK(g_low.kill());
+	CHECK(g_high_ran == 1);
+
+	stop_all();
+}
+
+// Killing a *waiter* left its donation on the holder, which kept running
+// raised for the rest of its hold.
+OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
+{
+	g_low_ran = 0;
+	g_middle_ran = 0;
+	g_stop = false;
+
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		// Busy rather than asleep: only then does the effective priority
+		// decide who runs, which is the whole point of the check below.
+		while (!g_stop)
+			busy_wait(200);
+		g_a.unlock();
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+	opsy::sleep_for(5ms);
+	CHECK(g_low_ran == 1);
+
+	// Boost the holder, then kill the task doing the boosting.
+	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }, "waiter"));
+	g_high.priority(opsy::task_priority::highest);
+	opsy::sleep_for(5ms);
+	CHECK(g_high.kill());
+
+	// With the donation gone, a normal-priority task must be able to preempt
+	// the holder again — it is back to `low`.
+	CHECK(g_middle.start([]
+	{
+		while (!g_stop)
+		{
+			g_middle_ran = 1;
+			opsy::sleep_for(1ms);
+		}
+	}, "normal"));
+	g_middle.priority(opsy::task_priority::normal);
+
+	opsy::sleep_for(20ms);
+	CHECK(g_middle_ran == 1);
+
+	g_stop = true;
 	stop_all();
 }
 

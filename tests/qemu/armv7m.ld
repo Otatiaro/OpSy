@@ -77,16 +77,11 @@ SECTIONS
   . = ALIGN(8);
   _estack = ORIGIN(RAM) + LENGTH(RAM);
 
-  /* Kept, not discarded: libgcc's unwinder references __exidx_start and
-     __exidx_end unconditionally, even with -fno-exceptions, as soon as
-     anything drags unwind-arm.o in. Providing an empty table satisfies it
-     without pulling in any actual unwinding. */
-  .ARM.extab : { *(.ARM.extab* .gnu.linkonce.armextab.*) } > CODE
-
-  .ARM.exidx :
-  {
-    __exidx_start = .;
-    *(.ARM.exidx* .gnu.linkonce.armexidx.*)
-    __exidx_end = .;
-  } > CODE
+  /* Discarded: nothing here unwinds. -fno-exceptions means no personality
+     routine, and no code in the image references the ARM unwinder.
+     If a link ever fails on __exidx_start / __exidx_end, something pulled
+     unwind-arm.o in — find what rather than defining the symbols here.
+     std::unique_lock is one such thing: its unlock() builds a
+     std::system_error on the failure path. */
+  /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

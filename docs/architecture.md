@@ -141,21 +141,64 @@ already reported as terminated.
 
 ## The service calls
 
-`SVC` carries one of four numbers (`scheduler::service_call_number`):
+`SVC` carries one of four numbers (`scheduler::service_call_number`). The
+mutex operations are deliberately absent — see [above](#service-call-or-just-masking).
 
 | Call | What the handler does |
 |---|---|
 | `sleep` | Sets `wait_until_`, inserts into `timeouts_`, clears `current_task_`, switches. |
 | `wait` | Same, plus links the task into the condition variable's list and releases the lock the caller recorded — dropping `BASEPRI` for an `isr_lock`, handing ownership to a waiter for a `mutex`. A negative duration means "no timeout". |
 | `context_switch` | Just re-runs `do_switch()` — used after a priority change. |
-| `mutex_lock` | Links the caller as a waiter on a held `mutex`, applies priority inheritance, and switches away. Returns once the caller owns it. |
-| `mutex_unlock` | Releases the mutex, hands it straight to the highest-priority waiter, and recomputes the releaser's priority. |
 | `terminate` | Unlinks from every list, releases every mutex the task held, clears `current_task_` if it was running, fires the `task_terminated` hook. |
 
 The duration for `sleep` and `wait` is passed as a 64-bit count split
 across `r1`/`r2`. **A negative count is the sentinel for "no timeout"** —
 which is why `wait_for` and `sleep_for` reject negative durations before
 issuing the call rather than passing them through.
+
+## Service call, or just masking?
+
+Not every scheduler operation needs an `SVC`. Four of them do not —
+`wake_up`, `update_priority`, `trigger_soft_switch`, `add_task` — and
+neither do `mutex::lock` / `unlock`. They all follow the same shape:
+
+```
+const auto previous = cortex_m::set_basepri(service_call_priority);
+... mutate the lists ...
+do_switch();                     // pends PendSV
+cortex_m::set_basepri(previous); // PendSV runs here
+```
+
+**A service call is needed for exactly one reason: the operation has to
+touch the calling task's `stack_frame`.** In practice that means
+returning a value the task cannot compute itself — `cv_status` from a
+wait, decided by whoever notifies or by the timeout. Only the handler
+can reach the frame to write it.
+
+Everything else can mask instead:
+
+- **Mutating scheduler state** — masking to `service_call_priority`
+  gives the same exclusion the handler would have run under. That *is*
+  the priority the handler runs at.
+- **Switching** — `do_switch()` only pends `PendSV`, which runs when
+  `BASEPRI` drops. Whether it was pended from a handler or from task
+  code makes no difference.
+- **Suspending the caller** — no handler required either: `do_switch()`
+  leaves the current task out of `ready_` if `current_task_` is already
+  cleared. Clearing it yourself is all "suspend me" means. `mutex::lock`
+  blocks that way.
+
+The saving is not academic. An `SVC` costs exception entry, dispatch and
+exit — tens of cycles — on an operation whose useful work is a handful
+of instructions. `unlock()` used to pay that on *every* call, contended
+or not.
+
+> **The scheduler's critical section is not a substitute for masking.**
+> It makes `do_switch()` decline; it stops no interrupt. Anything
+> reachable from `SysTick` — which includes `resume_waiter`, and through
+> it `take_mutex` — can run right through it. A fast path guarded only
+> by `try_critical_section()` is racy, and `mutex::lock` was, until this
+> was written down.
 
 ## Exclusion: three mechanisms, one per problem
 

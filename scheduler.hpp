@@ -358,8 +358,10 @@ private:
 				task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 			}
 
-			ready_.insert_when(task_control_block::priority_is_lower, task);
-			hooks::task_ready(task);
+			// Same path as a notification: a task that waited holding a mutex
+			// must own it again before it can run, and may have to block on
+			// it instead of becoming runnable.
+			resume_waiter(task);
 			dirty = true;
 		}
 
@@ -378,6 +380,22 @@ private:
 	 *         Must be called with the critical section held.
 	 */
 	static void take_mutex(mutex& m, task_control_block& task);
+
+	/**
+	 * @brief Releases @p m , handing it straight to its highest-priority waiter
+	 * @remark Shared by the unlock service call and by a condition variable
+	 *         wait, which has to release the mutex it was given so another
+	 *         task can take it while this one sleeps. The waiter is made the
+	 *         owner here rather than left to race for it, so a task woken from
+	 *         a mutex owns it the moment it runs.
+	 */
+	static void release_mutex(mutex& m, task_control_block& owner);
+
+	/**
+	 * @brief Puts a task woken from a condition variable back where it belongs,
+	 *        re-acquiring the mutex it waited with, or blocking on it
+	 */
+	static void resume_waiter(task_control_block& task);
 
 	static void wake_up(task_control_block& task, condition_variable& initiator);
 

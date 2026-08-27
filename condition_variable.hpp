@@ -50,7 +50,9 @@
 #include "embedded_list.hpp"
 #include "task.hpp"
 #include "cortex_m.hpp"
-//#include "mutex.hpp"
+#include "mutex.hpp"
+
+#include <variant>
 
 namespace opsy
 {
@@ -141,6 +143,21 @@ public:
 	void wait(isr_lock& mtx);
 
 	/**
+	 * @brief Waits, atomically releasing an @c opsy::mutex and taking it back on wake
+	 * @param mtx The mutex held by the calling task
+	 *
+	 * @remark The counterpart of @c std::condition_variable::wait(unique_lock&)
+	 *         and the overload to prefer: releasing the mutex and going to
+	 *         sleep happens as one step, so a notification cannot be missed in
+	 *         between — which is exactly what @ref wait() with no lock cannot
+	 *         promise.
+	 *
+	 * @remark On wake the mutex may be held by someone else, in which case the
+	 *         task blocks on it and only returns once it owns it again.
+	 */
+	void wait(mutex& mtx);
+
+	/**
 	 * @brief Wait on a @c condition_variable with a timeout and no @c mutex synchronization
 	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c cv_status::timeout result
 	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
@@ -158,6 +175,14 @@ public:
 	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	[[nodiscard]] cv_status wait_for(isr_lock& mtx, duration timeout);
+
+	/**
+	 * @brief Waits with a timeout, releasing an @c opsy::mutex and taking it back
+	 * @param mtx The mutex held by the calling task
+	 * @param timeout The time limit
+	 * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
+	 */
+	[[nodiscard]] cv_status wait_for(mutex& mtx, duration timeout);
 
 	/**
 	 * @brief Wait on a @c condition_variable with a timeout and @c mutex synchronization
@@ -178,7 +203,30 @@ public:
 	 */
 	[[nodiscard]] cv_status wait_until(isr_lock& mtx, time_point timeout_time);
 
+	/**
+	 * @brief Waits until a deadline, releasing an @c opsy::mutex and taking it back
+	 * @param mtx The mutex held by the calling task
+	 * @param timeout_time The absolute deadline
+	 * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
+	 */
+	[[nodiscard]] cv_status wait_until(mutex& mtx, time_point timeout_time);
+
 private:
+
+	/**
+	 * @brief Issues the wait service call, whatever lock was recorded
+	 * @param timeout The time limit, negative meaning none
+	 * @return What the scheduler wrote back as the wake reason
+	 *
+	 * @remark One place doing the service call, six public overloads deciding
+	 *         what to release beforehand. Which lock — if any — is recorded on
+	 *         the calling task before this runs, so the handler reads a typed
+	 *         variant instead of a pointer with no way to tell its kind.
+	 */
+	cv_status do_wait(duration timeout);
+
+	/** @brief Records on the running task the lock the wait must release */
+	static void record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock);
 
 	isr_lock mutex_;
 	embedded_list<task_control_block, task_lists::waiting> waiting_list_;

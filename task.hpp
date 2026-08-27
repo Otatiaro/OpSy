@@ -47,6 +47,7 @@
 #include <tuple>
 #include <atomic>
 #include <optional>
+#include <variant>
 
 #include "config.hpp"
 #include "embedded_list.hpp"
@@ -193,6 +194,8 @@ class task_control_block: private task_lists::timeout, private task_lists::waiti
 	template<typename T, typename I>
 	friend class embedded_const_iterator;
 	friend class scheduler;
+	// records released_lock_ before a wait service call
+	friend class condition_variable;
 	friend class hooks;
 
 public:
@@ -430,7 +433,13 @@ private:
 	// stays free, which is why ready_ and condition_variable::waiting_list_
 	// remain that node's only two users.
 	mutex* blocked_on_ = nullptr;
-	isr_lock* mutex_ = nullptr;
+	// The lock a condition variable wait released on this task's behalf, to be
+	// re-acquired on wake. A variant rather than two pointers or a tagged one:
+	// the two kinds are re-acquired by completely different means — an
+	// isr_lock restores BASEPRI during the context switch, a mutex takes
+	// ownership back when the task is woken — and the type system should be
+	// the thing that keeps them apart.
+	std::variant<std::monostate, mutex*, isr_lock*> released_lock_;
 
 	/**
 	 * @brief Trampoline used as the initial PC of every task

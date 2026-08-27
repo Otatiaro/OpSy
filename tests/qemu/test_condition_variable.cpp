@@ -23,7 +23,8 @@ opsy::task<1024> g_waiter_b;
 opsy::task<1024> g_notifier;
 
 opsy::condition_variable g_condition;
-opsy::isr_lock g_mutex;
+opsy::isr_lock g_isr_lock;
+opsy::mutex    g_task_mutex;
 
 std::atomic<int> g_woken_a = 0;
 std::atomic<int> g_woken_b = 0;
@@ -159,11 +160,11 @@ OPSY_QEMU_TEST(waiting_with_a_mutex_releases_it_and_takes_it_back)
 	// with the sleep, or the notifier below could never take it.
 	CHECK(g_waiter_a.start([]
 	{
-		g_mutex.lock();
+		g_isr_lock.lock();
 		g_ready = 1;
-		(void) g_condition.wait_for(g_mutex, 500ms);
+		(void) g_condition.wait_for(g_isr_lock, 500ms);
 		g_woken = 1;
-		g_mutex.unlock();
+		g_isr_lock.unlock();
 	}, "mutex-waiter"));
 	g_waiter_a.priority(opsy::task_priority::highest);
 
@@ -171,16 +172,16 @@ OPSY_QEMU_TEST(waiting_with_a_mutex_releases_it_and_takes_it_back)
 	CHECK(g_woken == 0);
 
 	// If the mutex were still held by the parked waiter, this would block.
-	g_mutex.lock();
-	g_mutex.unlock();
+	g_isr_lock.lock();
+	g_isr_lock.unlock();
 
 	g_condition.notify_one();
 	opsy::sleep_for(10ms);
 	CHECK(g_woken == 1);
 
 	// And the waiter released it on its way out.
-	g_mutex.lock();
-	g_mutex.unlock();
+	g_isr_lock.lock();
+	g_isr_lock.unlock();
 
 	stop_all();
 }
@@ -213,6 +214,99 @@ OPSY_QEMU_TEST(several_waiters_with_different_timeouts_expire_in_order)
 
 	opsy::sleep_for(40ms);
 	CHECK(g_woken_a == 1);
+
+	stop_all();
+}
+
+
+// ─────────────── waiting with each of the two lock types ───────────────────
+// cv.wait must accept both an isr_lock and a mutex: the first is released by
+// dropping BASEPRI, the second by handing ownership to a waiter. The task
+// records which kind it holds before the service call, so the handler reads a
+// typed variant rather than guessing from a pointer.
+
+OPSY_QEMU_TEST(waiting_with_a_task_mutex_releases_it_and_takes_it_back)
+{
+	g_woken = 0;
+	g_ready = 0;
+
+	CHECK(g_waiter_a.start([]
+	{
+		g_task_mutex.lock();
+		g_ready = 1;
+		(void) g_condition.wait_for(g_task_mutex, 500ms);
+		g_woken = 1;
+		CHECK(g_task_mutex.is_locked());   // owned again on wake
+		g_task_mutex.unlock();
+	}, "mutex-waiter"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+
+	CHECK(g_ready == 1);
+	CHECK(g_woken == 0);
+
+	// Released while it sleeps, so this must not block.
+	CHECK(g_task_mutex.try_lock());
+	g_task_mutex.unlock();
+
+	g_condition.notify_one();
+	opsy::sleep_for(10ms);
+	CHECK(g_woken == 1);
+	CHECK(!g_task_mutex.is_locked());   // and released on the way out
+
+	stop_all();
+}
+
+OPSY_QEMU_TEST(a_waiter_that_wakes_to_a_taken_mutex_blocks_on_it)
+{
+	g_woken = 0;
+	g_ready = 0;
+
+	CHECK(g_waiter_a.start([]
+	{
+		g_task_mutex.lock();
+		g_ready = 1;
+		(void) g_condition.wait_for(g_task_mutex, 500ms);
+		g_woken = 1;                       // only once it owns it again
+		g_task_mutex.unlock();
+	}, "mutex-waiter"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	CHECK(g_ready == 1);
+
+	// Take the mutex ourselves, then notify: waking cannot mean running, the
+	// task has to block on the mutex until we release it.
+	g_task_mutex.lock();
+	g_condition.notify_one();
+	opsy::sleep_for(10ms);
+	CHECK(g_woken == 0);                   // woken, but blocked on the mutex
+
+	g_task_mutex.unlock();
+	opsy::sleep_for(10ms);
+	CHECK(g_woken == 1);
+
+	stop_all();
+}
+
+OPSY_QEMU_TEST(a_task_mutex_wait_that_times_out_still_takes_the_mutex_back)
+{
+	g_ready = 0;
+	g_woken = 0;
+
+	CHECK(g_waiter_a.start([]
+	{
+		g_task_mutex.lock();
+		g_ready = 1;
+		const auto status = g_condition.wait_for(g_task_mutex, 10ms);
+		CHECK(status == opsy::cv_status::timeout);
+		CHECK(g_task_mutex.is_locked());
+		g_woken = 1;
+		g_task_mutex.unlock();
+	}, "timing-out"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	CHECK(g_ready == 1);
+
+	opsy::sleep_for(30ms);
+	CHECK(g_woken == 1);
+	CHECK(!g_task_mutex.is_locked());
 
 	stop_all();
 }

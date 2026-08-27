@@ -38,6 +38,7 @@ namespace opsy
 
 class task_control_block;
 class scheduler;
+class condition_variable;
 
 /**
  * @brief Mutual exclusion between tasks, with the semantics of @c std::mutex
@@ -65,6 +66,8 @@ class scheduler;
 class mutex : private embedded_node<mutex>
 {
 	friend class scheduler;
+	// needs owner_ to assert the caller holds it before waiting
+	friend class condition_variable;
 	friend class embedded_list<mutex, mutex>;
 	friend class embedded_iterator<mutex, mutex>;
 	friend class embedded_const_iterator<mutex, mutex>;

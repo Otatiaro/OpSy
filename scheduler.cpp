@@ -177,6 +177,43 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
 
 
 
+/**
+ * @brief Puts a task woken from a condition variable back where it belongs
+ *
+ *        A task that waited with an @c opsy::mutex has to own it again before
+ *        it may run. If it is free the task takes it and becomes runnable; if
+ *        another task holds it, the wake turns straight into blocking on the
+ *        mutex, and the task goes into no list at all.
+ *
+ *        This is the one place where the two waits meet, and the order matters:
+ *        decide about the mutex first, insert into ready_ only if it was
+ *        obtained. Inserting first and sorting it out afterwards is what put a
+ *        task in two lists at once in earlier versions of this scheduler.
+ */
+void __attribute__((section(".text.opsy.resumewaiter"))) scheduler::resume_waiter(task_control_block& task)
+{
+	if (auto* const* held = std::get_if<mutex*>(&task.released_lock_))
+	{
+		auto& target = **held;
+		task.released_lock_ = std::monostate{};
+
+		if (target.owner_ != nullptr)
+		{
+			// Not free: the wake becomes a block on the mutex instead. The
+			// task is in no list, carrying blocked_on_.
+			task.blocked_on_ = &target;
+			inherit_priority(*target.owner_, task.priority_);
+			hooks::mutex_blocked(target, task);
+			return;
+		}
+
+		take_mutex(target, task);
+	}
+
+	ready_.insert_when(task_control_block::priority_is_lower, task);
+	hooks::task_ready(task);
+}
+
 void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_control_block& task, condition_variable& condition)
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
@@ -192,7 +229,7 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 		timeouts_.erase(task);
 	}
 
-	ready_.insert_when(task_control_block::priority_is_lower, task);
+	resume_waiter(task); // may block on the mutex instead of becoming runnable
 	do_switch(); // ask for a switch if needed (released a task with higher priority)
 	cortex_m::set_basepri(previous); // and restore the basepri to its previous value
 }
@@ -203,6 +240,29 @@ void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mute
 	m.owner_ = &task;
 	locked_mutexes_.push_front(m);
 	hooks::mutex_taken(m, task);
+}
+
+void __attribute__((section(".text.opsy.releasemutex"))) scheduler::release_mutex(mutex& m, task_control_block& owner)
+{
+	assert(m.owner_ == &owner);
+
+	locked_mutexes_.erase(m);
+	m.owner_ = nullptr;
+	hooks::mutex_released(m, owner);
+
+	if (auto* next = highest_waiter(m))
+	{
+		// Handed over rather than left free: whoever was blocked owns it on
+		// wake, so it cannot be taken by someone else in between.
+		next->blocked_on_ = nullptr;
+		take_mutex(m, *next);
+		ready_.insert_when(task_control_block::priority_is_lower, *next);
+		hooks::task_ready(*next);
+	}
+
+	// Releasing may drop an inherited priority — though not necessarily to the
+	// base one, if another held mutex still has waiters of its own.
+	(void) recompute_priority(owner);
 }
 
 task_control_block* __attribute__((section(".text.opsy.highestwaiter"))) scheduler::highest_waiter(const mutex& m)
@@ -364,11 +424,15 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pe
 		next->last_started_ = ticks_;
 		next_task_.store(nullptr, std::memory_order_relaxed);
 
-		if(next->mutex_ != nullptr) // there is a mutex we need to re-acquire before exit
+		// Only an isr_lock is re-acquired here: it is a BASEPRI level, which
+		// belongs to the context being restored. A mutex is taken back when
+		// the task is woken instead — ownership is not per-context, and
+		// re-acquiring one can block, which PendSV cannot do.
+		if (auto* const* held = std::get_if<isr_lock*>(&next->released_lock_))
 		{
-			result |= static_cast<uint64_t>(next->mutex_->relock_from_pend_sv(critical_section(true))) <<32;
+			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv(critical_section(true))) << 32;
 			critical_section_.store(true, std::memory_order_relaxed);
-			next->mutex_ = nullptr;
+			next->released_lock_ = std::monostate{};
 			hooks::mutex_restored_for_task(*next);
 		}
 
@@ -518,24 +582,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		assert(current != nullptr);
 		assert(target.owner_ == current); // releasing someone else's mutex
 
-		locked_mutexes_.erase(target);
-		target.owner_ = nullptr;
-		hooks::mutex_released(target, *current);
-
-		if (auto* next = highest_waiter(target))
-		{
-			// Handed straight to the waiter rather than left free: whoever was
-			// blocked owns it on wake, so it cannot be stolen in between.
-			next->blocked_on_ = nullptr;
-			take_mutex(target, *next);
-			ready_.insert_when(task_control_block::priority_is_lower, *next);
-			hooks::task_ready(*next);
-		}
-
-		// The release may drop an inherited priority — though not necessarily
-		// to the base one, if another held mutex still has waiters.
-		(void) recompute_priority(*current);
-
+		release_mutex(target, *current);
 		task_switch = do_switch();
 		break;
 	}
@@ -550,7 +597,10 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
 		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
 		duration timeout{raw};
-		isr_lock* mtx = reinterpret_cast<isr_lock*>(frame->r3);
+		// The lock to release was recorded by the caller before issuing the
+		// service call, because which kind it is decides how it is released
+		// and there is no register left to carry a discriminant.
+		auto& released = current->released_lock_;
 
 		if(timeout.count() >= 0)
 		{
@@ -567,13 +617,20 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			hooks::condition_variable_start_waiting(*condition, *current);
 		}
 
-		if(mtx != nullptr)
+		if (auto* const* isr = std::get_if<isr_lock*>(&released))
 		{
 			assert(critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
-			current->mutex_ = mtx;
-			mtx->release_from_service_call();
-			mtx->critical_section_.disable();
+			(*isr)->release_from_service_call();
+			(*isr)->critical_section_.disable();
 			critical_section_.store(false, std::memory_order_relaxed);
+			hooks::mutex_stored_for_task(*current);
+		}
+		else if (auto* const* held = std::get_if<mutex*>(&released))
+		{
+			// A real release, waiter and all: another task must be able to
+			// take it while this one sleeps, which is the whole point of
+			// waiting with a mutex held.
+			release_mutex(**held, *current);
 			hooks::mutex_stored_for_task(*current);
 		}
 

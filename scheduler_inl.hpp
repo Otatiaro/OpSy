@@ -296,73 +296,30 @@ inline void condition_variable::notify_all()
  *         = -1 means none) and @c r3 (mutex pointer, 0 means none) registers.
  *         The actual handling lives in @c scheduler::service_call_handler.
  */
-inline void condition_variable::wait()
+/**
+ * @brief Records on the running task the lock this wait must release
+ */
+inline void condition_variable::record_released_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
-
-	// "memory" clobber: see scheduler::trigger_hard_switch. The SVC enters the
-	// scheduler which can swap to another task and modify both the calling
-	// task's PSP frame and global scheduler state; we must invalidate every
-	// cached value the compiler holds across the call.
-	asm volatile(
-			"mov r0, %[this_ptr] \n\t"
-			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
-			"mov r2, #-1 \n\t"
-			"mov r3, #0 \n\t"   // no mutex
-			"svc %[immediate]"
-			:
-			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this)
-			: "r0", "r1", "r2", "r3", "memory");
+	auto* current = scheduler::current_task();
+	assert(current != nullptr);
+	current->released_lock_ = lock;
 }
 
 /**
- * @brief Waits on this condition variable with no timeout, atomically releasing @p mutex
- * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
+ * @brief Issues the wait service call
  */
-inline void condition_variable::wait(isr_lock& mtx)
+inline cv_status condition_variable::do_wait(duration timeout)
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
-
-	// "memory" clobber: see scheduler::trigger_hard_switch.
-	asm volatile(
-			"mov r0, %[this_ptr] \n\t"
-			"mov r1, #-1 \n\t"  // R1:R2 = -1 (int64_t) signals no timeout
-			"mov r2, #-1 \n\t"
-			"mov r3, %[mutex] \n\t"
-			"svc %[immediate]"
-			:
-			: [immediate] "I" (scheduler::service_call_number::wait), [this_ptr] "r" (this), [mutex] "r" (&mtx)
-			: "r0", "r1", "r2", "r3", "memory");
-}
-
-/**
- * @brief Waits on this condition variable with a timeout
- * @param timeout The time limit; the task wakes up with @c cv_status::timeout if it elapses
- * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
- */
-inline cv_status condition_variable::wait_for(duration timeout)
-{
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
-
-	// A negative count is how the service call encodes "no timeout at all"
-	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
-	// It gets here from wait_until() with a deadline that is already in the
-	// past, where the standard answer -- and std::condition_variable's -- is to
-	// report the timeout straight away rather than block forever.
-	if (timeout.count() < 0)
-		return cv_status::timeout;
-
 	const auto count = timeout.count();
 	uint32_t result;
+
 	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
-			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
+			"mov r1, %[count_lo] \n\t"
 			"mov r2, %[count_hi] \n\t"
-			"mov r3, #0 \n\t"           // no mutex
+			"mov r3, #0 \n\t"
 			"svc %[immediate] \n\t"
 			"mov %[result], r0"
 			: [result] "=r" (result)
@@ -372,49 +329,74 @@ inline cv_status condition_variable::wait_for(duration timeout)
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
 			: "r0", "r1", "r2", "r3", "memory");
 
-	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
+	assert(result == 0 || result == 1);
 	return static_cast<cv_status>(result);
 }
 
-/**
- * @brief Waits on this condition variable with a timeout and a mutex
- * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
- * @param timeout The time limit; the task wakes up with @c cv_status::timeout if it elapses
- * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
- */
+inline void condition_variable::wait()
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+
+	record_released_lock(std::monostate{});
+	(void) do_wait(duration{-1}); // negative count means "no timeout"
+}
+
+inline void condition_variable::wait(isr_lock& mtx)
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+
+	record_released_lock(&mtx);
+	(void) do_wait(duration{-1});
+}
+
+inline void condition_variable::wait(mutex& mtx)
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(mtx.owner_ == scheduler::current_task()); // must be held by the caller
+
+	record_released_lock(&mtx);
+	(void) do_wait(duration{-1});
+}
+
+inline cv_status condition_variable::wait_for(duration timeout)
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes -1), so it must never reach the SVC as a duration. It
+	// gets here from wait_until() with a deadline already in the past, where
+	// the standard answer -- and std::condition_variable's -- is to report the
+	// timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
+	record_released_lock(std::monostate{});
+	return do_wait(timeout);
+}
+
 inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 	assert(mutex_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
 
-	// A negative count is how the service call encodes "no timeout at all"
-	// (wait() passes r1:r2 = -1), so it must never reach the SVC as a duration.
-	// It gets here from wait_until() with a deadline that is already in the
-	// past, where the standard answer -- and std::condition_variable's -- is to
-	// report the timeout straight away rather than block forever.
 	if (timeout.count() < 0)
 		return cv_status::timeout;
 
-	const auto count = timeout.count();
-	uint32_t result;
-	// "memory" clobber: see scheduler::trigger_hard_switch.
-	asm volatile(
-			"mov r0, %[this_ptr] \n\t"
-			"mov r1, %[count_lo] \n\t"  // R1:R2 = timeout count (int64_t)
-			"mov r2, %[count_hi] \n\t"
-			"mov r3, %[mutex] \n\t"
-			"svc %[immediate] \n\t"
-			"mov %[result], r0"
-			: [result] "=r" (result)
-			: [immediate] "I" (scheduler::service_call_number::wait),
-			  [this_ptr] "r" (this),
-			  [count_lo] "r" (static_cast<uint32_t>(count)),
-			  [count_hi] "r" (static_cast<uint32_t>(count >> 32)),
-			  [mutex] "r" (&mtx)
-			: "r0", "r1", "r2", "r3", "memory");
+	record_released_lock(&mtx);
+	return do_wait(timeout);
+}
 
-	assert(result == 0 || result == 1); // result can only be 0 or 1 (timeout or notimeout)
-	return static_cast<cv_status>(result);
+inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(mtx.owner_ == scheduler::current_task());
+
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
+	record_released_lock(&mtx);
+	return do_wait(timeout);
 }
 
 /**
@@ -429,17 +411,21 @@ inline cv_status condition_variable::wait_until(time_point timeout_time)
 	return wait_for(timeout_time - scheduler::now());
 }
 
-/**
- * @brief Waits on this condition variable until an absolute time point, with a mutex
- * @param mutex The @c mutex held by the task, released atomically by OpSy and re-acquired on wake
- * @param timeout_time The absolute time at which the wait expires
- * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
- */
 inline cv_status condition_variable::wait_until(isr_lock& mtx, time_point timeout_time)
 {
 	return wait_for(mtx, timeout_time - scheduler::now());
 }
 
+inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_time)
+{
+	return wait_for(mtx, timeout_time - scheduler::now());
+}
+
+// --- mutex --------------------------------------------------------------------
+
+/**
+ * @brief Whether this task is sitting in the scheduler's ready list
+ */
 inline bool task_control_block::is_ready() const
 {
 	return is_started()
@@ -449,13 +435,11 @@ inline bool task_control_block::is_ready() const
 		&& !wait_until_.has_value();
 }
 
-// --- mutex ----------------------------------------------------------------
-
 /**
  * @brief Acquires the mutex, blocking until it is free
- * @remark The fast path — an uncontended mutex — is taken entirely here under
- *         a critical section, with no service call. Only actually blocking
- *         needs the scheduler, because it has to unschedule the caller.
+ * @remark The uncontended path is taken entirely here, under a critical
+ *         section and with no service call. Only actually blocking needs the
+ *         scheduler, because it has to unschedule the caller.
  */
 inline void mutex::lock()
 {
@@ -464,7 +448,7 @@ inline void mutex::lock()
 
 	{
 		auto section = scheduler::try_critical_section();
-		assert(static_cast<bool>(section));   // a task cannot already hold one here
+		assert(static_cast<bool>(section));
 
 		auto* self = scheduler::current_task();
 		assert(self != nullptr);
@@ -477,9 +461,8 @@ inline void mutex::lock()
 		}
 	}
 
-	// Contended: hand over to the service call, which links the caller as a
-	// waiter, applies priority inheritance and switches away. It returns once
-	// this task owns the mutex.
+	// Contended: the service call links the caller as a waiter, applies
+	// priority inheritance and switches away. It returns owning the mutex.
 	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[mtx] \n\t"
@@ -522,8 +505,8 @@ inline void mutex::unlock()
 	assert(scheduler::is_os_callable());
 	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
 
-	// The service call does the work: electing a waiter can make it more
-	// important than the caller, which is a context switch.
+	// Through the service call: electing a waiter can make it more important
+	// than the caller, which is a context switch.
 	asm volatile(
 			"mov r0, %[mtx] \n\t"
 			"svc %[immediate]"

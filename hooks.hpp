@@ -54,10 +54,11 @@
 namespace opsy
 {
 
-// Forward declarations rather than includes: hooks.hpp names these types in
-// signatures only, and is itself included from the middle of the scheduler's
-// include chain. Relying on whoever includes it first to have defined them is
-// how it compiled until now.
+// Forward declarations rather than includes: this header names these types in
+// signatures only, never touching their members, so a declaration is all the
+// compiler needs. Including their headers instead would not work anyway --
+// this one is pulled in from the middle of the scheduler's include chain, and
+// those headers include the scheduler in turn.
 class task_control_block;
 class condition_variable;
 class mutex;

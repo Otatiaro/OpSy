@@ -398,24 +398,26 @@ OPSY_QEMU_TEST(killing_a_holder_releases_its_mutexes_and_wakes_the_waiters)
 }
 
 
-// ───────────────── regressions from the branch review ──────────────────────
-// Five bugs the cases above did not catch: they need a priority change while
-// an inheritance is in effect, or a kill at the wrong moment.
+// ──────────────── priority inheritance: five corrected defects ─────────────
+// Five defects that the cases above do not reach. Each needs a priority
+// change while a mutex holder is running at an inherited priority, or a task
+// killed at a particular moment, so nothing simpler exposes them.
 //
-// Each was checked against the tree from before the fix (commit 3e7ee7b).
-// Two of the five fail there, and so genuinely pin their bug:
+// A test for a fixed defect is only worth what it catches, so each of the
+// five was run against the code as it stood before the correction, at commit
+// 3e7ee7b. Two of them fail there, and so genuinely pin their defect:
 //
 //   a_priority_change_is_not_lost_while_the_task_is_boosted
 //   killing_a_holder_runs_the_woken_waiter_immediately
 //
-// The other three pass with and without the fix. They describe the intended
-// behaviour and will catch a future regression that breaks it outright, but
-// they do NOT reproduce the bug they were written for: the effect is a
-// scheduling-order difference that needs the holder to be CPU-bound at the
-// exact moment the priority changes, and neither busy-waiting nor sleeping
-// reproduced it reliably under emulation. Do not read a green run on those
-// three as evidence the underlying behaviour is right — that rests on the
-// code review and on the reasoning in docs/architecture.md.
+// The other three pass on both versions. They state the intended behaviour
+// and will catch a future change that breaks it outright, but they do not
+// reproduce the defect they were written for: that one shows up as a
+// difference in scheduling order, and only when the holder is running on the
+// CPU at the exact instant its priority changes -- a moment neither busy
+// waiting nor sleeping reaches reliably under emulation. So a green run on
+// those three is not evidence that the behaviour underneath is correct.
+// What that rests on is the reasoning in docs/architecture.md.
 
 // priority() used to compare the requested value against the *effective* one,
 // so a genuine change was silently dropped while the task was boosted.

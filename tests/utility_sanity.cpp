@@ -731,10 +731,11 @@ struct mock_reg
 }
 
 // ========================== interrupt_vector ============================
-// Compile-time vector table builder. This header was previously included by
-// no translation unit in the repository, so a compile-breaking change to it
-// passed the whole matrix green — the one header the docs single out as
-// Cortex-M specific, and so the least likely to be caught downstream.
+// Compile-time vector table builder. Nothing else in the repository includes
+// this header, so without the block below a change that breaks it compiles
+// nowhere and the whole matrix still passes — and it is the one header the
+// docs single out as Cortex-M specific, so it is also the least likely to be
+// caught by anything downstream.
 //
 // Built at namespace scope in a constexpr object so the front end
 // instantiates the whole chain: the system_block layout, with_handler, and

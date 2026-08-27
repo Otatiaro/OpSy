@@ -154,7 +154,10 @@ OPSY_TEST(embedded_list_is_move_constructible)
 	source.push_front(x1);
 	source.push_front(x0);
 
-	list moved = std::move(source);   // resolved to the deleted copy before the fix
+	// The move constructor was once marked explicit, which a copy-initialisation
+	// like this one cannot select: overload resolution fell back to the deleted
+	// copy constructor and the line did not compile.
+	list moved = std::move(source);
 
 	CHECK(contents(moved) == std::vector<int>({5, 6}));
 	CHECK(moved.size() == 2);

@@ -136,13 +136,17 @@ constexpr uint32_t opsy_preemption = 1;
  */
 static constexpr std::size_t max_inheritance_depth = 8;
 
-// No `using mutex = ...` here any more. There is a real opsy::mutex now, in
-// mutex.hpp: a blocking, owning mutex between tasks, with the semantics of
-// std::mutex. The alias used to make opsy::mutex a second name for what is
-// now isr_lock — a mask, with no owner and no blocking — which is exactly the
-// confusion the two names are meant to end.
+// Note for code written against an OpSy older than the two-lock split: this
+// file used to alias opsy::mutex onto the ISR-facing lock, which is now
+// called isr_lock. The two are not interchangeable, so such an alias would be
+// actively misleading and there is none here.
 //
-// isr_lock stays the extension point for projects that need a different
+//   isr_lock   masks interrupts. No owner, never blocks. Use it to share
+//              state with an interrupt handler, which cannot be suspended.
+//   mutex      (in mutex.hpp) blocks. Has an owner, and the semantics of
+//              std::mutex. Use it to share state between tasks.
+//
+// isr_lock is the extension point for projects that need a different
 // implementation of the ISR-facing lock: define opsy_config.hpp and provide
 // your own.
 

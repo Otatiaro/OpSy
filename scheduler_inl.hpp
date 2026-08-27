@@ -615,6 +615,19 @@ inline bool task_control_block::kill()
  */
 inline void task_control_block::priority(task_priority new_priority)
 {
+	// Setting a priority on a task that has not been started is lost: start
+	// puts every task at task_priority::lowest, so the value written here
+	// would be overwritten by the launch and never take effect. Nothing else
+	// would report it -- the task simply runs at the wrong priority.
+	assert(is_started());
+
+	// Changing a priority re-sorts ready_, re-sorts the waiting list of a
+	// condition variable, or walks the chain of mutex holders paying priority
+	// inheritance -- all of it under a BASEPRI that does not mask an interrupt
+	// more urgent than OpSy. Called from such a handler, it would edit those
+	// lists while the scheduler is halfway through editing them itself.
+	assert(scheduler::is_os_callable());
+
 	// Compared against the requested priority, not the effective one: while
 	// this task is boosted by a waiter, priority_ is the inherited value, and
 	// comparing to it would silently drop a genuine change.
@@ -622,6 +635,36 @@ inline void task_control_block::priority(task_priority new_priority)
 		return;
 
 	scheduler::update_priority(*this, new_priority);
+}
+
+inline void task_control_block::set_name(const char* name)
+{
+	// Naming a task that has not been started is lost: start takes the name
+	// as an argument and writes it, so anything set beforehand is overwritten
+	// by the launch. Pass the name to start instead.
+	assert(is_started());
+
+	// name_ is a plain pointer, not an atomic, and the scheduler's hooks read
+	// it to label what they trace. Writing it from an interrupt handler more
+	// urgent than OpSy would be a data race with any such read -- undefined
+	// behaviour, whatever a given core happens to do with an aligned word.
+	assert(scheduler::is_os_callable());
+
+	name_ = name;
+}
+
+inline void task_control_block::request_stop()
+{
+	// Requesting a stop on a task that has not been started is lost: start
+	// clears the flag so that a reused task slot begins with none pending.
+	// The task would then run to completion having never seen the request.
+	assert(is_started());
+
+	// No context assert here, deliberately: the flag is a relaxed atomic and
+	// nothing else is touched, so this is safe to call from any interrupt
+	// handler, including one more urgent than OpSy. Asking a task to stop is
+	// exactly the kind of thing a handler has reason to do.
+	stop_requested_.store(true, std::memory_order_relaxed);
 }
 
 /**

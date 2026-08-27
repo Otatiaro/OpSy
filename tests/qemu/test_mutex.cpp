@@ -495,47 +495,88 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	g_low_ran = 0;
 	g_middle_ran = 0;
 	g_high_ran = 0;
+	g_observer_ran = 0;
 	g_order_index = 0;
 	g_stop = false;
 
+	// Both competitors are released at the same instant, so that which of them
+	// runs first is decided by priority and not by which woke up first. Far
+	// enough ahead that everything below is arranged before either moves.
+	g_deadline = opsy::scheduler::now() + 80ms;
+
+	// The holder takes the mutex and then sleeps until the deadline, which is
+	// what keeps it holding while the arrangement below is made. What it does
+	// after the deadline is deliberately busy: a task that yields hands the
+	// CPU over whatever its priority is, and the case would then pass with or
+	// without the donation. It has to be the scheduler that decides.
 	CHECK(g_low.start([]
 	{
 		g_a.lock();
 		g_low_ran = 1;
-		// Busy, not asleep: a holder that yields hands the CPU over whatever
-		// its priority is, and the test would pass with or without the
-		// donation. It has to be the scheduler that decides.
-		busy_wait(30000);
+		opsy::sleep_until(g_deadline);
+		busy_wait(2000);
 		record(1);
 		g_a.unlock();
+		g_low_ran = 2;
 	}, "holder"));
 	g_low.priority(opsy::task_priority::low);
-	opsy::sleep_for(2ms);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
 	CHECK(g_low_ran == 1);
+	CHECK(g_a.is_locked());
 
+	// A more important task blocks on the mutex, raising the holder to its
+	// priority for as long as it waits.
 	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "waiter"));
-	g_high.priority(opsy::task_priority::high);
+	g_high.priority(opsy::task_priority::highest);
 
-	// A third party re-asserts the holder's base priority — intended as a
-	// no-op. It must not cancel the donation it is currently owed.
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);   // blocked behind the holder
+
+	// A third party re-asserts the holder's base priority -- intended as a
+	// no-op. It must not cancel the donation the holder is currently owed.
 	g_low.priority(opsy::task_priority::low);
 
-	CHECK(g_middle.start([]
+	// The observer sits above the holder's own priority and below the
+	// waiter's, and starts competing at the same instant the holder does. If
+	// re-asserting the base priority cancelled the donation, the holder would
+	// be back at `low`, the observer would outrank it and record first.
+	CHECK(g_observer.start([]
 	{
+		opsy::sleep_until(g_deadline);
+		record(2);
+		g_observer_ran = 1;
 		while (!g_stop)
-		{
-			record(2);
-			opsy::sleep_for(2ms);
-		}
-	}, "cpu-hog"));
-	g_middle.priority(opsy::task_priority::normal);
+			busy_wait(50);
+	}, "observer"));
+	g_observer.priority(opsy::task_priority::normal);
 
-	opsy::sleep_for(40ms);
+	opsy::sleep_for(5ms);
+	CHECK(g_observer_ran == 0);   // nothing released yet
+
+	while (opsy::scheduler::now() < g_deadline)
+		opsy::sleep_for(1ms);
+
+	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+
+	// The verdict: the holder ran before the observer, so it still had the
+	// waiter's priority when the deadline released them both.
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 1);
+
+	// Ordering has been decided; let the observer stop so the holder, back at
+	// its own priority once it released the mutex, gets a turn to finish.
 	g_stop = true;
-	opsy::sleep_for(10ms);
 
+	for (int guard = 0; guard < 400 && (g_low_ran != 2 || g_high_ran != 1); ++guard)
+		opsy::sleep_for(1ms);
+
+	CHECK(g_low_ran == 2);
 	CHECK(g_high_ran == 1);
 
+	// And the waiter got the mutex after the holder released it, not before.
 	int holder_at = -1, high_at = -1;
 	for (int i = 0; i < g_order_index; ++i)
 	{
@@ -548,8 +589,6 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	stop_all();
 }
 
-// update_priority's ready_ branch did not know about blocked_on_, so changing
-// the priority of a mutex-blocked task made it runnable without the mutex.
 OPSY_QEMU_TEST(changing_the_priority_of_a_blocked_task_leaves_it_blocked)
 {
 	g_high_ran = 0;

@@ -114,6 +114,12 @@ def main() -> int:
                     f"SVC_Handler: pushes {pushed} register(s) -- an odd count leaves "
                     "MSP 4-mod-8 across the bl, breaking the alignment AAPCS requires")
 
+        # After the handler: dsb completes its writes, then isb. The other way
+        # round, the isb synchronises before the writes are complete.
+        if not in_order(body, "bl", "dsb", "isb"):
+            failures.append(
+                "SVC_Handler: expected dsb then isb after the call to the handler")
+
     # A store-exclusive may write memory, or may not. The read after it must go
     # to memory rather than be answered from the value stored before; and that
     # earlier store must stay, since a failed strex leaves it in place.

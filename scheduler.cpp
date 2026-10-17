@@ -970,8 +970,8 @@ OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.svc"))) SVC_Handl
 			"push {R4, LR} \n\t"
 			"mov R3, LR \n\t"        // pass EXC_RETURN as 4th argument
 			"bl %[handler] \n\t"
-			"isb \n\t"
 			"dsb \n\t"
+			"isb \n\t"
 			"pop {R4, LR} \n\t"
 			"bx LR"
 			:

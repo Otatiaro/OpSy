@@ -119,6 +119,23 @@ static_assert(lockable<opsy::mutex>, "opsy::mutex must work with the multi-mutex
 	(void) g_cv.wait_until(g_mutex, opsy::scheduler::now() + 10ms);
 }
 
+opsy::counting_semaphore<16> g_semaphore{ 0 };
+opsy::binary_semaphore g_binary{ 1 };
+static_assert(opsy::counting_semaphore<16>::max() == 16);
+static_assert(opsy::binary_semaphore::max() == 1);
+
+[[gnu::used]] void use_semaphore()
+{
+	g_semaphore.release();
+	g_semaphore.release(3);
+	g_semaphore.acquire();
+	(void) g_semaphore.try_acquire();
+	(void) g_semaphore.try_acquire_for(10ms);
+	(void) g_semaphore.try_acquire_until(opsy::scheduler::now() + 10ms);
+	g_binary.acquire();
+	g_binary.release();
+}
+
 [[gnu::used]] void use_scheduler()
 {
 	(void) opsy::scheduler::all_tasks();

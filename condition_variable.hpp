@@ -74,6 +74,9 @@ enum class cv_status
 	timeout    = 1  ///< The timeout elapsed before the condition variable was notified
 };
 
+template<std::ptrdiff_t LeastMaxValue>
+class counting_semaphore;
+
 /**
  * @brief A condition variable.
  * It is used to synchronize a @c task with either one or multiple @c task and/or interrupt service routines
@@ -83,6 +86,10 @@ enum class cv_status
 class condition_variable
 {
 	friend class scheduler;
+
+	// Reads waiting_list_ to skip the lock when nobody waits; see release().
+	template<std::ptrdiff_t LeastMaxValue>
+	friend class counting_semaphore;
 
 public:
 

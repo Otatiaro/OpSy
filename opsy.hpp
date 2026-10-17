@@ -44,6 +44,7 @@
 #include "scheduler.hpp"
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
+#include "semaphore.hpp"
 
 namespace opsy
 {

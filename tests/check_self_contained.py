@@ -37,6 +37,17 @@ CASES = {
             (void) c.wait_for(l, opsy::duration{1});
         }
     """,
+    "semaphore.hpp": """
+        void probe(opsy::counting_semaphore<4>& s, opsy::binary_semaphore& b)
+        {
+            s.release();
+            s.acquire();
+            (void) s.try_acquire();
+            (void) s.try_acquire_for(opsy::duration{1});
+            b.release();
+            b.acquire();
+        }
+    """,
     "isr_lock.hpp": """
         void probe(opsy::isr_lock& l) { l.lock(); l.unlock(); }
     """,

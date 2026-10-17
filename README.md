@@ -73,10 +73,12 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `main.cpp`. |
 | `scheduler.hpp` | The `scheduler` class itself. Most users only call `scheduler::start()`. |
 | `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
-| `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
+| `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. `stack_high_water()` reports the most stack a task, or the idle task, ever used: what to size its stack from. |
 | `mutex.hpp` | `mutex` — blocking, owning mutual exclusion between tasks, with priority inheritance. |
 | `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |
 | `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |
+| `semaphore.hpp` | `counting_semaphore<Max>` and `binary_semaphore`, with the interface of their `std` counterparts: a task blocks on `acquire`, a task or an interrupt handler `release`s. Lock-free while nobody has to wait. |
+| `queue.hpp` | `queue<T, Capacity>` — between one producer and one consumer, either of which may be an interrupt handler; nothing masked, nothing allocated. A full queue refuses and counts it (`dropped()`), and remembers how full it got (`high_water()`). |
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
@@ -333,11 +335,14 @@ Typical reasons to provide an `<opsy_hooks.hpp>`:
 The scheduler runs at one specific NVIC preemption level
 (`opsy_preemption`, default 1). Anything at a numerically *lower* preempt
 value (so higher hardware priority) than OpSy **must not** call any OpSy
-API: such an ISR can preempt the SVC handler and break atomicity. ISRs
-at a numerically *higher* preempt value (lower priority) can use OpSy's
-synchronization primitives normally, as long as the `isr_lock` or
+API: such an ISR can preempt the SVC handler and break atomicity. Nor can
+an ISR at OpSy's own preemption level: it preempts none of OpSy's
+exceptions, so a service call raised from it escalates to HardFault.
+ISRs at a numerically *higher* preempt value (lower priority) can use
+OpSy's synchronization primitives normally, as long as the `isr_lock` or
 `condition_variable` they touch was constructed with an `isr_priority`
-that masks them.
+that masks them -- and no more urgent than
+`scheduler::os_callable_priority`, the first level below OpSy's.
 
 ## License
 

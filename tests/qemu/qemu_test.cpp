@@ -86,6 +86,20 @@ void report_failure(const char* file, int line, const char* expression)
 	qemu::exit(g_failures == 0 ? 0 : 1);
 }
 
+unsigned find_usable_irq()
+{
+	for (unsigned irq = 48; irq-- > 0;)
+	{
+		opsy::cortex_m::set_pending(irq);
+		if (opsy::cortex_m::is_pending(irq))
+		{
+			opsy::cortex_m::clear_pending(irq);
+			return irq;
+		}
+	}
+	return no_irq;
+}
+
 } // namespace qemu_test
 
 // opsy::trap is not defined here on purpose: config.hpp already provides the
@@ -101,6 +115,11 @@ opsy::task<2048>      g_runner;
 opsy::idle_task<256>  g_idle;
 
 } // namespace
+
+opsy::idle_task_control_block& qemu_test::idle()
+{
+	return g_idle;
+}
 
 int opsy_test_main()
 {

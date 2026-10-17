@@ -27,39 +27,9 @@ namespace
 using namespace std::chrono_literals;
 /** @brief How many steps a driven routine runs through. */
 constexpr int step_count = 4;
-/** @brief Returned by @ref find_usable_irq when the NVIC accepts none. */
-constexpr uint32_t not_found = 0xFFFFFFFFu;
 /** @brief Marks a step the routine never reached, distinct from thread mode. */
 constexpr uint32_t never_ran = 0xFFFFFFFFu;
-/**
- * @brief Finds a peripheral IRQ this board's NVIC actually implements
- *
- *        Probed rather than written down: how many peripheral interrupts the
- *        NVIC implements differs between the boards this suite runs on, and a
- *        number outside that range is ignored in silence -- set_pending does
- *        nothing, nothing ever fires, and the case fails for a reason that
- *        looks nothing like its cause. A number written down here would be
- *        right on some of these boards and quietly inert on the others.
- *
- *        Searched downwards, so the one picked is as far as possible from the
- *        low slots the boards wire to real peripherals.
- *
- * @return An IRQ the NVIC accepts, or @ref not_found
- */
-uint32_t find_usable_irq()
-{
-	for (uint32_t irq = 48; irq-- > 0;)
-	{
-		opsy::cortex_m::set_pending(irq);
-		if (opsy::cortex_m::is_pending(irq))
-		{
-			opsy::cortex_m::clear_pending(irq);
-			return irq;
-		}
-	}
-	return not_found;
-}
-uint32_t g_irq = not_found;
+uint32_t g_irq = qemu_test::no_irq;
 /** @brief How far the routine has got. */
 std::atomic<int> g_step = 0;
 /**
@@ -120,10 +90,10 @@ bool install_handler()
 	// is_pending reads false -- the probe would conclude that IRQ does not
 	// exist and walk one slot lower on every call, towards the low slots that
 	// are wired to real peripherals.
-	if (g_irq == not_found)
-		g_irq = find_usable_irq();
+	if (g_irq == qemu_test::no_irq)
+		g_irq = qemu_test::find_usable_irq();
 
-	if (g_irq == not_found)
+	if (g_irq == qemu_test::no_irq)
 		return false;
 
 	// The table is the one in RAM the image installed through VTOR at

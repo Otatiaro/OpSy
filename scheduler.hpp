@@ -121,6 +121,20 @@ public:
 	static constexpr auto pend_sv_priority = isr_priority::from_preempt_sub<preemption_bits>(cortex_m::min_preempt(), cortex_m::min_sub());
 
 	/**
+	 * @brief The most urgent @c isr_priority an interrupt handler may call OpSy from
+	 *
+	 *        The first preemption level below OpSy's own. A handler at OpSy's
+	 *        level preempts none of OpSy's exceptions, so it cannot take a
+	 *        service call -- an @c SVC raised there escalates to HardFault --
+	 *        and it shares the level the scheduler masks to while it works.
+	 *        Strictly below is where OpSy may be called from.
+	 *
+	 *        Masking to this level holds off every handler that may call OpSy
+	 *        and nothing of OpSy itself: a service call can still be taken.
+	 */
+	static constexpr auto os_callable_priority = isr_priority::from_preempt_sub<preemption_bits>(opsy_preemption + 1, 0);
+
+	/**
 	 * @brief Starts the @c scheduler
 	 * @tparam IdleStackSize Stack size of the @c idle_task in @c stack_item increments
 	 * @param idle The @c idle_task to use when the system goes idle. Default is @c default_idle<IdleStackSize>
@@ -221,13 +235,14 @@ public:
 	 *        call into OpSy at all.
 	 *
 	 *        The service calls are protected by the hardware: an @c SVC issued
-	 *        from a handler that outranks @c service_call_priority escalates
+	 *        from a handler at or above OpSy's preemption level escalates
 	 *        straight to HardFault. Everything that does not go through an
 	 *        @c SVC — this function, @ref now , the accessors — has no such
 	 *        protection, and asserts on this instead.
 	 *
 	 * @return @c true from a task, or from a handler at or below
-	 *         @c service_call_priority
+	 *         @c os_callable_priority -- strictly below OpSy's preemption
+	 *         level
 	 *
 	 * @remark Thread mode reports no priority at all, which is the lowest
 	 *         there is, so a task always passes.
@@ -237,7 +252,7 @@ public:
 		return cortex_m::current_priority()
 			.value_or(cortex_m::lowest_priority)
 			.masked_value<preemption_bits>()
-			>= service_call_priority.masked_value<preemption_bits>();
+			>= os_callable_priority.masked_value<preemption_bits>();
 	}
 
 	/**

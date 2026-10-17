@@ -21,6 +21,8 @@
 
 #pragma once
 
+namespace opsy { class idle_task_control_block; }
+
 /**
  * @brief Entry point of the test image.
  *
@@ -51,6 +53,29 @@ void report_failure(const char* file, int line, const char* expression);
 
 /** @brief Runs every case, then ends the emulation with the right exit code. */
 [[noreturn]] void run_all_and_exit();
+
+/** @brief Returned by @ref find_usable_irq when the NVIC accepts none. */
+inline constexpr unsigned no_irq = 0xFFFFFFFFu;
+
+/**
+ * @brief Finds a peripheral IRQ this board's NVIC actually implements
+ *
+ *        Probed rather than written down: how many peripheral interrupts the
+ *        NVIC implements differs between the boards this suite runs on, and a
+ *        number outside that range is ignored in silence -- set_pending does
+ *        nothing, nothing ever fires, and the case fails for a reason that
+ *        looks nothing like its cause. A number written down here would be
+ *        right on some of these boards and quietly inert on the others.
+ *
+ *        Searched downwards, so the one picked is as far as possible from the
+ *        low slots the boards wire to real peripherals.
+ *
+ * @return An IRQ the NVIC accepts, or @ref no_irq
+ */
+unsigned find_usable_irq();
+
+/** @brief The idle task the suite starts the scheduler with. */
+opsy::idle_task_control_block& idle();
 
 } // namespace qemu_test
 

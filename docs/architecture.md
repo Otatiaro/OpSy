@@ -49,11 +49,13 @@ The ordering is the whole design:
 - Anything numerically **below 64** outranks the whole scheduler. Those
   levels are deliberately left free for latency-critical handlers — and
   such a handler must not call into OpSy at all, since it can preempt
-  the scheduler at an arbitrary instruction. `scheduler::is_os_callable()`
+  the scheduler at an arbitrary instruction. A handler at OpSy's own
+  level, 64 to 127, must not either: it preempts none of OpSy's
+  exceptions, and cannot take a service call. Handlers may call OpSy from
+  `scheduler::os_callable_priority` (128) down. `scheduler::is_os_callable()`
   asserts this on the entry points that do not go through `SVC`; the
   ones that do are protected by the hardware, since an `SVC` issued from
-  a handler that outranks `service_call_priority` escalates to
-  HardFault.
+  a handler at or above OpSy's level escalates to HardFault.
 
 ### Why a task never switches itself
 

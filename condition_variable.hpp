@@ -44,6 +44,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 
 #include "config.hpp"
@@ -73,6 +74,9 @@ enum class cv_status
 	timeout    = 1  ///< The timeout elapsed before the condition variable was notified
 };
 
+template<std::ptrdiff_t LeastMaxValue>
+class counting_semaphore;
+
 /**
  * @brief A condition variable.
  * It is used to synchronize a @c task with either one or multiple @c task and/or interrupt service routines
@@ -82,6 +86,10 @@ enum class cv_status
 class condition_variable
 {
 	friend class scheduler;
+
+	// Reads waiting_list_ to skip the lock when nobody waits; see release().
+	template<std::ptrdiff_t LeastMaxValue>
+	friend class counting_semaphore;
 
 public:
 
@@ -249,7 +257,7 @@ private:
 inline void condition_variable::notify_one()
 {
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
 	{
 		std::lock_guard<isr_lock> guard(notify_lock_);
@@ -274,7 +282,7 @@ inline void condition_variable::notify_one()
 inline void condition_variable::notify_all()
 {
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
 	{
 		std::lock_guard<isr_lock> guard(notify_lock_);
@@ -337,7 +345,8 @@ inline void condition_variable::wait()
 inline void condition_variable::wait(isr_lock& mtx)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
 
 	record_lock(&mtx);
 	(void) do_wait(duration{-1});
@@ -371,7 +380,8 @@ inline cv_status condition_variable::wait_for(duration timeout)
 inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 {
 	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
 
 	if (timeout.count() < 0)
 		return cv_status::timeout;

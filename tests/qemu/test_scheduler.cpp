@@ -384,4 +384,49 @@ OPSY_QEMU_TEST(taking_and_releasing_a_critical_section_leaves_the_scheduler_runn
 	CHECK(opsy::scheduler::now() > before);
 }
 
+// ──────────────────────── where OpSy may be called from ────────────────────
+// Strictly below OpSy's preemption level. A handler at that level preempts
+// none of OpSy's exceptions -- a service call from it escalates to HardFault
+// -- so is_os_callable() must refuse it, and accept the first level below.
+
+std::atomic<int> g_callable_from_isr = -1;
+
+void callable_probe_irq_handler()
+{
+	g_callable_from_isr = opsy::scheduler::is_os_callable() ? 1 : 0;
+}
+
+unsigned g_probe_irq = qemu_test::no_irq;
+
+/** @brief What is_os_callable() says from a handler at @p priority */
+int callable_from(opsy::isr_priority priority)
+{
+	if (g_probe_irq == qemu_test::no_irq)
+		g_probe_irq = qemu_test::find_usable_irq();
+	const unsigned irq = g_probe_irq;
+	if (irq == qemu_test::no_irq)
+		return -2;
+
+	g_callable_from_isr = -1;
+	opsy::cortex_m::set_priority(irq, priority);
+	opsy::cortex_m::set_isr_handler(irq, &callable_probe_irq_handler);
+	opsy::cortex_m::enable_interrupt(irq);
+	opsy::cortex_m::set_pending(irq);
+	opsy::sleep_for(2ms);
+	opsy::cortex_m::disable_interrupt(irq);
+	return g_callable_from_isr;
+}
+
+OPSY_QEMU_TEST(opsy_is_callable_only_from_strictly_below_its_preemption_level)
+{
+	CHECK(opsy::scheduler::is_os_callable());   // a task
+
+	// The least urgent sub-priority of OpSy's own level: still OpSy's level.
+	CHECK(callable_from(opsy::isr_priority::from_preempt_sub<opsy::preemption_bits>(
+		opsy::opsy_preemption, opsy::cortex_m::min_sub())) == 0);
+
+	CHECK(callable_from(opsy::scheduler::os_callable_priority) == 1);
+	CHECK(callable_from(opsy::cortex_m::lowest_priority) == 1);
+}
+
 } // namespace

@@ -49,7 +49,6 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
 	assert(!is_started_.load(std::memory_order_relaxed));
-	is_started_.store(true, std::memory_order_relaxed);
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
@@ -74,12 +73,24 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool
 			callback(task);
 	});
 
+	// Started means add_task asks for a switch. That is only safe once thread
+	// mode runs on the process stack and the first do_switch has edited ready_,
+	// so the flag is set here, with every handler that may call into OpSy held
+	// off until the switch is pended.
+	[[maybe_unused]] const auto unmasked = cortex_m::set_basepri(service_call_priority);
+	assert(unmasked.value() == 0); // started from plain thread mode, nothing masked
+
 	cortex_m::set_psp(cortex_m::msp());
 	cortex_m::set_control(cortex_m::control_thread_psp_privileged);
 	cortex_m::set_msp(cortex_m::msp_at_reset());
 
+	is_started_.store(true, std::memory_order_relaxed);
 	if(!do_switch())
 		opsy::trap();
+
+	// Back to 0 rather than to a saved value: from set_msp on, an exception
+	// stacks over this function's frame, so nothing kept there is reliable.
+	cortex_m::set_basepri(isr_priority(0)); // PendSV is taken here
 	while(true) {} // can not reach
 }
 

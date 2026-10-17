@@ -47,6 +47,7 @@ ctest --test-dir build-qemu -R tick_wrap --output-on-failure
 | `add_task_atomicity.gdb` | Starting a task links it into two lists, and `SysTick` must not run while they disagree — it would walk a half-stitched list. Single-steps through `add_task` and checks at every instruction that the two lists agree, or `SysTick` is masked. |
 | `critical_section_race.gdb` | Two tasks never both hold the scheduler's critical section. Stops the CPU at the instant the flag is read and writes it as a competing task would, which is the only interleaving that tells an atomic claim apart from a read followed by a write. |
 | `pendsv_window.gdb` | The task elected for a switch is accounted for at every point: no task is claimed to be running when `PendSV` is entered, and the handler installs the elected task and closes the election window. A task lost in that window would simply never run again, silently. |
+| `start_window.gdb` | The scheduler counts as started only once nothing that may call into OpSy can interleave with its first switch. From then on starting a task asks for a context switch, which before the process stack is set up would save a context through a PSP pointing at nothing. Single-steps `start_impl` and checks at every instruction that the flag is clear, or the handlers allowed to call OpSy are masked. |
 | `list_integrity.gdb` | The scheduler's task lists stay coherent tick after tick: counts match the chains, back-links agree with forward links, no chain is a cycle, and the running task is not also queued as waiting. Intrusive lists do not fail loudly when mis-stitched, so this looks for the damage directly. |
 
 ## How a scenario reports
@@ -77,6 +78,7 @@ defect in the source, rebuilding and confirming the scenario turns red:
 | `take_mutex_masking.gdb` | `mutex::lock` no longer raises `BASEPRI` | yes |
 | `list_integrity.gdb` | `pop_front` leaves a back-link pointing at a removed element | yes |
 | `pendsv_window.gdb` | `PendSV` does not clear `next_task_` | yes |
+| `start_window.gdb` | `start_impl` sets `is_started_` on entry, unmasked (the code before this check) | yes |
 | `pendsv_window.gdb` | `PendSV` installs a task other than the elected one | yes |
 
 Two things are deliberately not in that table.

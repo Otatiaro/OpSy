@@ -84,6 +84,10 @@ namespace opsy
 		 * @param idle The idle task
 		 * @param core_clock_value The core clock
 		 * @param foreach_task A @c callback used to iterate over all @c task
+		 * @remark Runs before the scheduler counts as started, with interrupts
+		 *         enabled and SysTick already ticking: @c scheduler::now and
+		 *         @c scheduler::all_tasks assert here. @p foreach_task is the
+		 *         way to see the tasks.
 		 */
 		static void starting([[maybe_unused]] idle_task_control_block& idle, [[maybe_unused]] uint32_t core_clock_value, [[maybe_unused]] callback<void(callback<void(const task_control_block&)>)> foreach_task)
 		{}

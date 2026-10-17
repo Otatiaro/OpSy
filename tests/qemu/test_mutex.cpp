@@ -67,7 +67,34 @@ std::atomic<bool> g_stop       = false;
  *        Plain, not atomic: the runner writes it before starting any task that
  *        reads it, and nothing writes it afterwards.
  */
-opsy::time_point g_deadline{};
+// Releases several tasks at the same instant. Each one counts itself and
+// waits holding the lock, which holds the scheduler's critical section, so no
+// switch can come between the two: a count of N means N tasks are waiting.
+// notify_all then makes them runnable together, and which runs first is
+// decided by priority alone -- not by which woke first, nor by how much work
+// the core got through before a deadline.
+opsy::isr_lock g_gate_lock;
+opsy::condition_variable g_gate;
+std::atomic<int> g_at_gate = 0;
+
+void wait_at_gate()
+{
+	g_gate_lock.lock();
+	++g_at_gate;
+	g_gate.wait(g_gate_lock);
+	g_gate_lock.unlock();
+}
+
+bool open_gate_when(int expected)
+{
+	for (int guard = 0; guard < 400 && g_at_gate < expected; ++guard)
+		opsy::sleep_for(1ms);
+	if (g_at_gate != expected)
+		return false;
+	g_at_gate = 0;
+	g_gate.notify_all();
+	return true;
+}
 
 void record(int who)
 {
@@ -499,21 +526,16 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	g_order_index = 0;
 	g_stop = false;
 
-	// Both competitors are released at the same instant, so that which of them
-	// runs first is decided by priority and not by which woke up first. Far
-	// enough ahead that everything below is arranged before either moves.
-	g_deadline = opsy::scheduler::now() + 80ms;
-
-	// The holder takes the mutex and then sleeps until the deadline, which is
-	// what keeps it holding while the arrangement below is made. What it does
-	// after the deadline is deliberately busy: a task that yields hands the
+	// The holder takes the mutex and then waits at the gate, which is what
+	// keeps it holding while the arrangement below is made. What it does once
+	// released is deliberately busy: a task that yields hands the
 	// CPU over whatever its priority is, and the case would then pass with or
 	// without the donation. It has to be the scheduler that decides.
 	CHECK(g_low.start([]
 	{
 		g_a.lock();
 		g_low_ran = 1;
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		busy_wait(2000);
 		record(1);
 		g_a.unlock();
@@ -534,17 +556,20 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	opsy::sleep_for(5ms);
 	CHECK(g_high_ran == 0);   // blocked behind the holder
 
-	// A third party re-asserts the holder's base priority -- intended as a
-	// no-op. It must not cancel the donation the holder is currently owed.
-	g_low.priority(opsy::task_priority::low);
+	// A third party lowers the holder's own priority. It must not cancel the
+	// donation the holder is currently owed. Lowered rather than set to the
+	// same value: priority() returns early on an unchanged value, and the
+	// case would then never reach update_priority, which is where the
+	// donation used to be overwritten.
+	g_low.priority(opsy::task_priority::lowest);
 
 	// The observer sits above the holder's own priority and below the
 	// waiter's, and starts competing at the same instant the holder does. If
-	// re-asserting the base priority cancelled the donation, the holder would
-	// be back at `low`, the observer would outrank it and record first.
+	// lowering it cancelled the donation, the holder would be at `lowest`, the
+	// observer would outrank it and record first.
 	CHECK(g_observer.start([]
 	{
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		record(2);
 		g_observer_ran = 1;
 		while (!g_stop)
@@ -555,14 +580,13 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	opsy::sleep_for(5ms);
 	CHECK(g_observer_ran == 0);   // nothing released yet
 
-	while (opsy::scheduler::now() < g_deadline)
-		opsy::sleep_for(1ms);
+	CHECK(open_gate_when(2));     // holder and observer, released together
 
 	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
 		opsy::sleep_for(1ms);
 
 	// The verdict: the holder ran before the observer, so it still had the
-	// waiter's priority when the deadline released them both.
+	// waiter's priority when the gate released them both.
 	CHECK(g_order_index >= 1);
 	CHECK(g_order[0] == 1);
 
@@ -728,18 +752,14 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 	g_observer_ran = 0;
 	g_stop = false;
 
-	// Far enough ahead that the whole arrangement below is in place before
-	// anything is released, and the same instant for both competitors.
-	g_deadline = opsy::scheduler::now() + 80ms;
-
-	// bottom: takes A, then waits for the go-ahead before doing the work that
-	// the observer is competing with. It sleeps while waiting so the other
-	// tasks get to start and take their positions in the chain.
+	// bottom: takes A, then waits at the gate before doing the work that the
+	// observer is competing with. It is off the CPU while it waits, so the
+	// other tasks get to start and take their positions in the chain.
 	CHECK(g_low.start([]
 	{
 		g_a.lock();
 		g_low_ran = 1;
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		busy_wait(2000);
 		record(1);
 		g_a.unlock();
@@ -788,7 +808,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 	// competing at the same moment bottom does.
 	CHECK(g_observer.start([]
 	{
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		record(2);
 		g_observer_ran = 1;
 		while (!g_stop)
@@ -799,9 +819,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 	opsy::sleep_for(5ms);
 	CHECK(g_observer_ran == 0);  // nothing has been released yet
 
-	// Both competitors are asleep until the shared deadline; wait past it.
-	while (opsy::scheduler::now() < g_deadline)
-		opsy::sleep_for(1ms);
+	CHECK(open_gate_when(2));    // bottom and observer, released together
 
 	// Wait for the first step to be recorded, which is what decides the case.
 	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
@@ -850,18 +868,14 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 	g_observer_ran = 0;
 	g_stop = false;
 
-	// Far enough ahead that the whole arrangement below is in place before
-	// anything is released, and the same instant for both competitors.
-	g_deadline = opsy::scheduler::now() + 80ms;
-
-	// The holder takes both, releases A on the go-ahead, then keeps working
-	// with B still held.
+	// The holder takes both, releases A once the gate opens, then keeps
+	// working with B still held.
 	CHECK(g_low.start([]
 	{
 		g_a.lock();
 		g_b.lock();
 		g_low_ran = 1;
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		g_a.unlock();            // nobody wants A; B is still held
 		busy_wait(2000);
 		record(1);
@@ -892,7 +906,7 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 
 	CHECK(g_observer.start([]
 	{
-		opsy::sleep_until(g_deadline);
+		wait_at_gate();
 		record(2);
 		g_observer_ran = 1;
 		while (!g_stop)
@@ -903,9 +917,7 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 	opsy::sleep_for(5ms);
 	CHECK(g_observer_ran == 0);
 
-	// Both competitors are asleep until the shared deadline; wait past it.
-	while (opsy::scheduler::now() < g_deadline)
-		opsy::sleep_for(1ms);
+	CHECK(open_gate_when(2));    // holder and observer, released together
 
 	for (int guard = 0; guard < 400 && g_order_index == 0; ++guard)
 		opsy::sleep_for(1ms);

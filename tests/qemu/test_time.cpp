@@ -86,9 +86,12 @@ OPSY_QEMU_TEST(now_stays_monotonic_while_another_task_reads_it)
 	}, "clock-reader"));
 	g_reader.priority(opsy::task_priority::normal);
 
+	// At least 30 ms of ticks, and for as long as the reader needs to get its
+	// reads in: how many it manages per tick depends on the core's speed, and
+	// the case is about what it sees, not about how fast it sees it.
 	const auto deadline = opsy::scheduler::now() + 30ms;
 	auto previous = opsy::scheduler::now();
-	while (opsy::scheduler::now() < deadline)
+	for (int guard = 0; guard < 2000 && (opsy::scheduler::now() < deadline || g_reads <= 100); ++guard)
 	{
 		const auto current = opsy::scheduler::now();
 		CHECK(current >= previous);

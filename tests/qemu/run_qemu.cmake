@@ -17,13 +17,18 @@ endif()
 # per millisecond depends on how loaded the machine running QEMU is, and the
 # cases that race against a deadline pass or fail with the runner. shift=5 is
 # 32 ns an instruction, the nearest to the 25 MHz the image tells OpSy it
-# runs at (startup.cpp); the suite starts failing on throughput from shift=8.
-# sleep=off jumps the clock to the next timer when the core waits, instead of
-# waiting for it in real time.
+# runs at (startup.cpp). -DQEMU_ICOUNT_SHIFT runs it slower: the suite is
+# also run at 9, sixteen times slower, so that no case comes to depend on
+# how much work a task gets through per tick. sleep=off jumps the clock to
+# the next timer when the core waits, instead of waiting for it in real time.
+if(NOT DEFINED QEMU_ICOUNT_SHIFT)
+    set(QEMU_ICOUNT_SHIFT 5)
+endif()
+
 execute_process(
     COMMAND ${QEMU_EXECUTABLE}
             -machine ${QEMU_MACHINE}
-            -icount shift=5,sleep=off
+            -icount shift=${QEMU_ICOUNT_SHIFT},sleep=off
             -kernel ${IMAGE}
             -nographic
             -semihosting-config enable=on,target=native

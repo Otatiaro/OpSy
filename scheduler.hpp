@@ -405,12 +405,21 @@ private:
 	static task_control_block* highest_waiter(const mutex& m);
 
 	/**
+	 * @brief Moves @p task to where its current priority belongs in whichever
+	 *        list it is queued in -- @c ready_ or a condition variable's waiters
+	 * @remark For a priority that changed while the task was queued. A task in
+	 *         neither list -- running, elected, blocked on a mutex, or asleep --
+	 *         is left alone: nothing orders those by priority.
+	 */
+	static void requeue(task_control_block& task);
+
+	/**
 	 * @brief Recomputes @p task 's effective priority from its base one and
 	 *        every task waiting on a mutex it holds
 	 *
-	 * @warning Does not re-sort @c ready_ . Callers either know the task is
-	 *          not linked there (it is the one running), or re-sort it
-	 *          themselves — @c update_priority does.
+	 * @warning Does not move the task in the list it is queued in. Callers
+	 *          either know it is not queued (it is the one running), or call
+	 *          @ref requeue — @c update_priority and a kill do.
 	 * @remark This is the other half of priority inheritance: raising happens
 	 *         when a waiter arrives, this restores the right level when a
 	 *         mutex is released — which may still be an inherited one, if the

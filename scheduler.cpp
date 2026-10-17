@@ -384,6 +384,24 @@ void __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompu
 	task.priority_ = effective;
 }
 
+void __attribute__((section(".text.opsy.requeue"))) scheduler::requeue(task_control_block& task)
+{
+	// Both lists are ordered by priority, and both are read from the front:
+	// do_switch elects the front of ready_, notify_one wakes the front of a
+	// condition variable's waiters. A task whose priority changed while it was
+	// queued stays where its old priority put it until it is moved.
+	if (task.is_ready())
+	{
+		ready_.erase(task);
+		ready_.insert_when(task_control_block::priority_is_lower, task);
+	}
+	else if (task.waiting_ != nullptr)
+	{
+		task.waiting_->remove_waiting(task);
+		task.waiting_->add_waiting(task);
+	}
+}
+
 void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_priority(task_control_block& owner, task_priority priority)
 {
 	// Follows the chain: the owner may itself be blocked on a mutex held by
@@ -400,11 +418,7 @@ void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_p
 		current->priority_ = priority;
 		hooks::task_priority_changed(*current);
 
-		if (current->is_ready())
-		{
-			ready_.erase(*current);
-			ready_.insert_when(task_control_block::priority_is_lower, *current);
-		}
+		requeue(*current);
 
 		current = current->blocked_on_ != nullptr ? current->blocked_on_->owner_ : nullptr;
 	}
@@ -456,10 +470,7 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 			|| &task == next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
 			do_switch(); // ask for a switch, this will compare priority again with other ready tasks
 		else if(task.waiting_ != nullptr) // task is waiting a condition variable
-		{
-			task.waiting_->remove_waiting(task); // remove
-			task.waiting_->add_waiting(task); // then re-insert back the task in the list
-		}
+			requeue(task);
 		else if(task.blocked_on_ != nullptr)
 		{
 			// Blocked on a mutex, so in no list to re-sort — but the holder
@@ -578,6 +589,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		// Anything it still held would stay locked for good, and with a
 		// blocking mutex that is a permanent deadlock for every waiter.
 		const bool woke_someone = release_all_mutexes(task);
+		bool holder_dropped = false;
 
 		if (task.blocked_on_ != nullptr)
 		{
@@ -588,7 +600,11 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			auto* const holder = task.blocked_on_->owner_;
 			task.blocked_on_ = nullptr;
 			if (holder != nullptr)
+			{
 				recompute_priority(*holder);
+				requeue(*holder);
+				holder_dropped = true;
+			}
 		}
 
 		// A runnable-but-not-running task is linked into ready_, and nothing
@@ -604,10 +620,12 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			current_task_.store(nullptr, std::memory_order_relaxed);
 			task_switch = do_switch();
 		}
-		// A waiter handed a mutex may outrank whoever called kill(), and
-		// nothing else here would ask for the switch when the dying task was
-		// not the running one.
-		if (woke_someone)
+		// A waiter handed a mutex may outrank whoever called kill(), and a
+		// holder that lost the dying task's donation may now be outranked --
+		// it may be the very task that called kill(). Nothing else here would
+		// ask for the switch when the dying task was not the running one.
+		// After the ready_.erase above, so the dying task cannot be elected.
+		if (woke_someone || holder_dropped)
 			task_switch = do_switch() || task_switch;
 
 		hooks::task_terminated(task);

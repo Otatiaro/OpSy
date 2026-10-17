@@ -962,4 +962,209 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 // std::lock but not std::scoped_lock; the LLVM Embedded Toolchain for Arm has
 // neither. std::lock_guard is in both, which is why the case above uses it.
 
+// A condition variable keeps its waiters ordered by priority, so notify_one
+// wakes the most important. A task holding a mutex can be waiting on one
+// when a more important task blocks on that mutex and raises it: from then
+// on it is the most important waiter, and has to be the one woken.
+
+opsy::condition_variable g_waiters;
+
+OPSY_QEMU_TEST(a_waiter_raised_by_inheritance_is_the_one_notify_one_wakes)
+{
+	g_order_index = 0;
+	g_low_ran = 0;
+	g_middle_ran = 0;
+	g_high_ran = 0;
+
+	// The holder takes A, then waits on the condition variable still holding
+	// it -- a plain wait releases nothing.
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		g_waiters.wait();
+		record(1);
+		g_a.unlock();
+		g_low_ran = 2;
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 1);
+	CHECK(g_a.is_locked());
+
+	// A second waiter, above the holder's own priority: queued ahead of it.
+	CHECK(g_middle.start([]
+	{
+		g_middle_ran = 1;
+		g_waiters.wait();
+		record(2);
+		g_middle_ran = 2;
+	}, "other waiter"));
+	g_middle.priority(opsy::task_priority::normal);
+
+	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_middle_ran == 1);
+
+	// The most important task blocks on A, raising the holder above the other
+	// waiter.
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "blocked on A"));
+	g_high.priority(opsy::task_priority::highest);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);
+
+	// One notification: it goes to the holder, now the most important waiter.
+	g_waiters.notify_one();
+
+	for (int guard = 0; guard < 200 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 1);
+
+	// Release whoever is still waiting, and let everything finish.
+	g_waiters.notify_all();
+	for (int guard = 0; guard < 200 && (g_low_ran != 2 || g_middle_ran != 2 || g_high_ran != 1); ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 2);
+	CHECK(g_middle_ran == 2);
+	CHECK(g_high_ran == 1);
+
+	stop_all();
+	CHECK(!g_a.is_locked());
+}
+
+// The other way round: the waiter that raised the holder dies, and the
+// holder drops back to its own priority. Wherever it is queued, it has to be
+// queued at that priority again -- and if it is the one running, it has to
+// give the CPU up to whatever now outranks it.
+
+OPSY_QEMU_TEST(a_waiter_dropped_by_a_kill_is_no_longer_the_one_notify_one_wakes)
+{
+	g_order_index = 0;
+	g_low_ran = 0;
+	g_middle_ran = 0;
+	g_high_ran = 0;
+
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		g_waiters.wait();
+		record(1);
+		g_a.unlock();
+		g_low_ran = 2;
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 1);
+
+	CHECK(g_middle.start([]
+	{
+		g_middle_ran = 1;
+		g_waiters.wait();
+		record(2);
+		g_middle_ran = 2;
+	}, "other waiter"));
+	g_middle.priority(opsy::task_priority::normal);
+
+	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_middle_ran == 1);
+
+	// Raised by the task blocked on A, then dropped again when it is killed.
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked on A"));
+	g_high.priority(opsy::task_priority::highest);
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);
+	CHECK(g_high.kill());
+	CHECK(!g_high.is_started());
+
+	// One notification: the holder is back below the other waiter.
+	g_waiters.notify_one();
+
+	for (int guard = 0; guard < 200 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 2);
+
+	g_waiters.notify_all();
+	for (int guard = 0; guard < 200 && (g_low_ran != 2 || g_middle_ran != 2); ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 2);
+	CHECK(g_middle_ran == 2);
+
+	stop_all();
+	CHECK(!g_a.is_locked());
+}
+
+std::atomic<bool> g_go = false;
+
+OPSY_QEMU_TEST(a_holder_that_kills_its_waiter_gives_way_to_what_now_outranks_it)
+{
+	g_order_index = 0;
+	g_low_ran = 0;
+	g_high_ran = 0;
+	g_observer_ran = 0;
+	g_go = false;
+	g_stop = false;
+
+	// The holder, raised by the waiter, starts a task between its own priority
+	// and the waiter's, then kills the waiter. Dropped back to its own
+	// priority, it is outranked from the moment the kill returns.
+	CHECK(g_low.start([]
+	{
+		g_a.lock();
+		g_low_ran = 1;
+		while (!g_go)
+			opsy::sleep_for(1ms);
+
+		(void) g_observer.start([]
+		{
+			record(2);
+			g_observer_ran = 1;
+			while (!g_stop)
+				busy_wait(50);
+		}, "observer");
+		g_observer.priority(opsy::task_priority::normal);  // below the raised holder
+
+		(void) g_high.kill();
+		record(1);
+
+		g_a.unlock();
+		g_low_ran = 2;
+	}, "holder"));
+	g_low.priority(opsy::task_priority::low);
+
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 1);
+
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked on A"));
+	g_high.priority(opsy::task_priority::highest);
+	opsy::sleep_for(5ms);
+	CHECK(g_high_ran == 0);
+
+	g_go = true;
+	for (int guard = 0; guard < 200 && g_order_index == 0; ++guard)
+		opsy::sleep_for(1ms);
+
+	// The observer ran before the holder got past the kill.
+	CHECK(g_order_index >= 1);
+	CHECK(g_order[0] == 2);
+
+	g_stop = true;
+	for (int guard = 0; guard < 200 && g_low_ran != 2; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_low_ran == 2);
+	CHECK(g_high_ran == 0);   // killed while blocked, never got A
+
+	stop_all();
+	CHECK(!g_a.is_locked());
+}
+
 } // namespace

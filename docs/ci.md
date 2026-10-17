@@ -9,7 +9,7 @@ triggered on pushes to `master` and on pull requests targeting it. It is
 not triggered on pushes to other branches, so **work on a branch is not
 checked until you open the pull request**.
 
-44 jobs, all running in parallel on `ubuntu-latest`. A full run takes
+56 jobs, all running in parallel on `ubuntu-latest`. A full run takes
 about a minute and a half. `fail-fast` is off everywhere: one broken
 axis does not cancel the others, so a single run tells you whether a
 failure is specific to one compiler or target, or general.
@@ -18,11 +18,11 @@ failure is specific to one compiler or target, or general.
 
 | Job group | Axes | Count | What a green run means |
 |---|---|---|---|
-| **Build** | `{gcc, clang}` × `{m3, m4, m7, m33}` × `{c++23, c++26}` | 16 | The whole public API and every `utility/` and `algorithms/` header compiles, on both compilers, all four cores, both standards, under a strict warning set with `-Werror`. Nothing is linked or run. |
+| **Build** | `{gcc, clang}` × `{m3, m4, m7, m33}` × `{c++23, c++26}` | 16 | The whole public API and every `utility/` and `algorithms/` header compiles, on both compilers, all four cores, both standards, under the strict warning set with `-Werror`, at `-O0`, `-Os` and `-O2` and at both of the latter under `NDEBUG` -- five libraries per job. Every public header is shown to stand alone. Nothing is linked or run. |
 | **Host tests** | `{gcc, clang}` × `{c++23, c++26}` | 4 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
-| **QEMU and GDB tests** | `{gcc, clang}` × `{m3, m4, m7, m33}` | 8 | The scheduler behaves on an emulated Cortex-M: 81 on-target cases, 6 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
-| **QEMU tests, optimised** | gcc × `{m3, m4, m7, m33}` × `{-Os, -O3 + LTO}`, clang × `{m4, m33}` × the same two | 12 | The same on-target cases and no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units. |
-| **Codegen checks** | `{m3, m4, m7, m33}` | 4 | The optimiser left the memory-mapped accesses and the stack alignment alone. Built at `-O2` and read out of the disassembly. |
+| **QEMU and GDB tests** | `{gcc, clang}` × `{m3, m4, m7, m33}` | 8 | The scheduler behaves on an emulated Cortex-M: 87 on-target cases, run at the nominal speed and on a core sixteen times slower, 7 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
+| **QEMU tests, optimised** | gcc × `{m3, m4, m7, m33}` × `{-Os, -Os + NDEBUG, -O2 + NDEBUG, -O3 + LTO}`, clang × `{m4, m33}` × the same four | 24 | The same on-target cases at both speeds and the no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units, and in the release configurations a project ships. |
+| **Codegen checks** | `{m3, m4, m7, m33}` | 4 | The optimiser left the memory-mapped accesses and the stack alignment alone, the barriers the architecture requires are emitted, and the exclusive accesses are visible to the compiler. Built at `-O2` and read out of the disassembly. |
 
 [`tests/README.md`](../tests/README.md) describes what each suite covers
 and how to run it locally. This document is about the CI around them.
@@ -43,15 +43,15 @@ for each, and the QEMU boards differ (`mps2-an385`, `-an386`, `-an500`,
 a construct the newer standard changes or removes is caught here rather
 than by a user on a newer toolchain.
 
-**Two optimisation levels, and LTO.** A whole class of defect exists
-only once the optimiser is turned on: a memory-mapped register read
-without `volatile` gets cached or folded, inline assembly without a
-`"memory"` clobber lets the compiler keep a stale global in a register
-across a service call, a naked function is assumed to have a frame. None
-of that shows in an unoptimised build. `-Os` and `-O3` sit at opposite
-ends of what the optimiser will do, and LTO adds the cross-translation-
-unit dimension neither has alone, so `-O2` in the middle is bracketed by
-the two.
+**Four optimised configurations.** A whole class of defect exists only
+once the optimiser is turned on: a memory-mapped register read without
+`volatile` gets cached or folded, inline assembly without a `"memory"`
+clobber lets the compiler keep a stale global in a register across a
+service call, a naked function is assumed to have a frame. None of that
+shows in an unoptimised build. `-Os` and `-O3` with LTO sit at opposite
+ends of what the optimiser will do, LTO adding the cross-translation-
+unit dimension; `-Os` and `-O2` under `NDEBUG` are what a project ships,
+with the asserts and the code they guard gone.
 
 The GDB scenarios do not run in those jobs, and take themselves out of
 the test list rather than failing: they stop the CPU at functions by
@@ -180,11 +180,13 @@ convenient `#include <opsy.hpp>` is exactly what breaks it. See
 documentation, branch names, test case names. Nothing in this repository
 is in any other language, and nothing added to it should be.
 
-**The strict warning set is `-Werror`.** `-Wall -Wextra -Wpedantic
--Wshadow -Wcast-align -Wcast-qual -Wnull-dereference -Wconversion
--Wsign-conversion -Wdouble-promotion`, plus `-Wlogical-op
--Wduplicated-cond -Wduplicated-branches` on gcc. Deprecations count:
-`++` on a `volatile` is an error under C++23.
+**The strict warning set is `-Werror`.** It is the set a strict
+downstream project builds OpSy with, kept in one place,
+[`tests/warnings.cmake`](../tests/warnings.cmake), and used by every
+Cortex-M suite: `-Wold-style-cast`, `-Wzero-as-null-pointer-constant`,
+`-Wredundant-decls`, `-Wfloat-equal`, `-Wstack-usage=1024` and the rest,
+the gcc-only ones given to gcc alone. Deprecations count: `++` on a
+`volatile` is an error under C++23.
 
 **On-target cases run below the task that runs them.** The suite runner
 sits at `task_priority::high`, and helpers start at
@@ -245,16 +247,18 @@ silently is a local run that has not checked them.
 Two differences from the CI worth knowing when a failure will not
 reproduce:
 
-- Optimisation is per job. The Build, Host and QEMU-and-GDB jobs use no
-  `-O` at all; the optimised QEMU jobs use `-Os` or `-O3` with LTO; the
+- Optimisation is per job. The Host and QEMU-and-GDB jobs use no `-O`
+  at all, the Build jobs compile every configuration, the optimised QEMU
+  jobs use one of the four above; the
   codegen checks are fixed at `-O2` with `NDEBUG` and `-fno-lto`,
   because that is the configuration their assertions are about.
   `-DOPSY_OPTIMISATION=<flags>` works on `tests` and `tests/qemu`; LTO
   is `-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON` on top.
-- The runners are slower and differently timed than a desktop. A case
-  that depends on *how long* something takes rather than on ordering
-  will eventually disagree between the two; write it against an event
-  or a shared deadline instead.
+- QEMU counts time in instructions (`-icount`, see
+  [`tests/README.md`](../tests/README.md#qemu-tests)), so a run is the
+  same on a runner as on a desktop. A case still has to be written
+  against an event rather than an amount of work per tick: the suite is
+  checked to pass on a core many times slower than the one it runs on.
 
 ## When to touch the workflow itself
 

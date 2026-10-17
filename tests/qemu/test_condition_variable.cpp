@@ -311,4 +311,49 @@ OPSY_QEMU_TEST(a_task_mutex_wait_that_times_out_still_takes_the_mutex_back)
 	stop_all();
 }
 
+// A task killed while waiting with an isr_lock never takes the lock back --
+// but its record of having released one must not survive the kill. Restarted,
+// the same task would otherwise have the lock, and the scheduler's critical
+// section, taken back for it the first time it is switched in, by code that
+// never asked for either.
+
+OPSY_QEMU_TEST(a_task_killed_while_waiting_with_a_lock_restarts_without_it)
+{
+	g_ready = 0;
+	g_woken = 0;
+
+	CHECK(g_waiter_a.start([]
+	{
+		g_isr_lock.lock();
+		g_ready = 1;
+		g_condition.wait(g_isr_lock);
+		g_isr_lock.unlock();
+	}, "waiter"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	CHECK(g_ready == 1);
+
+	CHECK(g_waiter_a.kill());
+	CHECK(!g_waiter_a.is_started());
+
+	// The same task, now running code that holds nothing. Sleeping is what a
+	// held critical section forbids, so it is what shows one is held.
+	CHECK(g_waiter_a.start([]
+	{
+		g_woken = 1;
+		opsy::sleep_for(1ms);
+		g_woken = 2;
+	}, "restarted"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+
+	for (int guard = 0; guard < 50 && g_woken != 2; ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_woken == 2);
+
+	// And the lock is free for whoever takes it next.
+	g_isr_lock.lock();
+	g_isr_lock.unlock();
+
+	stop_all();
+}
+
 } // namespace

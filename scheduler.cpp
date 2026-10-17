@@ -586,6 +586,12 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 			task.waiting_ = nullptr;
 		}
 
+		// A lock a wait released is taken back when the task resumes, which it
+		// now never will. Left in place, the record would outlive the task: a
+		// restart in the same slot would have PendSV take the lock, and the
+		// scheduler's critical section, back for it the first time it runs.
+		task.released_lock_ = std::monostate{};
+
 		// Anything it still held would stay locked for good, and with a
 		// blocking mutex that is a permanent deadlock for every waiter.
 		const bool woke_someone = release_all_mutexes(task);

@@ -82,6 +82,11 @@ foreach(config IN LISTS OPSY_SANITY_CONFIGS)
     opsy_strict_warnings(${target})
 endforeach()
 
+# utility_sanity.cpp checks constexpr results for exact equality on purpose:
+# they are computed at compile time and known exactly.
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
+    PROPERTIES COMPILE_OPTIONS -Wno-float-equal)
+
 # Standalone directories: the check that they really are.
 #
 # utility/ and algorithms/ are useful without the RTOS, and their

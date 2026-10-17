@@ -379,6 +379,28 @@ constexpr auto m_9 = []{
 static_assert(matrix_approx_equal(m_9.inverse() * m_9, opsy::utility::identity_matrix<9>(), 1e-5f));
 static_assert(matrix_approx_equal(m_9 * m_9.inverse(), opsy::utility::identity_matrix<9>(), 1e-5f));
 
+// solve — Gaussian elimination with partial pivoting.
+//   Chosen so every step is exact in float: column 0 is pivoted from the last
+//   row, column 1 has a tie (kept in place), and every elimination factor is
+//   a power of two. The solution is (1, 1, 1).
+constexpr opsy::utility::matrix<3, 3> m_solve{
+	2.0f, 0.0f, 0.0f,
+	2.0f, 4.0f, 0.0f,
+	4.0f, 4.0f, 8.0f};
+static_assert(m_solve.solve(opsy::utility::vector<3>{2.0f, 6.0f, 16.0f}) == opsy::utility::vector<3>{1.0f, 1.0f, 1.0f});
+
+// solve on the 9x9 above agrees with going through the inverse.
+static_assert([]{
+	opsy::utility::vector<9> b;
+	for (std::size_t i = 0; i < 9; ++i)
+		b[i] = static_cast<float>(i) - 4.0f;
+	const auto residual = m_9 * m_9.solve(b) - b;
+	for (std::size_t i = 0; i < 9; ++i)
+		if (residual[i] > 1e-5f || residual[i] < -1e-5f)
+			return false;
+	return true;
+}());
+
 // ── Row operations (constexpr — exercise mutation in a constexpr lambda).
 constexpr auto m_swapped = []{
 	opsy::utility::matrix<3, 3> m{
@@ -523,8 +545,9 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	using opsy::algorithms::magnetometer_calibration;
 	using opsy::utility::vector;
 
-	// Float instantiation (the on-target one, FPU-friendly).
-	ellipsoid_fit<float> fit_f;
+	// Float instantiation, the on-target one. Static, as an accumulator is in
+	// an application: its 9x9 matrix does not belong on a task's stack.
+	static ellipsoid_fit<float> fit_f;
 	const std::array<vector<3, float>, 14> samples_f{{
 		// Six axis directions, then the eight cube corners scaled to the
 		// unit sphere — 14 well-spread points, enough to over-determine
@@ -551,16 +574,9 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	(void) count_f;
 	fit_f.reset();
 
-	// Double instantiation for host-side validation. No FPU on Cortex-M
-	// for double, but we want the template to be valid for both.
-	ellipsoid_fit<double> fit_d;
-	for (const auto& s : samples_f)
-		fit_d.feed(vector<3, double>{
-			static_cast<double>(s.x()),
-			static_cast<double>(s.y()),
-			static_cast<double>(s.z())
-		});
-	(void) fit_d.fit();
+	// No double instantiation here: double is what the host suite validates
+	// the numerics with (tests/host/test_ellipsoid_fit.cpp), and on a target
+	// without a double FPU it only measures soft-float stack.
 
 	// Calibration trivially copyable (also asserted in the header — this
 	// duplicates the check inside the test TU so a missing include or
@@ -816,8 +832,6 @@ opsy::utility::routine send(opsy::utility::routine_storage<128>&, const uint8_t*
 
 opsy::utility::routine g_current;
 
-} // namespace
-
 [[gnu::used]] void use_routine_from_a_handler()
 {
 	// What an interrupt handler does, in full.
@@ -835,3 +849,5 @@ opsy::utility::routine g_current;
 
 	(void) g_current.done();
 }
+
+} // namespace

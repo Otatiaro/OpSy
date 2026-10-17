@@ -564,6 +564,63 @@ public:
 		}
 	}
 
+	/**
+	 * @brief Solves @c M·x @c = @c b for @c x .
+	 *
+	 *        Gaussian elimination with partial pivoting, then back
+	 *        substitution. Prefer it to @c inverse() @c * @c b : it works on a
+	 *        single copy of the matrix rather than building a second one,
+	 *        which on a 9×9 is the difference between a few hundred bytes of
+	 *        stack and a kilobyte, and it does about a third of the
+	 *        arithmetic.
+	 *
+	 * @pre   The matrix must be invertible. As with @ref inverse , a
+	 *        singular one yields non-finite elements rather than a diagnostic.
+	 */
+	[[nodiscard]] constexpr vector<Rows, T> solve(vector<Rows, T> b) const requires (Rows == Cols)
+	{
+		matrix work = *this;
+
+		for (std::size_t i = 0; i < Rows; ++i)
+		{
+			std::size_t pivot_row = i;
+			T pivot_abs = work(i, i) < T{0} ? -work(i, i) : work(i, i);
+			for (std::size_t r = i + 1; r < Rows; ++r)
+			{
+				const T abs_val = work(r, i) < T{0} ? -work(r, i) : work(r, i);
+				if (abs_val > pivot_abs)
+				{
+					pivot_abs = abs_val;
+					pivot_row = r;
+				}
+			}
+			if (pivot_row != i)
+			{
+				work.swap_rows(i, pivot_row);
+				const T swapped = b[i];
+				b[i] = b[pivot_row];
+				b[pivot_row] = swapped;
+			}
+
+			for (std::size_t r = i + 1; r < Rows; ++r)
+			{
+				const T factor = -work(r, i) / work(i, i);
+				work.add_scaled_row(i, r, factor);
+				b[r] += factor * b[i];
+			}
+		}
+
+		for (std::size_t i = Rows; i-- > 0;)
+		{
+			T sum = b[i];
+			for (std::size_t c = i + 1; c < Rows; ++c)
+				sum -= work(i, c) * b[c];
+			b[i] = sum / work(i, i);
+		}
+
+		return b;
+	}
+
 	// ── Symmetric eigen decomposition ────────────────────────────────────
 	//
 	// Eigenvalues + eigenvectors of a real symmetric matrix via a
@@ -703,7 +760,7 @@ void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 		for (std::size_t k = 0; k < i; ++k)
 			scale += d[k] < T{0} ? -d[k] : d[k];
 
-		if (scale == T{0})
+		if (std::fpclassify(scale) == FP_ZERO)
 		{
 			e[i] = d[i - 1];
 			for (std::size_t j = 0; j < i; ++j)
@@ -772,7 +829,7 @@ void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 		V(N - 1, i) = V(i, i);
 		V(i, i)     = T{1};
 		const T h   = d[i + 1];
-		if (h != T{0})
+		if (std::fpclassify(h) != FP_ZERO)
 		{
 			for (std::size_t k = 0; k <= i; ++k)
 				d[k] = V(k, i + 1) / h;

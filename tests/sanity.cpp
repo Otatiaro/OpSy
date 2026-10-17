@@ -119,8 +119,10 @@ static_assert(lockable<opsy::mutex>, "opsy::mutex must work with the multi-mutex
 	(void) g_cv.wait_until(g_mutex, opsy::scheduler::now() + 10ms);
 }
 
-opsy::counting_semaphore<16> g_semaphore{ 0 };
-opsy::binary_semaphore g_binary{ 1 };
+// constinit: both are ready before any constructor runs, for an interrupt
+// handler that fires that early.
+constinit opsy::counting_semaphore<16> g_semaphore{ 0 };
+constinit opsy::binary_semaphore g_binary{ 1 };
 static_assert(opsy::counting_semaphore<16>::max() == 16);
 static_assert(opsy::binary_semaphore::max() == 1);
 
@@ -134,6 +136,30 @@ static_assert(opsy::binary_semaphore::max() == 1);
 	(void) g_semaphore.try_acquire_until(opsy::scheduler::now() + 10ms);
 	g_binary.acquire();
 	g_binary.release();
+}
+
+constinit opsy::queue<uint32_t, 8> g_queue;
+constinit opsy::queue<opsy::callback<void()>, 4> g_work;
+static_assert(decltype(g_queue)::capacity() == 8);
+
+[[gnu::used]] void use_queue()
+{
+	(void) g_queue.try_push(1u);
+	(void) g_queue.try_emplace(2u);
+	g_queue.push(3u);
+	(void) g_queue.push_for(4u, 10ms);
+	(void) g_queue.try_pop();
+	(void) g_queue.pop();
+	(void) g_queue.pop_for(10ms);
+	(void) g_queue.size();
+	(void) g_queue.empty();
+	(void) g_queue.dropped();
+	(void) g_queue.high_water();
+
+	// A move-only element with a non-trivial destructor: the work-queue shape.
+	(void) g_work.try_push([] {});
+	if (auto job = g_work.try_pop())
+		(*job)();
 }
 
 [[gnu::used]] void use_scheduler()

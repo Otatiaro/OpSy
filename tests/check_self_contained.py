@@ -48,6 +48,18 @@ CASES = {
             b.acquire();
         }
     """,
+    "queue.hpp": """
+        void probe(opsy::queue<int, 4>& q)
+        {
+            (void) q.try_push(1);
+            (void) q.try_emplace(2);
+            q.push(3);
+            (void) q.push_for(4, opsy::duration{1});
+            (void) q.try_pop();
+            (void) q.pop();
+            (void) q.pop_for(opsy::duration{1});
+        }
+    """,
     "isr_lock.hpp": """
         void probe(opsy::isr_lock& l) { l.lock(); l.unlock(); }
     """,

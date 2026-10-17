@@ -78,6 +78,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |
 | `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |
 | `semaphore.hpp` | `counting_semaphore<Max>` and `binary_semaphore`, with the interface of their `std` counterparts: a task blocks on `acquire`, a task or an interrupt handler `release`s. Lock-free while nobody has to wait. |
+| `queue.hpp` | `queue<T, Capacity>` — between one producer and one consumer, either of which may be an interrupt handler; nothing masked, nothing allocated. A full queue refuses and counts it (`dropped()`), and remembers how full it got (`high_water()`). |
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |

@@ -45,6 +45,7 @@
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
 #include "semaphore.hpp"
+#include "queue.hpp"
 
 namespace opsy
 {

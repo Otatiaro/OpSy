@@ -20,6 +20,7 @@
  */
 
 #include <mutex>
+#include <utility>
 
 #include <opsy.hpp>
 
@@ -114,19 +115,36 @@ opsy::isr_lock l{opsy::isr_priority{0x80}};
 namespace condition_variable_example
 {
 
-opsy::isr_lock           m{opsy::isr_priority{0x80}};
-opsy::condition_variable cv{opsy::isr_priority{0x80}};
+opsy::isr_lock           lock{opsy::scheduler::os_callable_priority};
+opsy::condition_variable events_changed{opsy::scheduler::os_callable_priority};
+uint32_t                 events = 0;      // guarded by lock
 
-[[gnu::used]] void wait_for_data()
+constexpr uint32_t rx_done = 1u << 0;
+constexpr uint32_t error   = 1u << 1;
+
+[[gnu::used]] void uart_isr()             // strictly below OpSy's preemption level
 {
-	std::lock_guard guard{m};
-	cv.wait(m); // atomically releases m, sleeps,
-	            // re-acquires m on wake
+	{
+		std::lock_guard guard{lock};
+		events |= rx_done;
+	}
+	events_changed.notify_one();
 }
 
-[[gnu::used]] void from_isr()
+[[gnu::used]] void uart_task()
 {
-	cv.notify_one(); // safe to call from ISR at the cv's priority
+	while (true)
+	{
+		uint32_t got;
+		{
+			std::lock_guard guard{lock};
+			while ((events & (rx_done | error)) == 0)
+				events_changed.wait(lock); // releases lock and sleeps in one step,
+				                           // takes it back on wake
+			got = std::exchange(events, 0);
+		}
+		(void) got;                        // handle got, outside the lock
+	}
 }
 
 } // namespace condition_variable_example

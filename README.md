@@ -264,31 +264,67 @@ disables all maskable interrupts (`PRIMASK = 1`).
 > sleep. `opsy::mutex` has neither restriction. See
 > [`docs/architecture.md`](docs/architecture.md) for why.
 
-### `opsy::condition_variable`
+### `opsy::condition_variable` — an interrupt handler waking a task
+
+The usual real-time shape: a handler fills a buffer or notes what
+happened, and a task is woken to deal with it. The state the task waits
+for lives under an `isr_lock`; the handler changes it under the same lock
+and notifies; the task tests it and waits in one step.
 
 ```cpp
-opsy::mutex              m{opsy::isr_priority{0x80}};
-opsy::condition_variable cv{opsy::isr_priority{0x80}};
+opsy::isr_lock           lock{opsy::scheduler::os_callable_priority};
+opsy::condition_variable events_changed{opsy::scheduler::os_callable_priority};
+uint32_t                 events = 0;      // guarded by lock
 
-void wait_for_data()
+constexpr uint32_t rx_done = 1u << 0;
+constexpr uint32_t error   = 1u << 1;
+
+void uart_isr()                           // strictly below OpSy's preemption level
 {
-    std::lock_guard guard{m};
-    cv.wait(m); // atomically releases m, sleeps,
-                // re-acquires m on wake
+    {
+        std::lock_guard guard{lock};
+        events |= rx_done;
+    }
+    events_changed.notify_one();
 }
 
-void from_isr()
+void uart_task()
 {
-    cv.notify_one(); // safe to call from ISR at the cv's priority
+    while (true)
+    {
+        uint32_t got;
+        {
+            std::lock_guard guard{lock};
+            while ((events & (rx_done | error)) == 0)
+                events_changed.wait(lock); // releases lock and sleeps in one step,
+                                           // takes it back on wake
+            got = std::exchange(events, 0);
+        }
+        // handle got, outside the lock
+    }
 }
 ```
 
-`condition_variable::wait` exists in four flavours: with or without a
-mutex, and with or without a timeout (`wait_for(duration)` /
-`wait_until(time_point)`). The timed variants return an
-`opsy::cv_status`, mirroring `std::cv_status` from `<condition_variable>`.
-Unlike the standard, OpSy does **not** emit spurious wakeups, so the
-predicate-checking overloads are intentionally absent.
+The word of bits is what event flags are: several causes, set by the
+handler, taken all at once by the task. Two things make it correct, and
+both are easy to get wrong:
+
+- **The state is tested under the lock, in a loop, before waiting.** A
+  notification that comes before the task waits is not stored by the
+  condition variable: it is the flag that remembers it. OpSy emits no
+  spurious wakeups, but the loop is still what catches an event that came
+  first.
+- **The lock and the condition variable are at
+  `scheduler::os_callable_priority`.** The lock has to mask the handler,
+  or it could change the state between the test and the wait; and it must
+  not mask OpSy's own level, where the wait's service call is taken. A
+  handler using them has to run at that priority or below.
+
+`condition_variable::wait` exists with an `isr_lock`, with an
+`opsy::mutex` (between tasks), or with no lock at all, and each with a
+timeout (`wait_for(duration)` / `wait_until(time_point)`). The timed
+variants return an `opsy::cv_status`, mirroring `std::cv_status` from
+`<condition_variable>`.
 
 ### `opsy::critical_section`
 

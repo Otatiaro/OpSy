@@ -146,7 +146,7 @@ static_assert(decltype(g_queue)::capacity() == 8);
 {
 	(void) g_queue.try_push(1u);
 	(void) g_queue.try_emplace(2u);
-	g_queue.push(3u);
+	(void) g_queue.push(3u);
 	(void) g_queue.push_for(4u, 10ms);
 	(void) g_queue.try_pop();
 	(void) g_queue.pop();
@@ -155,6 +155,8 @@ static_assert(decltype(g_queue)::capacity() == 8);
 	(void) g_queue.empty();
 	(void) g_queue.dropped();
 	(void) g_queue.high_water();
+	(void) g_queue.is_closed();
+	g_queue.close();
 
 	// A move-only element with a non-trivial destructor: the work-queue shape.
 	(void) g_work.try_push([] {});

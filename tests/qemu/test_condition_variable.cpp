@@ -12,6 +12,9 @@
 #include <opsy.hpp>
 
 #include <atomic>
+#include <cstdint>
+#include <mutex>
+#include <utility>
 
 namespace
 {
@@ -352,6 +355,103 @@ OPSY_QEMU_TEST(a_task_killed_while_waiting_with_a_lock_restarts_without_it)
 	// And the lock is free for whoever takes it next.
 	g_isr_lock.lock();
 	g_isr_lock.unlock();
+
+	stop_all();
+}
+
+// The README's "an interrupt handler waking a task": a word of event bits
+// under an isr_lock, both the lock and the condition variable at
+// os_callable_priority, set by a real handler and taken by a task.
+
+opsy::isr_lock           g_event_lock{ opsy::scheduler::os_callable_priority };
+opsy::condition_variable g_events_changed{ opsy::scheduler::os_callable_priority };
+uint32_t                 g_events = 0;          // guarded by g_event_lock
+std::atomic<uint32_t>    g_events_got = 0;
+std::atomic<int>         g_rounds = 0;
+uint32_t                 g_event_to_raise = 0;
+unsigned                 g_event_irq = qemu_test::no_irq;
+
+void event_irq_handler()
+{
+	{
+		std::lock_guard guard{g_event_lock};
+		g_events |= g_event_to_raise;
+	}
+	g_events_changed.notify_one();
+}
+
+bool install_event_irq()
+{
+	if (g_event_irq == qemu_test::no_irq)
+		g_event_irq = qemu_test::find_usable_irq();
+	if (g_event_irq == qemu_test::no_irq)
+		return false;
+	opsy::cortex_m::set_priority(g_event_irq, opsy::scheduler::os_callable_priority);
+	opsy::cortex_m::set_isr_handler(g_event_irq, &event_irq_handler);
+	opsy::cortex_m::enable_interrupt(g_event_irq);
+	return true;
+}
+
+void raise_event(uint32_t bits)
+{
+	g_event_to_raise = bits;
+	qemu_test::raise(g_event_irq);
+	opsy::sleep_for(1ms);
+}
+
+void event_consumer()
+{
+	while (true)
+	{
+		uint32_t got;
+		{
+			std::lock_guard guard{g_event_lock};
+			while ((g_events & 0x3u) == 0)
+				g_events_changed.wait(g_event_lock);
+			got = std::exchange(g_events, 0u);
+		}
+		g_events_got.fetch_or(got);
+		++g_rounds;
+	}
+}
+
+OPSY_QEMU_TEST(an_interrupt_handler_wakes_a_task_through_event_bits)
+{
+	g_events = 0;
+	g_events_got = 0;
+	g_rounds = 0;
+	CHECK(install_event_irq());
+
+	CHECK(g_waiter_a.start(&event_consumer, "consumer"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	opsy::sleep_for(2ms);
+	CHECK(g_rounds == 0);            // nothing raised: waiting
+
+	raise_event(0x1u);
+	CHECK(g_rounds == 1);
+	CHECK(g_events_got == 0x1u);
+
+	raise_event(0x2u);
+	CHECK(g_rounds == 2);
+	CHECK(g_events_got == 0x3u);
+
+	stop_all();
+}
+
+OPSY_QEMU_TEST(an_event_raised_before_the_task_waits_is_not_lost)
+{
+	g_events = 0;
+	g_events_got = 0;
+	g_rounds = 0;
+	CHECK(install_event_irq());
+
+	raise_event(0x2u);               // before any task waits for it
+
+	CHECK(g_waiter_a.start(&event_consumer, "late consumer"));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	opsy::sleep_for(2ms);
+	CHECK(g_rounds == 1);            // found it under the lock, did not wait
+	CHECK(g_events_got == 0x2u);
 
 	stop_all();
 }

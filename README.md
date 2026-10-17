@@ -78,11 +78,11 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |
 | `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |
 | `semaphore.hpp` | `counting_semaphore<Max>` and `binary_semaphore`, with the interface of their `std` counterparts: a task blocks on `acquire`, a task or an interrupt handler `release`s. Lock-free while nobody has to wait. |
-| `queue.hpp` | `queue<T, Capacity>` — between one producer and one consumer, either of which may be an interrupt handler; nothing masked, nothing allocated. A full queue refuses and counts it (`dropped()`), and remembers how full it got (`high_water()`). |
+| `queue.hpp` | `queue<T, Capacity>`, with the interface of the proposed `std::bounded_queue` (P0260): `push`/`pop` wait, `try_push`/`try_pop` report a `conqueue_status`, `close()` ends it. One producer and one consumer, either of which may be an interrupt handler; nothing masked, nothing allocated. A full queue refuses and counts it (`dropped()`), and remembers how full it got (`high_water()`). |
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
-| `callback.hpp` | A small `std::function` replacement with no heap and no exceptions. Used by `task::start`. |
+| `callback.hpp` | `callback<Signature, StorageSize>`, with the interface of `std::move_only_function` -- `const`, `&`, `&&` and `noexcept` in the signature say how the target is called -- holding its target inline: no heap, no exceptions. Used by `task::start`. |
 | `embedded_list.hpp` | Intrusive doubly-linked list used internally for the ready / waiting / timeout queues. |
 | `hooks.hpp` | Default (empty) hook callbacks. Override by providing `<opsy_hooks.hpp>` somewhere on the include path. |
 | `config.hpp` | Default configuration. Override by providing `<opsy_config.hpp>` somewhere on the include path. |
@@ -264,31 +264,67 @@ disables all maskable interrupts (`PRIMASK = 1`).
 > sleep. `opsy::mutex` has neither restriction. See
 > [`docs/architecture.md`](docs/architecture.md) for why.
 
-### `opsy::condition_variable`
+### `opsy::condition_variable` — an interrupt handler waking a task
+
+The usual real-time shape: a handler fills a buffer or notes what
+happened, and a task is woken to deal with it. The state the task waits
+for lives under an `isr_lock`; the handler changes it under the same lock
+and notifies; the task tests it and waits in one step.
 
 ```cpp
-opsy::mutex              m{opsy::isr_priority{0x80}};
-opsy::condition_variable cv{opsy::isr_priority{0x80}};
+opsy::isr_lock           lock{opsy::scheduler::os_callable_priority};
+opsy::condition_variable events_changed{opsy::scheduler::os_callable_priority};
+uint32_t                 events = 0;      // guarded by lock
 
-void wait_for_data()
+constexpr uint32_t rx_done = 1u << 0;
+constexpr uint32_t error   = 1u << 1;
+
+void uart_isr()                           // strictly below OpSy's preemption level
 {
-    std::lock_guard guard{m};
-    cv.wait(m); // atomically releases m, sleeps,
-                // re-acquires m on wake
+    {
+        std::lock_guard guard{lock};
+        events |= rx_done;
+    }
+    events_changed.notify_one();
 }
 
-void from_isr()
+void uart_task()
 {
-    cv.notify_one(); // safe to call from ISR at the cv's priority
+    while (true)
+    {
+        uint32_t got;
+        {
+            std::lock_guard guard{lock};
+            while ((events & (rx_done | error)) == 0)
+                events_changed.wait(lock); // releases lock and sleeps in one step,
+                                           // takes it back on wake
+            got = std::exchange(events, 0);
+        }
+        // handle got, outside the lock
+    }
 }
 ```
 
-`condition_variable::wait` exists in four flavours: with or without a
-mutex, and with or without a timeout (`wait_for(duration)` /
-`wait_until(time_point)`). The timed variants return an
-`opsy::cv_status`, mirroring `std::cv_status` from `<condition_variable>`.
-Unlike the standard, OpSy does **not** emit spurious wakeups, so the
-predicate-checking overloads are intentionally absent.
+The word of bits is what event flags are: several causes, set by the
+handler, taken all at once by the task. Two things make it correct, and
+both are easy to get wrong:
+
+- **The state is tested under the lock, in a loop, before waiting.** A
+  notification that comes before the task waits is not stored by the
+  condition variable: it is the flag that remembers it. OpSy emits no
+  spurious wakeups, but the loop is still what catches an event that came
+  first.
+- **The lock and the condition variable are at
+  `scheduler::os_callable_priority`.** The lock has to mask the handler,
+  or it could change the state between the test and the wait; and it must
+  not mask OpSy's own level, where the wait's service call is taken. A
+  handler using them has to run at that priority or below.
+
+`condition_variable::wait` exists with an `isr_lock`, with an
+`opsy::mutex` (between tasks), or with no lock at all, and each with a
+timeout (`wait_for(duration)` / `wait_until(time_point)`). The timed
+variants return an `opsy::cv_status`, mirroring `std::cv_status` from
+`<condition_variable>`.
 
 ### `opsy::critical_section`
 
@@ -343,6 +379,34 @@ OpSy's synchronization primitives normally, as long as the `isr_lock` or
 `condition_variable` they touch was constructed with an `isr_priority`
 that masks them -- and no more urgent than
 `scheduler::os_callable_priority`, the first level below OpSy's.
+
+### Raising an interrupt from software
+
+`cortex_m::set_pending(irq)` makes a handler run, and the usual reason is
+to hand it data written just before. Pending is a volatile store to the
+NVIC, and the compiler is allowed to move an ordinary store after a
+volatile one: the handler can then run on what was there before. Order the
+two with the standard's tool for a handler on the same core:
+
+```cpp
+std::atomic_signal_fence(std::memory_order_seq_cst);
+opsy::cortex_m::set_pending(irq);
+```
+
+Without it this is not a theoretical concern: at `-O2` GCC 14 moves the
+store past the pend, and the handler sees the previous value. In a real
+program a call to a function the compiler cannot see often happens to sit
+between the two and hide it; inlining and LTO take that away.
+
+The same holds, and more often, for data handed to the hardware: filling
+a buffer, then writing the register that starts a DMA or a peripheral. The
+writes to the buffer are ordinary, the start is volatile, and the compiler
+may put some of the former after the latter. There the hardware needs a
+`dsb` as well (`cortex_m::data_barrier()`), and on a core with a data cache
+the buffer cleaned to memory.
+
+`set_pending` and the other register accessors in `cortex_m` do not order
+anything for you: each does what it says and no more.
 
 ## License
 

@@ -53,7 +53,8 @@ CASES = {
         {
             (void) q.try_push(1);
             (void) q.try_emplace(2);
-            q.push(3);
+            (void) q.push(3);
+            q.close();
             (void) q.push_for(4, opsy::duration{1});
             (void) q.try_pop();
             (void) q.pop();

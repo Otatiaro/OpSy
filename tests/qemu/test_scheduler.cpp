@@ -411,7 +411,7 @@ int callable_from(opsy::isr_priority priority)
 	opsy::cortex_m::set_priority(irq, priority);
 	opsy::cortex_m::set_isr_handler(irq, &callable_probe_irq_handler);
 	opsy::cortex_m::enable_interrupt(irq);
-	opsy::cortex_m::set_pending(irq);
+	qemu_test::raise(irq);
 	opsy::sleep_for(2ms);
 	opsy::cortex_m::disable_interrupt(irq);
 	return g_callable_from_isr;

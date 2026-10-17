@@ -138,7 +138,7 @@ OPSY_QEMU_TEST(an_interrupt_handler_releasing_wakes_a_waiting_task)
 	opsy::sleep_for(5ms);
 	CHECK(g_acquired == 0);
 
-	opsy::cortex_m::set_pending(g_irq);
+	qemu_test::raise(g_irq);
 	for (int guard = 0; guard < 50 && g_acquired == 0; ++guard)
 		opsy::sleep_for(1ms);
 	CHECK(g_acquired == 1);
@@ -152,8 +152,8 @@ OPSY_QEMU_TEST(an_interrupt_handler_releasing_with_nobody_waiting_leaves_the_cou
 	reset();
 	CHECK(install_irq());
 
-	opsy::cortex_m::set_pending(g_irq);
-	opsy::cortex_m::set_pending(g_irq);   // pending is a flag: may coalesce into one
+	qemu_test::raise(g_irq);
+	qemu_test::raise(g_irq);   // pending is a flag: may coalesce into one
 	opsy::sleep_for(2ms);
 	CHECK(g_semaphore.try_acquire());
 

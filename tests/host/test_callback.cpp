@@ -90,9 +90,7 @@ OPSY_TEST(callback_invokes_and_returns)
 {
 	opsy::callback<int(int)> doubler;
 	doubler = [](int value) { return value * 2; };
-	const auto result = doubler(21);
-	CHECK(result.has_value());
-	CHECK(result.value_or(0) == 42);
+	CHECK(doubler(21) == 42);
 }
 
 OPSY_TEST(callback_move_assignment_also_destroys_the_previous_functor)
@@ -137,7 +135,7 @@ OPSY_TEST(callback_move_construction_moves_the_functor)
 {
 	opsy::callback<bool()> source = self_aware{};
 	opsy::callback<bool()> destination = std::move(source);
-	CHECK(destination() == std::optional<bool>{true});
+	CHECK(destination());
 	CHECK(!source);
 }
 
@@ -146,7 +144,7 @@ OPSY_TEST(callback_move_assignment_moves_the_functor)
 	opsy::callback<bool()> source = self_aware{};
 	opsy::callback<bool()> destination;
 	destination = std::move(source);
-	CHECK(destination() == std::optional<bool>{true});
+	CHECK(destination());
 	CHECK(!source);
 }
 
@@ -154,7 +152,7 @@ OPSY_TEST(callback_move_into_larger_storage_moves_the_functor)
 {
 	opsy::callback<bool()> source = self_aware{};
 	opsy::callback<bool(), 8> destination = std::move(source);
-	CHECK(destination() == std::optional<bool>{true});
+	CHECK(destination());
 }
 
 OPSY_TEST(callback_move_destroys_the_moved_from_functor)
@@ -171,6 +169,104 @@ OPSY_TEST(callback_move_destroys_the_moved_from_functor)
 	}
 	CHECK(g_alive == 0);
 	CHECK(g_destroyed == destroyed_before + 2);
+}
+
+// ───────────────── the interface of std::move_only_function ─────────────────
+
+int g_free_function_calls = 0;
+int counted() { return ++g_free_function_calls; }
+
+OPSY_TEST(an_unqualified_signature_takes_a_mutable_lambda_and_keeps_its_state)
+{
+	opsy::callback<int()> counter = [n = 0]() mutable { return ++n; };
+	CHECK(counter() == 1);
+	CHECK(counter() == 2);
+	CHECK(counter() == 3);
+}
+
+// What a signature accepts, decided at compile time as std::move_only_function
+// decides it: const asks for a const call, noexcept for a noexcept one.
+namespace accepts
+{
+using mutable_type = decltype([n = 0]() mutable { return ++n; });
+using const_type = decltype([] { return 1; });
+using noexcept_type = decltype([]() noexcept { return 1; });
+
+static_assert(std::is_constructible_v<opsy::callback<int()>, mutable_type>);
+static_assert(!std::is_constructible_v<opsy::callback<int() const>, mutable_type>);
+static_assert(std::is_constructible_v<opsy::callback<int() const>, const_type>);
+static_assert(!std::is_constructible_v<opsy::callback<int() noexcept>, const_type>);
+static_assert(std::is_constructible_v<opsy::callback<int() noexcept>, noexcept_type>);
+static_assert(noexcept(std::declval<opsy::callback<int() noexcept>&>()()));
+static_assert(!noexcept(std::declval<opsy::callback<int()>&>()()));
+static_assert(std::is_invocable_v<const opsy::callback<int() const>&>);
+static_assert(!std::is_invocable_v<const opsy::callback<int()>&>);
+static_assert(std::is_invocable_v<opsy::callback<int() &&>&&>);
+static_assert(!std::is_invocable_v<opsy::callback<int() &&>&>);
+static_assert(std::is_nothrow_move_constructible_v<opsy::callback<void()>>);
+}
+
+OPSY_TEST(an_rvalue_signature_calls_its_target_as_an_rvalue)
+{
+	struct consumable
+	{
+		int operator()() && { return 7; }
+		int operator()() & { return -1; }
+	};
+	opsy::callback<int() &&> once = consumable{};
+	CHECK(std::move(once)() == 7);
+}
+
+OPSY_TEST(nullptr_means_empty)
+{
+	opsy::callback<void()> from_null = nullptr;
+	CHECK(!from_null);
+	CHECK(from_null == nullptr);
+
+	reset_counters();
+	opsy::callback<void()> holding = tracked{ 1 };
+	CHECK(holding != nullptr);
+	holding = nullptr;              // empties, and destroys what it held
+	CHECK(!holding);
+	CHECK(g_alive == 0);
+}
+
+OPSY_TEST(a_null_function_pointer_gives_an_empty_callback)
+{
+	int (*none)() = nullptr;
+	opsy::callback<int()> from_none = none;
+	CHECK(!from_none);
+
+	opsy::callback<int()> from_function = &counted;
+	CHECK(from_function);
+	g_free_function_calls = 0;
+	CHECK(from_function() == 1);
+}
+
+OPSY_TEST(swap_exchanges_the_targets)
+{
+	opsy::callback<int()> one = [] { return 1; };
+	opsy::callback<int()> two = [] { return 2; };
+	swap(one, two);
+	CHECK(one() == 2);
+	CHECK(two() == 1);
+
+	opsy::callback<int()> empty;
+	one.swap(empty);
+	CHECK(!one);
+	CHECK(empty() == 2);
+}
+
+OPSY_TEST(a_target_can_be_constructed_in_place)
+{
+	struct adder
+	{
+		explicit adder(int a, int b) noexcept : sum(a + b) {}
+		int operator()() const { return sum; }
+		int sum;
+	};
+	opsy::callback<int() const> made(std::in_place_type<adder>, 2, 3);
+	CHECK(made() == 5);
 }
 
 } // namespace

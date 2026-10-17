@@ -106,7 +106,7 @@ bool install_handler()
 /** @brief Raises the IRQ, and returns once its handler has run. */
 void fire()
 {
-	opsy::cortex_m::set_pending(g_irq);
+	qemu_test::raise(g_irq);
 	// Any peripheral interrupt outranks every task, so the handler has run
 	// before this returns. The sleep lets the suite breathe; it is not what
 	// waits for the handler.

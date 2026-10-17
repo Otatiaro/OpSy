@@ -68,7 +68,7 @@ bool install_irq(void (*body)())
 /** @brief Raises the interrupt, and returns once its handler has run. */
 void fire()
 {
-	opsy::cortex_m::set_pending(g_irq);
+	qemu_test::raise(g_irq);
 	opsy::sleep_for(1ms);
 }
 
@@ -82,15 +82,15 @@ OPSY_QEMU_TEST(elements_come_out_in_the_order_they_went_in)
 {
 	for (uint32_t round = 0; round < 3; ++round)     // around the ring more than once
 	{
-		CHECK(g_order_queue.try_push(round * 10 + 1));
-		CHECK(g_order_queue.try_push(round * 10 + 2));
-		CHECK(g_order_queue.try_push(round * 10 + 3));
+		CHECK(g_order_queue.try_push(round * 10 + 1) == opsy::conqueue_status::success);
+		CHECK(g_order_queue.try_push(round * 10 + 2) == opsy::conqueue_status::success);
+		CHECK(g_order_queue.try_push(round * 10 + 3) == opsy::conqueue_status::success);
 		CHECK(g_order_queue.size() == 3);
 		CHECK(g_order_queue.try_pop() == round * 10 + 1);
 		CHECK(g_order_queue.try_pop() == round * 10 + 2);
 		CHECK(g_order_queue.try_pop() == round * 10 + 3);
 		CHECK(g_order_queue.empty());
-		CHECK(!g_order_queue.try_pop().has_value());
+		CHECK(g_order_queue.try_pop().error() == opsy::conqueue_status::empty);
 	}
 }
 
@@ -99,11 +99,11 @@ namespace { opsy::queue<uint32_t, 4> g_full_queue; }
 OPSY_QEMU_TEST(a_full_queue_refuses_and_counts_it)
 {
 	for (uint32_t i = 0; i < 4; ++i)
-		CHECK(g_full_queue.try_push(i));
+		CHECK(g_full_queue.try_push(i) == opsy::conqueue_status::success);
 	CHECK(g_full_queue.size() == 4);
 
-	CHECK(!g_full_queue.try_push(99u));
-	CHECK(!g_full_queue.try_emplace(98u));
+	CHECK(g_full_queue.try_push(99u) == opsy::conqueue_status::full);
+	CHECK(g_full_queue.try_emplace(98u) == opsy::conqueue_status::full);
 	CHECK(g_full_queue.dropped() == 2);
 	CHECK(g_full_queue.high_water() == 4);
 
@@ -119,10 +119,10 @@ OPSY_QEMU_TEST(high_water_is_the_fullest_it_got)
 {
 	CHECK(g_water_queue.high_water() == 0);
 	for (uint32_t i = 0; i < 3; ++i)
-		CHECK(g_water_queue.try_push(i));
+		CHECK(g_water_queue.try_push(i) == opsy::conqueue_status::success);
 	for (int i = 0; i < 3; ++i)
 		(void) g_water_queue.try_pop();
-	CHECK(g_water_queue.try_push(7u));
+	CHECK(g_water_queue.try_push(7u) == opsy::conqueue_status::success);
 	(void) g_water_queue.try_pop();
 	CHECK(g_water_queue.high_water() == 3);
 	CHECK(g_water_queue.dropped() == 0);
@@ -135,13 +135,13 @@ namespace { opsy::queue<uint32_t, 4> g_pop_queue; }
 OPSY_QEMU_TEST(pop_waits_for_the_producer)
 {
 	g_got = 0;
-	CHECK(g_consumer.start([] { g_values[0] = g_pop_queue.pop(); g_got = 1; }, "consumer"));
+	CHECK(g_consumer.start([] { g_values[0] = *g_pop_queue.pop(); g_got = 1; }, "consumer"));
 	g_consumer.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_got == 0);                 // nothing to take: waiting
 
-	CHECK(g_pop_queue.try_push(42u));  // the consumer outranks the runner: runs here
+	CHECK(g_pop_queue.try_push(42u) == opsy::conqueue_status::success);  // the consumer outranks the runner: runs here
 	CHECK(g_got == 1);
 	CHECK(g_values[0] == 42u);
 
@@ -181,12 +181,12 @@ namespace { opsy::queue<uint32_t, 2> g_timeout_queue; }
 OPSY_QEMU_TEST(waits_that_run_out_report_it)
 {
 	const auto start = opsy::scheduler::now();
-	CHECK(!g_timeout_queue.pop_for(10ms).has_value());
+	CHECK(g_timeout_queue.pop_for(10ms).error() == opsy::conqueue_status::empty);
 	CHECK(opsy::scheduler::now() - start >= 10ms);
 
-	CHECK(g_timeout_queue.try_push(1u));
-	CHECK(g_timeout_queue.try_push(2u));
-	CHECK(!g_timeout_queue.push_for(3u, 10ms));
+	CHECK(g_timeout_queue.try_push(1u) == opsy::conqueue_status::success);
+	CHECK(g_timeout_queue.try_push(2u) == opsy::conqueue_status::success);
+	CHECK(g_timeout_queue.push_for(3u, 10ms) == opsy::conqueue_status::full);
 	CHECK(g_timeout_queue.dropped() == 0);   // a wait that ran out is not a refusal
 	CHECK(g_timeout_queue.size() == 2);
 
@@ -212,7 +212,7 @@ OPSY_QEMU_TEST(an_interrupt_handler_feeds_a_waiting_task)
 	{
 		for (int i = 0; i < 6; ++i)
 		{
-			g_values[i] = g_from_isr.pop();
+			g_values[i] = *g_from_isr.pop();
 			g_got = i + 1;
 		}
 	}, "consumer"));
@@ -265,10 +265,10 @@ OPSY_QEMU_TEST(a_task_feeds_an_interrupt_handler)
 			g_isr_values[g_isr_got++] = *value;
 	}));
 
-	CHECK(g_to_isr.try_push(7u));
-	CHECK(g_to_isr.try_push(8u));
+	CHECK(g_to_isr.try_push(7u) == opsy::conqueue_status::success);
+	CHECK(g_to_isr.try_push(8u) == opsy::conqueue_status::success);
 	fire();
-	CHECK(g_to_isr.try_push(9u));
+	CHECK(g_to_isr.try_push(9u) == opsy::conqueue_status::success);
 	fire();
 
 	CHECK(g_isr_got == 3);
@@ -306,9 +306,9 @@ OPSY_QEMU_TEST(elements_are_moved_in_moved_out_and_destroyed)
 	g_alive = 0;
 	{
 		opsy::queue<owner, 4> local;
-		CHECK(local.try_emplace(1u));
-		CHECK(local.try_push(owner{ 2u }));
-		CHECK(local.try_emplace(3u));
+		CHECK(local.try_emplace(1u) == opsy::conqueue_status::success);
+		CHECK(local.try_push(owner{ 2u }) == opsy::conqueue_status::success);
+		CHECK(local.try_emplace(3u) == opsy::conqueue_status::success);
 		CHECK(g_alive == 3);                 // the temporary is gone, the three stored remain
 
 		{
@@ -335,7 +335,7 @@ OPSY_QEMU_TEST(work_posted_by_an_interrupt_handler_runs_in_a_task)
 	CHECK(g_consumer.start([]
 	{
 		for (int i = 0; i < 3; ++i)
-			g_work.pop()();
+			(*g_work.pop())();
 	}, "worker"));
 	g_consumer.priority(opsy::task_priority::highest);
 
@@ -348,5 +348,69 @@ OPSY_QEMU_TEST(work_posted_by_an_interrupt_handler_runs_in_a_task)
 	CHECK(g_jobs_done == 3);
 
 	g_isr_body = nullptr;
+	stop_all();
+}
+
+// ───────────────────────────────── close ───────────────────────────────────
+
+namespace { opsy::queue<uint32_t, 4> g_closed_queue; }
+
+OPSY_QEMU_TEST(a_closed_queue_refuses_pushes_and_hands_out_what_it_still_holds)
+{
+	CHECK(!g_closed_queue.is_closed());
+	CHECK(g_closed_queue.try_push(1u) == opsy::conqueue_status::success);
+	CHECK(g_closed_queue.try_push(2u) == opsy::conqueue_status::success);
+
+	g_closed_queue.close();
+	CHECK(g_closed_queue.is_closed());
+	CHECK(g_closed_queue.try_push(3u) == opsy::conqueue_status::closed);
+	CHECK(!g_closed_queue.push(4u));
+	CHECK(g_closed_queue.dropped() == 0);           // a closed queue does not count as full
+
+	CHECK(g_closed_queue.try_pop() == 1u);          // what was in it is still popped
+	CHECK(g_closed_queue.pop() == 2u);
+	CHECK(g_closed_queue.try_pop().error() == opsy::conqueue_status::closed);
+	CHECK(!g_closed_queue.pop().has_value());       // closed and empty: does not wait
+	g_closed_queue.close();                         // and closing twice is harmless
+}
+
+namespace { opsy::queue<uint32_t, 4> g_close_wakes_consumer; }
+
+OPSY_QEMU_TEST(closing_wakes_a_consumer_waiting_on_an_empty_queue)
+{
+	g_state = 0;
+	CHECK(g_consumer.start([] { g_state = g_close_wakes_consumer.pop().has_value() ? 1 : 2; }, "consumer"));
+	g_consumer.priority(opsy::task_priority::highest);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_state == 0);                  // waiting
+
+	g_close_wakes_consumer.close();       // the consumer outranks the runner: runs here
+	CHECK(g_state == 2);                  // woken with nothing
+
+	stop_all();
+}
+
+namespace { opsy::queue<uint32_t, 2> g_close_wakes_producer; }
+
+OPSY_QEMU_TEST(closing_wakes_a_producer_waiting_on_a_full_queue)
+{
+	g_state = 0;
+	CHECK(g_producer.start([]
+	{
+		(void) g_close_wakes_producer.push(1u);
+		(void) g_close_wakes_producer.push(2u);
+		g_state = g_close_wakes_producer.push(3u) ? 1 : 2;   // waits for a place
+	}, "producer"));
+	g_producer.priority(opsy::task_priority::highest);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_state == 0);
+	CHECK(g_close_wakes_producer.size() == 2);
+
+	g_close_wakes_producer.close();
+	CHECK(g_state == 2);                  // gave up, stored nothing
+	CHECK(g_close_wakes_producer.size() == 2);
+
 	stop_all();
 }

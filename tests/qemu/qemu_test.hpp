@@ -74,6 +74,18 @@ inline constexpr unsigned no_irq = 0xFFFFFFFFu;
  */
 unsigned find_usable_irq();
 
+/**
+ * @brief Pends @p irq, with everything written before visible to its handler
+ *
+ *        Setting an interrupt pending is a volatile store to the NVIC, and the
+ *        compiler may move an ordinary store -- the data the handler is about
+ *        to read -- after it. The signal fence is the standard's way to order
+ *        memory with a handler running on the same core; set_pending does not
+ *        do it, and should not have to. See the README's note on raising an
+ *        interrupt from software.
+ */
+void raise(unsigned irq);
+
 /** @brief The idle task the suite starts the scheduler with. */
 opsy::idle_task_control_block& idle();
 

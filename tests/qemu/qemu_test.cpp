@@ -13,6 +13,8 @@
 
 #include <opsy.hpp>
 
+#include <atomic>
+
 namespace qemu_test
 {
 namespace
@@ -115,6 +117,12 @@ opsy::task<2048>      g_runner;
 opsy::idle_task<256>  g_idle;
 
 } // namespace
+
+void qemu_test::raise(unsigned irq)
+{
+	std::atomic_signal_fence(std::memory_order_seq_cst);
+	opsy::cortex_m::set_pending(irq);
+}
 
 opsy::idle_task_control_block& qemu_test::idle()
 {

@@ -418,7 +418,7 @@ OPSY_QEMU_TEST(the_high_water_can_be_read_from_an_interrupt_handler)
 	opsy::cortex_m::set_priority(g_hw_irq, opsy::scheduler::os_callable_priority);
 	opsy::cortex_m::set_isr_handler(g_hw_irq, &measure_from_isr);
 	opsy::cortex_m::enable_interrupt(g_hw_irq);
-	opsy::cortex_m::set_pending(g_hw_irq);
+	qemu_test::raise(g_hw_irq);
 	opsy::sleep_for(2ms);
 	opsy::cortex_m::disable_interrupt(g_hw_irq);
 

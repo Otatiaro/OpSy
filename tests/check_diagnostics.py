@@ -78,6 +78,25 @@ CASES = [
         """,
         "control": ("alignas(8)", "alignas(4)"),
     },
+    {
+        "name": "a memory-mapped register wider than the core can access atomically",
+        "expect": "TInt is not lock-free on this target",
+        "source": """
+            #include <utility/memory.hpp>
+            #include <cstdint>
+
+            struct reg
+            {
+                uint64_t v_;
+                constexpr reg(uint64_t value = 0) : v_{value} {}
+                constexpr uint64_t value() const { return v_; }
+                constexpr operator uint64_t() const { return v_; }
+            };
+
+            [[gnu::used]] opsy::utility::memory<uint64_t, reg> g_register;
+        """,
+        "control": ("uint64_t", "uint32_t"),
+    },
 ]
 
 

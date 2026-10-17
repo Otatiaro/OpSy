@@ -39,6 +39,41 @@
  *          @c opsy::detail::memory_register (in @c cortex_m.hpp ), which holds an address rather
  *          than a value.
  *
+ * @par What @c atomic protects against
+ *
+ *          An atomic update is a load-exclusive / store-exclusive loop: the
+ *          store only happens if nothing broke the core's exclusive monitor
+ *          since the load, and is retried otherwise. Exception entry and exit
+ *          clear the monitor, so an interrupt handler or a task switch landing
+ *          in between makes the store fail and the update start again. The
+ *          update is therefore atomic against every other task and handler on
+ *          the core, and lock-free: one that keeps retrying holds up only
+ *          itself, never masks anything.
+ *
+ *          It is not atomic against another bus master. A DMA write to the
+ *          same register between the load and the store does not touch the
+ *          core's monitor; the store succeeds and the DMA write is lost. Nor
+ *          against the peripheral itself, which updates its own bits whenever
+ *          it does.
+ *
+ * @par Where the architecture leaves it to the device
+ *
+ *          Peripheral registers are Device memory. Armv7-M asks for exclusive
+ *          accesses to target Normal memory only (DDI 0403E.e, A3.4.5).
+ *          Armv8-M treats Device memory as always shareable (DDI 0553B.h,
+ *          RYMTK), so a store-exclusive to it also goes through the global
+ *          monitor, whose existence and coverage are left to the system
+ *          (B8.3); where there is none, the architecture allows a fault, a
+ *          no-op or an UNKNOWN status. Whether @c atomic works on a given
+ *          device is therefore a property of that device, to be checked on it.
+ *
+ *          Checked on STM32H563 (Cortex-M33), on APB1, AHB2 and AHB3
+ *          registers, debug and release: no fault, the store-exclusive fails
+ *          every time an interrupt is taken between load and store, and an
+ *          interrupt toggling another bit of the register at about 450 kHz
+ *          loses none of its updates to an atomic read-modify-write running
+ *          against it, where a plain one loses thousands.
+ *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
  *
@@ -156,6 +191,7 @@ class memory
 	static_assert(std::is_integral_v<TInt>);
 	static_assert(sizeof(TReg) == sizeof(TInt));
 	static_assert(std::is_convertible_v<TInt, TReg>);
+	static_assert(std::atomic<TInt>::is_always_lock_free, "TInt is not lock-free on this target: every access would go through libatomic, and a register must be accessed in one instruction");
 
 public:
 
@@ -237,6 +273,7 @@ class read_only_memory
 	static_assert(std::is_integral_v<TInt>);
 	static_assert(sizeof(TReg) == sizeof(TInt));
 	static_assert(std::is_convertible_v<TInt, TReg>);
+	static_assert(std::atomic<TInt>::is_always_lock_free, "TInt is not lock-free on this target: every access would go through libatomic, and a register must be accessed in one instruction");
 
 public:
 
@@ -263,6 +300,7 @@ class write_only_memory
 	static_assert(std::is_integral_v<TInt>);
 	static_assert(sizeof(TReg) == sizeof(TInt));
 	static_assert(std::is_convertible_v<TInt, TReg>);
+	static_assert(std::atomic<TInt>::is_always_lock_free, "TInt is not lock-free on this target: every access would go through libatomic, and a register must be accessed in one instruction");
 
 public:
 

@@ -77,6 +77,9 @@ enum class cv_status
 template<std::ptrdiff_t LeastMaxValue>
 class counting_semaphore;
 
+template<typename T, std::size_t Capacity>
+class queue;
+
 /**
  * @brief A condition variable.
  * It is used to synchronize a @c task with either one or multiple @c task and/or interrupt service routines
@@ -87,9 +90,12 @@ class condition_variable
 {
 	friend class scheduler;
 
-	// Reads waiting_list_ to skip the lock when nobody waits; see release().
+	// Both read waiting_list_ to skip the lock when nobody waits; see
+	// counting_semaphore::release().
 	template<std::ptrdiff_t LeastMaxValue>
 	friend class counting_semaphore;
+	template<typename T, std::size_t Capacity>
+	friend class queue;
 
 public:
 

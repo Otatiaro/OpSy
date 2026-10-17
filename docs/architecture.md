@@ -4,7 +4,7 @@ How the scheduler actually works: which exception does what, what the
 three lists hold, and how a task moves between them.
 
 This is the document to read before changing anything in `scheduler.cpp`,
-`scheduler_inl.hpp` or `task.hpp`. The public API is covered by the
+`scheduler.hpp` or `task.hpp`. The public API is covered by the
 [top-level README](../README.md); this one is about the inside.
 
 ## The shape of it

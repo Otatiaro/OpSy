@@ -51,12 +51,53 @@ CASES = [
             static opsy::utility::routine_storage<24> g_storage;
             extern "C" void use() { auto r = demo(g_storage, 3); r.resume(); }
         """,
+        # The same snippet with storage large enough, to show the diagnostic
+        # is about the size and not about something the snippet does wrong.
+        "control": ("routine_storage<24>", "routine_storage<256>"),
+    },
+    {
+        "name": "a callable larger than the callback storage",
+        "expect": "Cannot store the invokable in the callback",
+        "source": """
+            #include <callback.hpp>
+            #include <cstdint>
+
+            struct two_words { uint32_t a; uint32_t b; void operator()() const {} };
+            extern "C" void use() { opsy::callback<void(), 1> c = two_words{}; c(); }
+        """,
+        "control": ("callback<void(), 1>", "callback<void(), 2>"),
+    },
+    {
+        "name": "a callable needing more alignment than the callback storage",
+        "expect": "needs more alignment than the callback storage provides",
+        "source": """
+            #include <callback.hpp>
+
+            struct alignas(8) wide { unsigned char bytes[8]; void operator()() const {} };
+            extern "C" void use() { opsy::callback<void(), 4> c = wide{}; c(); }
+        """,
+        "control": ("alignas(8)", "alignas(4)"),
+    },
+    {
+        "name": "a memory-mapped register wider than the core can access atomically",
+        "expect": "TInt is not lock-free on this target",
+        "source": """
+            #include <utility/memory.hpp>
+            #include <cstdint>
+
+            struct reg
+            {
+                uint64_t v_;
+                constexpr reg(uint64_t value = 0) : v_{value} {}
+                constexpr uint64_t value() const { return v_; }
+                constexpr operator uint64_t() const { return v_; }
+            };
+
+            [[gnu::used]] opsy::utility::memory<uint64_t, reg> g_register;
+        """,
+        "control": ("uint64_t", "uint32_t"),
     },
 ]
-
-# The same snippet with storage large enough, to show the diagnostic is about
-# the size and not about something the snippet does wrong in general.
-CONTROL_STORAGE = 256
 
 
 def compile_snippet(compiler: str, flags: list[str], root: Path, source: str) -> tuple[int, str]:
@@ -94,16 +135,16 @@ def main() -> int:
                 f"  expected the error to mention: {case['expect']}\n"
                 f"  got:\n{output}")
 
-        # The control: the same code with room to spare has to build, or the
-        # case above proves nothing about the size.
-        control = case["source"].replace("routine_storage<24>", f"routine_storage<{CONTROL_STORAGE}>")
-        status, output = compile_snippet(compiler, flags, root_path, control)
+        # The control: the same code without the one thing the diagnostic is
+        # about has to build, or the case above proves nothing about it.
+        before, after = case["control"]
+        assert before in case["source"], case["name"]
+        status, output = compile_snippet(compiler, flags, root_path, case["source"].replace(before, after))
 
         if status != 0:
             failures.append(
-                f"{case['name']}: the control, with storage of {CONTROL_STORAGE} bytes, "
-                f"does not compile either -- so the diagnostic above says nothing "
-                f"about the size:\n{output}")
+                f"{case['name']}: the control ({before} -> {after}) does not compile "
+                f"either -- so the diagnostic above says nothing about it:\n{output}")
 
     if failures:
         print("\n\n".join(failures), file=sys.stderr)

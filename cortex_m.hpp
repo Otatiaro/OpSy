@@ -48,7 +48,10 @@
 #include "config.hpp"
 #include "isr_priority.hpp"
 
-namespace
+// Named rather than anonymous: the inline functions of opsy::cortex_m use it,
+// and an inline function defined in every translation unit must refer to the
+// same entity in each of them.
+namespace opsy::detail
 {
 
 template<typename Type>
@@ -110,6 +113,7 @@ private:
 	memory_register& operator=(const memory_register& other) = delete;
 
 };
+
 }
 
 namespace opsy
@@ -251,7 +255,7 @@ public:
 	 */
 	static core_type type()
 	{
-		const auto cpuid = memory_register<uint32_t>(ScbCpuidAddress).get();
+		const auto cpuid = detail::memory_register<uint32_t>(ScbCpuidAddress).get();
 		return static_cast<core_type>((cpuid >> CpuidPartNoPos) & CpuidPartNoMask);
 	}
 
@@ -283,10 +287,10 @@ public:
 	{
 		assert(reload != 0);
 		assert(reload - 1 <= SystickReloadMask);
-		memory_register<uint32_t>(SystickCtrlAddress).set(0); // stop timer in case it was already started
-		memory_register<uint32_t>(SystickLoadAddress).set(reload - 1); // set the reload value
-		memory_register<uint32_t>(SystickValAddress).set(0); // reset the counter
-		memory_register<uint32_t>(SystickCtrlAddress).set(SystickCtrlClkSource | SystickCtrlTickInt | SystickCtrlEnable); // and start the timer
+		detail::memory_register<uint32_t>(SystickCtrlAddress).set(0); // stop timer in case it was already started
+		detail::memory_register<uint32_t>(SystickLoadAddress).set(reload - 1); // set the reload value
+		detail::memory_register<uint32_t>(SystickValAddress).set(0); // reset the counter
+		detail::memory_register<uint32_t>(SystickCtrlAddress).set(SystickCtrlClkSource | SystickCtrlTickInt | SystickCtrlEnable); // and start the timer
 	}
 
 	/**
@@ -296,7 +300,7 @@ public:
 	 */
 	static uint32_t systick_count()
 	{
-		return memory_register<uint32_t>(SystickLoadAddress).get() - memory_register<uint32_t>(SystickValAddress).get();
+		return detail::memory_register<uint32_t>(SystickLoadAddress).get() - detail::memory_register<uint32_t>(SystickValAddress).get();
 	}
 
 	/**
@@ -307,17 +311,22 @@ public:
 	static void enable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		memory_register<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
 	 * @brief Disables a peripheral interrupt
 	 * @param irq The interrupt request to disable
+	 * @remark The interrupt cannot be taken once this returns: the @c dsb
+	 *         completes the write, the @c isb keeps the next instructions
+	 *         from running ahead of it.
 	 */
 	static void disable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		memory_register<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		data_barrier();
+		instruction_barrier();
 	}
 
 	/**
@@ -328,7 +337,7 @@ public:
 	static bool is_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -338,7 +347,7 @@ public:
 	static void set_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -348,7 +357,7 @@ public:
 	static void clear_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		memory_register<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -356,7 +365,7 @@ public:
 	 */
 	static inline void instruction_barrier()
 	{
-		asm volatile("isb");
+		asm volatile("isb" : : : "memory");
 	}
 
 	/**
@@ -364,7 +373,7 @@ public:
 	 */
 	static inline void data_barrier()
 	{
-		asm volatile("dsb");
+		asm volatile("dsb" : : : "memory");
 	}
 
 	/**
@@ -375,7 +384,7 @@ public:
 	static bool is_active(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (memory_register<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (detail::memory_register<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -386,7 +395,7 @@ public:
 	static void set_priority(uint32_t irq, isr_priority priority)
 	{
 		assert(irq <= MaxIrq);
-		memory_register<uint8_t>(NvicIpAddress + irq).set(priority.value());
+		detail::memory_register<uint8_t>(NvicIpAddress + irq).set(priority.value());
 	}
 
 	/**
@@ -397,7 +406,7 @@ public:
 	static isr_priority priority(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return isr_priority(memory_register<uint8_t>(NvicIpAddress + irq).get());
+		return isr_priority(detail::memory_register<uint8_t>(NvicIpAddress + irq).get());
 	}
 
 	/**
@@ -416,7 +425,7 @@ public:
 		case system_irq::pend_sv:
 		case system_irq::systick:
 			// ScbShpAddress + irq is SHPR1 + (irq - 4), valid for exceptions 4 to 15 only
-			memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
+			detail::memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).set(priority.value());
 			break;
 		case system_irq::initial_sp:
 		case system_irq::reset:
@@ -444,7 +453,7 @@ public:
 		case system_irq::pend_sv:
 		case system_irq::systick:
 			// ScbShpAddress + irq is SHPR1 + (irq - 4), valid for exceptions 4 to 15 only
-			return isr_priority(memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
+			return isr_priority(detail::memory_register<uint8_t>(ScbShpAddress + static_cast<uint32_t>(irq)).get());
 		case system_irq::initial_sp:
 		case system_irq::reset:
 		case system_irq::non_maskable_interrupt:
@@ -487,17 +496,21 @@ public:
 	 */
 	[[noreturn]] static void reset()
 	{
-		memory_register<uint32_t>(AircrAddress).set(AircrVectkeyValue | AircrSysreset);
+		detail::memory_register<uint32_t>(AircrAddress).set(AircrVectkeyValue | AircrSysreset);
 		while (true) {} // wait for the reset to take effect; never reached in practice
 	}
 
 	/**
 	 * @brief Gets the current interrupt handler vector
 	 * @return The current interrupt handler vector
+	 * @remark Volatile because the core reads it when an exception is taken:
+	 *         installing a handler then enabling its interrupt must stay in
+	 *         that order, which the language only guarantees between volatile
+	 *         accesses.
 	 */
-	static isr_handler_t* vtor()
+	static isr_handler_t volatile* vtor()
 	{
-		return reinterpret_cast<isr_handler_t*>(memory_register<uint32_t>(ScbVtorAddress).get());
+		return reinterpret_cast<isr_handler_t volatile*>(detail::memory_register<uint32_t>(ScbVtorAddress).get());
 	}
 
 	/**
@@ -514,7 +527,9 @@ public:
 		for (auto i = 0u; i < copy_size; ++i)
 			new_vtor[i] = vtor()[i];
 
-		memory_register<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
+		data_barrier(); // the copied entries are in memory before the table is used
+		detail::memory_register<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
+		data_barrier(); // the next exception is vectored through the new table
 	}
 
 	/**
@@ -538,7 +553,7 @@ public:
 		case system_irq::initial_sp:
 		default:
 			assert(false);
-			return 0;
+			return nullptr;
 		}
 	}
 
@@ -572,7 +587,10 @@ public:
 	static void set_isr_handler(system_irq irq, isr_handler_t handler)
 	{
 		if (isr_handler(irq) != handler)
+		{
 			vtor()[static_cast<std::size_t>(irq)] = handler;
+			data_barrier(); // written before the exception can be taken through it
+		}
 	}
 
 	/**
@@ -586,7 +604,10 @@ public:
 	{
 		assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
+		{
 			vtor()[irq + system_irqs_count] = handler;
+			data_barrier(); // written before the exception can be taken through it
+		}
 	}
 
 	/**
@@ -709,7 +730,12 @@ public:
 	 */
 	static void set_control(uint32_t control) __attribute__((always_inline))
 	{
-		asm volatile("msr control, %0" : : "r" (control) : "memory");
+		// The isb is what makes the new stack pointer and privilege level
+		// apply to the instructions that follow.
+		asm volatile(
+				"msr control, %0 \n\t"
+				"isb"
+				: : "r" (control) : "memory");
 	}
 
 	/**
@@ -725,10 +751,16 @@ public:
 
 	/**
 	 * @brief Triggers the pending state for system interrupt @c PendSV
+	 * @remark PendSV is taken before the next instruction whenever its priority
+	 *         allows: a task blocking on a mutex relies on not running a single
+	 *         instruction further. The architecture guarantees that only after
+	 *         a @c dsb completes the write and an @c isb refetches.
 	 */
 	static inline void trigger_pend_sv()
 	{
-		memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
+		detail::memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
+		data_barrier();
+		instruction_barrier();
 	}
 
 	/**
@@ -736,7 +768,7 @@ public:
 	 */
 	static inline void clear_pend_sv()
 	{
-		memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
+		detail::memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
 	}
 
 	/**
@@ -804,7 +836,7 @@ public:
 	[[gnu::always_inline]] static void enable_fpu()
 	{
 		static_assert(Enable, "enable_fpu() requires a hardware FPU; do not call on cores without one (e.g. Cortex-M3)");
-		memory_register<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
+		detail::memory_register<uint32_t>(ScbCpacrAddress).set(ScbCpacrEnableFpu);
 		data_barrier();
 		instruction_barrier();
 	}
@@ -822,21 +854,21 @@ public:
 
 		if constexpr(sizeof(T) == 1)
 		{
-			asm volatile("ldrexb %[result], [%[ptr]]"
+			asm volatile("ldrexb %[result], %[word]"
 			: [result] "=r" (result)
-			: [ptr] "r" (ptr));
+			: [word] "Q" (*ptr));
 		}
 		else if constexpr(sizeof(T) == 2)
 		{
-			asm volatile("ldrexh %[result], [%[ptr]]"
+			asm volatile("ldrexh %[result], %[word]"
 			: [result] "=r" (result)
-			: [ptr] "r" (ptr));
+			: [word] "Q" (*ptr));
 		}
 		else if constexpr(sizeof(T) == 4)
 		{
-			asm volatile("ldrex %[result], [%[ptr]]"
+			asm volatile("ldrex %[result], %[word]"
 			: [result] "=r" (result)
-			: [ptr] "r" (ptr));
+			: [word] "Q" (*ptr));
 		}
 		else
 		{
@@ -859,21 +891,21 @@ public:
 
 	    if constexpr(sizeof(T) == 1)
 	    {
-			asm volatile("strexb %[result], %[value], [%[ptr]]"
-			: [result] "=r" (result)
-			: [ptr] "r" (ptr), [value] "r" (value));
+			asm volatile("strexb %[result], %[value], %[word]"
+			: [result] "=&r" (result), [word] "+Q" (*ptr)
+			: [value] "r" (value));
 			}
 	    else if constexpr(sizeof(T) == 2)
 	    {
-			asm volatile("strexh %[result], %[value], [%[ptr]]"
-			: [result] "=r" (result)
-			: [ptr] "r" (ptr), [value] "r" (value));
+			asm volatile("strexh %[result], %[value], %[word]"
+			: [result] "=&r" (result), [word] "+Q" (*ptr)
+			: [value] "r" (value));
 			}
 	    else if constexpr(sizeof(T) == 4)
 	    {
-			asm volatile("strex %[result], %[value], [%[ptr]]"
-			: [result] "=r" (result)
-			: [ptr] "r" (ptr), [value] "r" (value));
+			asm volatile("strex %[result], %[value], %[word]"
+			: [result] "=&r" (result), [word] "+Q" (*ptr)
+			: [value] "r" (value));
 			}
 	    else
 	    {
@@ -885,12 +917,12 @@ public:
 
 	static inline uint32_t cycle_count()
 	{
-		return memory_register<uint32_t>(CycCntAddress).get();
+		return detail::memory_register<uint32_t>(CycCntAddress).get();
 	}
 
 	static inline void cycle_count(uint32_t value)
 	{
-		memory_register<uint32_t>(CycCntAddress).set(value);
+		detail::memory_register<uint32_t>(CycCntAddress).set(value);
 	}
 
 private:
@@ -961,13 +993,13 @@ private:
 
 	static uint8_t priority_grouping()
 	{
-		return static_cast<uint8_t>((memory_register<uint32_t>(AircrAddress).get() & AircrPrigroupMsk) >> AircrPrigroupPos);
+		return static_cast<uint8_t>((detail::memory_register<uint32_t>(AircrAddress).get() & AircrPrigroupMsk) >> AircrPrigroupPos);
 	}
 
 	static void priority_grouping(uint8_t value)
 	{
 		assert(value <= prigroup_max);
-		memory_register<uint32_t>(AircrAddress).set((memory_register<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
+		detail::memory_register<uint32_t>(AircrAddress).set((detail::memory_register<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
 	}
 };
 }

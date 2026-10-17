@@ -149,6 +149,14 @@ at it, then hands over to `scheduler::start`. Cases run from an OpSy
 task, so they can block, sleep, and start or stop other tasks. I/O is
 ARM semihosting — no UART, no C library.
 
+Time is instruction-counted (`-icount shift=5`, 32 ns an instruction,
+close to the 25 MHz the image declares), not taken from the host clock.
+Several cases race a task against a deadline, and with wall-clock time
+how much a task got done per tick depended on how busy the machine
+running QEMU was: a slow CI runner failed them, a fast workstation never
+did. Counted, a run is the same every time, on every machine. The suite
+starts failing on throughput from `shift=8`, eight times slower.
+
 Cases run back to back on one runner task, so each must leave the system
 as it found it: no task left started, no mutex left locked. The runner
 raises itself to `task_priority::high` once running; tasks start at

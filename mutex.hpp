@@ -32,6 +32,7 @@
 
 #include "opsy_assert.hpp"
 #include "embedded_list.hpp"
+#include "scheduler.hpp"
 
 namespace opsy
 {
@@ -147,5 +148,84 @@ private:
 	// Nothing is stored twice, so nothing can disagree.
 	task_control_block* owner_ = nullptr;
 };
+
+/**
+ * @brief Acquires the mutex, blocking until it is free
+ *
+ * @remark No service call. Masking to @c service_call_priority is enough and
+ *         is what every other writer of the scheduler's mutex state already
+ *         does — see the note on service calls in @c docs/architecture.md .
+ *         The scheduler's critical section alone would *not* be: it masks
+ *         nothing, so SysTick could run @c resume_waiter and hand the same
+ *         mutex to a timing-out waiter in the middle of the check.
+ */
+inline void mutex::lock()
+{
+	assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
+	assert(scheduler::is_os_callable());
+
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+
+	auto* self = scheduler::current_task();
+	assert(self != nullptr);
+	assert(owner_ != self);                   // not recursive, like std::mutex
+
+	if (owner_ == nullptr)
+	{
+		scheduler::take_mutex(*this, *self);
+		cortex_m::set_basepri(previous);
+		return;
+	}
+
+	// Held: block on it. do_switch() only leaves the caller out of ready_ if
+	// current_task_ is already cleared, which is how a task suspends itself
+	// without a handler.
+	scheduler::block_on(*this, *self);
+	scheduler::clear_current_task();
+	scheduler::do_switch();
+
+	cortex_m::set_basepri(previous);          // PendSV runs here, and this task
+	                                          // resumes below owning the mutex
+	assert(owner_ == scheduler::current_task());
+}
+
+/**
+ * @brief Acquires the mutex if it is free, without blocking
+ */
+inline bool mutex::try_lock()
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(scheduler::is_os_callable());
+
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+
+	auto* self = scheduler::current_task();
+	assert(self != nullptr);
+	assert(owner_ != self);                   // not recursive
+
+	const bool taken = owner_ == nullptr;
+	if (taken)
+		scheduler::take_mutex(*this, *self);
+
+	cortex_m::set_basepri(previous);
+	return taken;
+}
+
+/**
+ * @brief Releases the mutex and hands it to the highest-priority waiter
+ */
+inline void mutex::unlock()
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(scheduler::is_os_callable());
+
+	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
+
+	scheduler::release_mutex(*this, *scheduler::current_task());
+	scheduler::do_switch();                   // a woken waiter may outrank us
+
+	cortex_m::set_basepri(previous);
+}
 
 }

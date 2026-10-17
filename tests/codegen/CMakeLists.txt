@@ -59,16 +59,11 @@ set_target_properties(opsy_codegen PROPERTIES
 target_compile_options(opsy_codegen PRIVATE
     ${OPSY_CPU_FLAGS}
     -O2 -DNDEBUG -fno-lto
-    -Wall -Werror -Wpedantic -Wextra
-    -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference
-    -Wconversion -Wsign-conversion -Wdouble-promotion
-    -Wno-psabi
     -fno-exceptions -fno-rtti
 )
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(opsy_codegen PRIVATE -Wlogical-op -Wduplicated-cond -Wduplicated-branches)
-endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/../warnings.cmake)
+opsy_strict_warnings(opsy_codegen)
 
 # objdump sits next to the compiler; derive it rather than assuming a PATH.
 get_filename_component(OPSY_TOOLCHAIN_BIN ${CMAKE_CXX_COMPILER} DIRECTORY)

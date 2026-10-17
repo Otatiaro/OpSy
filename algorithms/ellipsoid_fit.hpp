@@ -222,8 +222,8 @@ public:
 		if (count_ < minimum_samples)
 			return std::nullopt;
 
-		// 1. Solve normal equations: v = inverse(DᵀD) * sums.
-		const utility::vector<9, T> v = dtd_.inverse() * sums_;
+		// 1. Solve the normal equations: DᵀD · v = sums.
+		const utility::vector<9, T> v = dtd_.solve(sums_);
 		if (!all_finite(v)) // singular DᵀD: not enough independent samples
 			return std::nullopt;
 
@@ -262,7 +262,7 @@ public:
 		// 5. Normalise the upper-left 3x3 of the centred quadric by the
 		//    constant term so that its eigenvalues are 1 / (semi-axis)² .
 		const T ratio = -centred(3, 3);
-		if (ratio == T{0} || !std::isfinite(ratio)) // degenerate quadric, nothing to normalise by
+		if (std::fpclassify(ratio) == FP_ZERO || !std::isfinite(ratio)) // degenerate quadric, nothing to normalise by
 			return std::nullopt;
 
 		utility::matrix<3, 3, T> normalised = centred.template sub_matrix<3, 3>(0, 0);

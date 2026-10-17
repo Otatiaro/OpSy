@@ -53,6 +53,10 @@
 #include "embedded_list.hpp"
 #include "cortex_m.hpp"
 #include "callback.hpp"
+
+// Where an idle entry function that returns lands: a breakpoint, defined by
+// the asm in scheduler.cpp. Only its address is taken.
+extern "C" [[noreturn]] void opsy_idle_returned();
 //#include "mutex.hpp"
 
 namespace opsy
@@ -257,9 +261,6 @@ public:
 	 *          offers no equivalent — @c std::jthread::request_stop is
 	 *          cooperative — so reach for @ref request_stop unless the task is
 	 *          known to hold nothing.
-	 *
-	 * @remark Defined inline in @c scheduler_inl.hpp (issues an @c SVC using
-	 *         @c scheduler::service_call_number).
 	 */
 	[[nodiscard]] bool kill();
 
@@ -286,9 +287,6 @@ public:
 	 * @remark Safe to call from an interrupt handler, including one more
 	 *         urgent than OpSy: it writes a relaxed atomic and touches
 	 *         nothing else.
-	 *
-	 * @remark Defined inline in @c scheduler_inl.hpp , which is where the
-	 *         assert can reach the scheduler.
 	 */
 	void request_stop();
 
@@ -365,8 +363,6 @@ public:
 	 * @warning The task must be started, and this must not be called from an
 	 *          interrupt handler more urgent than OpSy. Both are asserted in
 	 *          debug; see the definition for what each one prevents.
-	 *
-	 * @remark Defined inline in @c scheduler_inl.hpp (calls @c scheduler::update_priority).
 	 */
 	void priority(task_priority new_priority);
 
@@ -393,9 +389,6 @@ public:
 	 *
 	 * @remark To name a task at launch, pass the name to @c task::start
 	 *         instead -- that is what start's @c name parameter is for.
-	 *
-	 * @remark Defined inline in @c scheduler_inl.hpp , which is where the
-	 *         assert can reach the scheduler.
 	 */
 	void set_name(const char* name);
 
@@ -440,9 +433,6 @@ protected:
 	 *         @c stack_size_ and @c priority_ on first launch so that the
 	 *         default-constructed @c task_control_block can stay in @c .bss
 	 *         until the user actually starts the task.
-	 *         Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c scheduler::add_task and references @c scheduler::terminate_task;
-	 *         see the cycle-breaking note in @c scheduler_inl.hpp).
 	 */
 	[[nodiscard]] bool start_impl(stack_item* stack_base, std::size_t stack_size,
 	                              callback<void(void)>&& entry, const char* name);
@@ -492,8 +482,6 @@ private:
 	/**
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c task_control_block being started
-	 * @remark Defined inline in @c scheduler_inl.hpp because it terminates the
-	 *         task via @c scheduler::terminate_task once @c entry_ returns.
 	 */
 	static void task_starter(task_control_block* thisPtr);
 
@@ -609,7 +597,7 @@ protected:
 
 		frame->psr = 1 << 24;
 		frame->pc = entry;
-		frame->lr = reinterpret_cast<code_pointer>(reinterpret_cast<uint32_t>(no_return) + 2);
+		frame->lr = reinterpret_cast<code_pointer>(&opsy_idle_returned);
 
 		stack_pointer_ -= sizeof(context) / sizeof(uint32_t);
 		const auto ctx = reinterpret_cast<context*>(stack_pointer_);
@@ -624,13 +612,6 @@ private:
 	// (and any task<N> embedding it) is BSS-eligible. Filled in by prepare_impl.
 	uint32_t* stack_base_ = nullptr;
 	uint32_t* stack_pointer_ = nullptr;
-
-	static void __attribute__((naked)) no_return()
-	{
-		asm volatile(
-				"nop \n\t"
-				"bkpt 0");
-	}
 };
 
 /**
@@ -698,5 +679,19 @@ public:
  */
 template<std::size_t StackSize = 64>
 inline idle_task<StackSize> default_idle{};
+
+inline void task_control_block::request_stop()
+{
+	// Requesting a stop on a task that has not been started is lost: start
+	// clears the flag so that a reused task slot begins with none pending.
+	// The task would then run to completion having never seen the request.
+	assert(is_started());
+
+	// No context assert here, deliberately: the flag is a relaxed atomic and
+	// nothing else is touched, so this is safe to call from any interrupt
+	// handler, including one more urgent than OpSy. Asking a task to stop is
+	// exactly the kind of thing a handler has reason to do.
+	stop_requested_.store(true, std::memory_order_relaxed);
+}
 
 }

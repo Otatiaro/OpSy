@@ -52,6 +52,7 @@
 #include "cortex_m.hpp"
 #include "mutex.hpp"
 #include "isr_lock.hpp"
+#include "scheduler.hpp"
 
 #include <variant>
 
@@ -96,22 +97,17 @@ public:
 
 	/**
 	 * @brief Notify the first @c task in the waiting list if there is any, releasing it from its wait state to the ready state
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (calls
-	 *         @c scheduler::wake_up; see the cycle-breaking note there).
 	 */
 	void notify_one();
 
 	/**
 	 * @brief Notify all @c task in the waiting list, releasing them from their wait state to the ready state
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (see @c notify_one).
 	 */
 	void notify_all();
 
 	/**
 	 * @brief Wait on a @c condition_variable with no time limit nor @c mutex synchronization
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (issues an @c SVC
-	 *         using @c scheduler::service_call_number).
 	 */
 	/**
 	 * @warning No mutex, so no way to test a predicate and go to sleep
@@ -139,7 +135,6 @@ public:
 	 * @brief Wait on a @c condition_variable with no time limit with @c mutex synchronization
 	 * @param mutex The @c mutex, already locked by the task, that will be atomically released by OpSy, then re-acquired when the task is released
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	void wait(isr_lock& mtx);
 
@@ -163,7 +158,6 @@ public:
 	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c cv_status::timeout result
 	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	[[nodiscard]] cv_status wait_for(duration timeout);
 
@@ -173,7 +167,6 @@ public:
 	 * @param timeout The time limit of the wait. If the @c condition_variable has not been notified for @p timeout then the task will be released with @c cv_status::timeout result
 	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp.
 	 */
 	[[nodiscard]] cv_status wait_for(isr_lock& mtx, duration timeout);
 
@@ -190,7 +183,6 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c cv_status::timeout result
 	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
 	[[nodiscard]] cv_status wait_until(time_point timeout_time);
 
@@ -200,7 +192,6 @@ public:
 	 * @param timeout_time The time limit of the wait. If the @c condition_variable has not been notified before @p timeout_time then the task will be released with @c cv_status::timeout result
 	 * @return @c cv_status::no_timeout if the @c condition_variable has been notified before @p timeout, @c cv_status::timeout otherwise
 	 * @warning Can only be called from a @c task, should never be called from an interrupt service routine
-	 * @remark Defined inline at the bottom of @c scheduler.hpp (uses @c scheduler::now).
 	 */
 	[[nodiscard]] cv_status wait_until(isr_lock& mtx, time_point timeout_time);
 
@@ -249,4 +240,178 @@ private:
 		waiting_list_.erase(task);
 	}
 };
+
+/**
+ * @brief Wakes one waiting task, if any
+ * @remark Synchronization is performed by locking @c notify_lock_ around the
+ *         pop+wakeup pair so notifications cannot race with @c wait.
+ */
+inline void condition_variable::notify_one()
+{
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+
+	{
+		std::lock_guard<isr_lock> guard(notify_lock_);
+
+		hooks::condition_variable_notify_one(*this);
+
+		if (waiting_list_.empty())
+			return;
+		else
+		{
+			task_control_block& task = waiting_list_.front();
+			waiting_list_.pop_front();
+			scheduler::wake_up(task, *this);
+		}
+	}
+}
+
+/**
+ * @brief Wakes every waiting task
+ * @remark Same synchronization model as @c notify_one.
+ */
+inline void condition_variable::notify_all()
+{
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+
+	{
+		std::lock_guard<isr_lock> guard(notify_lock_);
+
+		hooks::condition_variable_notify_all(*this);
+
+		while (!waiting_list_.empty())
+		{
+			task_control_block& task = waiting_list_.front();
+			waiting_list_.pop_front();
+			scheduler::wake_up(task, *this);
+		}
+	}
+}
+
+/**
+ * @brief Issues the wait service call
+ */
+/**
+ * @brief Records on the running task the lock this wait must release
+ */
+static inline void record_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
+{
+	auto* current = scheduler::current_task();
+	assert(current != nullptr);
+	current->record_released_lock(lock);
+}
+
+inline cv_status condition_variable::do_wait(duration timeout)
+{
+	const auto count = timeout.count();
+	uint32_t result;
+
+	// "memory" clobber: see scheduler::trigger_hard_switch.
+	asm volatile(
+			"mov r0, %[this_ptr] \n\t"
+			"mov r1, %[count_lo] \n\t"
+			"mov r2, %[count_hi] \n\t"
+			"svc %[immediate] \n\t"
+			"mov %[result], r0"
+			: [result] "=r" (result)
+			: [immediate] "I" (scheduler::service_call_number::wait),
+			  [this_ptr] "r" (this),
+			  [count_lo] "r" (static_cast<uint32_t>(count)),
+			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
+			: "r0", "r1", "r2", "memory");
+
+	assert(result == 0 || result == 1);
+	return static_cast<cv_status>(result);
+}
+
+inline void condition_variable::wait()
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+
+	record_lock(std::monostate{});
+	(void) do_wait(duration{-1}); // negative count means "no timeout"
+}
+
+inline void condition_variable::wait(isr_lock& mtx)
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+
+	record_lock(&mtx);
+	(void) do_wait(duration{-1});
+}
+
+inline void condition_variable::wait(mutex& mtx)
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(mtx.owner_ == scheduler::current_task()); // must be held by the caller
+
+	record_lock(&mtx);
+	(void) do_wait(duration{-1});
+}
+
+inline cv_status condition_variable::wait_for(duration timeout)
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+
+	// A negative count is how the service call encodes "no timeout at all"
+	// (wait() passes -1), so it must never reach the SVC as a duration. It
+	// gets here from wait_until() with a deadline already in the past, where
+	// the standard answer -- and std::condition_variable's -- is to report the
+	// timeout straight away rather than block forever.
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
+	record_lock(std::monostate{});
+	return do_wait(timeout);
+}
+
+inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
+{
+	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= scheduler::service_call_priority.masked_value<preemption_bits>()); // mutex priority can't be higher than service call
+
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
+	record_lock(&mtx);
+	return do_wait(timeout);
+}
+
+inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
+{
+	assert(cortex_m::ipsr() == 0);
+	assert(mtx.owner_ == scheduler::current_task());
+
+	if (timeout.count() < 0)
+		return cv_status::timeout;
+
+	record_lock(&mtx);
+	return do_wait(timeout);
+}
+
+/**
+ * @brief Waits on this condition variable until an absolute time point
+ * @param timeout_time The absolute time at which the wait expires
+ * @return @c cv_status::no_timeout if notified in time, @c cv_status::timeout otherwise
+ * @remark A @p timeout_time already in the past returns @c cv_status::timeout
+ *         immediately, without blocking.
+ */
+inline cv_status condition_variable::wait_until(time_point timeout_time)
+{
+	return wait_for(timeout_time - scheduler::now());
+}
+
+inline cv_status condition_variable::wait_until(isr_lock& mtx, time_point timeout_time)
+{
+	return wait_for(mtx, timeout_time - scheduler::now());
+}
+
+inline cv_status condition_variable::wait_until(mutex& mtx, time_point timeout_time)
+{
+	return wait_for(mtx, timeout_time - scheduler::now());
+}
+
 }

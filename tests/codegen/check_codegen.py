@@ -44,6 +44,16 @@ def count(body: list[str], mnemonic: str) -> int:
     return sum(1 for line in body if pattern.search(line))
 
 
+def in_order(body: list[str], *mnemonics: str) -> bool:
+    """Whether the mnemonics appear in this order, not necessarily adjacent."""
+    patterns = [re.compile(rf"\s{m}[a-z0-9.]*\s") for m in mnemonics]
+    position = 0
+    for line in body:
+        if position < len(patterns) and patterns[position].search(line):
+            position += 1
+    return position == len(patterns)
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         sys.exit(__doc__)
@@ -103,6 +113,34 @@ def main() -> int:
                 failures.append(
                     f"SVC_Handler: pushes {pushed} register(s) -- an odd count leaves "
                     "MSP 4-mod-8 across the bl, breaking the alignment AAPCS requires")
+
+    # A store-exclusive may write memory, or may not. The read after it must go
+    # to memory rather than be answered from the value stored before; and that
+    # earlier store must stay, since a failed strex leaves it in place.
+    body = require("probe_strex_then_read")
+    if body and not in_order(body, "str", "strex", "ldr"):
+        failures.append(
+            "probe_strex_then_read: expected str then strex then ldr -- either the "
+            "read is answered from a stale value, or the store before the strex "
+            "was dropped as if the strex always succeeded")
+
+    # Barriers the architecture requires after a write whose effect the
+    # following instructions rely on.
+    for name, sequence, why in (
+        ("probe_pend_sv_is_synchronised", ("str", "dsb", "isb"),
+         "PendSV may not be taken before the caller's next instruction"),
+        ("probe_disable_interrupt_is_synchronised", ("str", "dsb", "isb"),
+         "the interrupt may still be taken after disable_interrupt returns"),
+        ("probe_control_write_is_synchronised", ("msr", "isb"),
+         "instructions after the CONTROL write may run with the old stack or privilege"),
+        ("probe_vtor_move_is_synchronised", ("str", "dsb"),
+         "an exception may still be vectored through the old table"),
+        ("probe_handler_write_is_synchronised", ("str", "dsb"),
+         "an exception may still be taken through the previous handler"),
+    ):
+        body = require(name)
+        if body and not in_order(body, *sequence):
+            failures.append(f"{name}: expected {' then '.join(sequence)} -- {why}")
 
     for failure in failures:
         print(f"FAIL {failure}", file=sys.stderr)

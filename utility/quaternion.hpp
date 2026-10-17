@@ -115,7 +115,7 @@ public:
 	explicit quaternion(const vector<3, T>& rotation_vector)
 	{
 		const auto angle = rotation_vector.length();
-		if (angle == T{0})
+		if (std::fpclassify(angle) == FP_ZERO)
 		{
 			v_ = vector<4, T>{ T{}, T{}, T{}, T{1} };  // identity, no division by zero
 			return;

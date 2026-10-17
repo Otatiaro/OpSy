@@ -114,11 +114,7 @@ public:
 
 	/**
 	 * @brief Deletes the @c critical_section, releasing the lock if it is active
-	 * @remark The body is defined inline at the bottom of @c scheduler.hpp because
-	 *         it calls @c scheduler::critical_section_end, and @c scheduler.hpp
-	 *         already includes (transitively) this header. Defining the body
-	 *         after the @c scheduler class declaration breaks the cycle without
-	 *         requiring a translation unit.
+	 * @remark Defined in @c scheduler.hpp , after the scheduler it calls into.
 	 */
 	~critical_section();
 
@@ -140,3 +136,8 @@ private:
 
 };
 }
+
+// The destructor is defined in scheduler.hpp, after the scheduler it calls
+// into; the scheduler needs this class complete first, hence the include here
+// rather than at the top.
+#include "scheduler.hpp"

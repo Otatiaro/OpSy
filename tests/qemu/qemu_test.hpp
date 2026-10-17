@@ -21,6 +21,15 @@
 
 #pragma once
 
+/**
+ * @brief Entry point of the test image.
+ *
+ *        Deliberately not called @c main : ISO C++ forbids naming @c ::main
+ *        from the program, and -Wpedantic enforces it. A freestanding image
+ *        has no reason to insist on the name anyway.
+ */
+int opsy_test_main();
+
 namespace qemu_test
 {
 

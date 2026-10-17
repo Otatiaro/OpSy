@@ -12,9 +12,18 @@ if(NOT QEMU_EXECUTABLE)
     message(FATAL_ERROR "qemu-system-arm not found on PATH")
 endif()
 
+# -icount ties guest time to instructions executed rather than to the host
+# clock. Without it, SysTick follows wall time, so how much a task gets done
+# per millisecond depends on how loaded the machine running QEMU is, and the
+# cases that race against a deadline pass or fail with the runner. shift=5 is
+# 32 ns an instruction, the nearest to the 25 MHz the image tells OpSy it
+# runs at (startup.cpp); the suite starts failing on throughput from shift=8.
+# sleep=off jumps the clock to the next timer when the core waits, instead of
+# waiting for it in real time.
 execute_process(
     COMMAND ${QEMU_EXECUTABLE}
             -machine ${QEMU_MACHINE}
+            -icount shift=5,sleep=off
             -kernel ${IMAGE}
             -nographic
             -semihosting-config enable=on,target=native

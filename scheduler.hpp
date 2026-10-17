@@ -50,13 +50,6 @@
 
 #pragma once
 
-/**
- * @brief Token guarding @c scheduler_inl.hpp inclusion
- * @remark @c scheduler_inl.hpp checks this macro to refuse direct inclusion
- *         from anywhere other than the bottom of @c scheduler.hpp.
- */
-#define OPSY_SCHEDULER_HPP_INCLUDED_
-
 #include <cstdint>
 #include <ratio>
 #include "opsy_assert.hpp"
@@ -64,11 +57,18 @@
 
 #include "config.hpp"
 #include "task.hpp"
-#include "mutex.hpp"
 #include "critical_section.hpp"
-#include "isr_lock.hpp"
-#include "condition_variable.hpp"
 #include "hooks.hpp"
+
+// Declared, not included: the scheduler names them in signatures and lists
+// only, and their headers include this one to define the members that call
+// into the scheduler.
+namespace opsy
+{
+class mutex;
+class isr_lock;
+class condition_variable;
+}
 
 extern "C" void SysTick_Handler();
 extern "C" void PendSV_Handler();
@@ -350,42 +350,8 @@ private:
 
 	static bool do_switch();
 
-	static void __attribute__((always_inline)) systick_handler()
-	{
-		hooks::enter_systick();
-		ticks_+=duration(1); // the only writer, and nothing above system preemption level runs while it does; readers below that level go through now(), which masks
-
-		bool dirty = false;
-
-
-		// Tasks on the timeouts_ list always have wait_until_ engaged (it is set
-		// before insertion and cleared after pop). Use * not .value() to avoid
-		// the bad_optional_access -> abort path under -fno-exceptions.
-		while(!timeouts_.empty() && *timeouts_.front().wait_until_ <= ticks_)
-		{
-			auto& task = timeouts_.front();
-			timeouts_.pop_front();
-			task.wait_until_ = std::nullopt;
-
-			if(task.waiting_ != nullptr)
-			{
-				task.waiting_->remove_waiting(task);
-				task.waiting_ = nullptr; // the task no longer waits on it -- see wake_up, which does the same
-				task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
-			}
-
-			// Same path as a notification: a task that waited holding a mutex
-			// must own it again before it can run, and may have to block on
-			// it instead of becoming runnable.
-			resume_waiter(task);
-			dirty = true;
-		}
-
-		if(dirty)
-			hooks::exit_systick(do_switch());
-		else
-			hooks::exit_systick(false);
-	}
+	/** @remark Defined in scheduler.cpp, the only caller: it needs condition_variable complete. */
+	static void __attribute__((always_inline)) systick_handler();
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
 	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
@@ -486,11 +452,15 @@ private:
 	}
 };
 
+/**
+ * @brief Releases the critical section lock if this handle is the valid owner
+ * @remark Defined here rather than in critical_section.hpp: it calls into the
+ *         scheduler, which holds critical sections by value.
+ */
+inline critical_section::~critical_section()
+{
+	if (valid_)
+		scheduler::critical_section_end();
 }
 
-// Inline definitions for critical_section / isr_lock / condition_variable.
-// Pulled here, AFTER the full @c scheduler declaration is in scope, to break
-// the include cycle between scheduler.hpp and these three primitives' headers.
-// See scheduler_inl.hpp for details.
-#include "scheduler_inl.hpp"
-
+}

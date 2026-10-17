@@ -179,17 +179,20 @@ jobs:
       matrix:
         compiler: [gcc]
         target: [m3, m4, m7, m33]
-        # Two configurations rather than every -O level: what these jobs look
-        # for is a defect that only exists once the optimiser is allowed to
-        # reorder, cache, eliminate or inline across translation units -- a
-        # missing volatile on a memory-mapped register, a missing "memory"
-        # clobber on inline assembly, an assumption that a naked function
-        # keeps its frame. -Os and -O3 sit at opposite ends of what the
-        # optimiser will do, and LTO adds the cross-TU dimension neither has
-        # on its own, so -O2 in the middle is bracketed by the two.
+        # What these jobs look for is a defect that only exists once the
+        # optimiser is allowed to reorder, cache, eliminate or inline across
+        # translation units -- a missing volatile on a memory-mapped register,
+        # a missing "memory" clobber on inline assembly, an assumption that a
+        # naked function keeps its frame. -Os and -O3 + LTO sit at opposite
+        # ends of what the optimiser will do; -Os and -O2 under NDEBUG are what
+        # a project actually ships, asserts and all the code they guard gone.
         config:
           - name: "-Os"
             flags: -DOPSY_OPTIMISATION=-Os
+          - name: "-Os + NDEBUG"
+            flags: '"-DOPSY_OPTIMISATION=-Os;-DNDEBUG"'
+          - name: "-O2 + NDEBUG"
+            flags: '"-DOPSY_OPTIMISATION=-O2;-DNDEBUG"'
           - name: "-O3 + LTO"
             flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
         # clang on two cores rather than four. What is under test here is the
@@ -202,10 +205,22 @@ jobs:
             config: { name: "-Os", flags: -DOPSY_OPTIMISATION=-Os }
           - compiler: clang
             target: m4
+            config: { name: "-Os + NDEBUG", flags: '"-DOPSY_OPTIMISATION=-Os;-DNDEBUG"' }
+          - compiler: clang
+            target: m4
+            config: { name: "-O2 + NDEBUG", flags: '"-DOPSY_OPTIMISATION=-O2;-DNDEBUG"' }
+          - compiler: clang
+            target: m4
             config: { name: "-O3 + LTO", flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON }
           - compiler: clang
             target: m33
             config: { name: "-Os", flags: -DOPSY_OPTIMISATION=-Os }
+          - compiler: clang
+            target: m33
+            config: { name: "-Os + NDEBUG", flags: '"-DOPSY_OPTIMISATION=-Os;-DNDEBUG"' }
+          - compiler: clang
+            target: m33
+            config: { name: "-O2 + NDEBUG", flags: '"-DOPSY_OPTIMISATION=-O2;-DNDEBUG"' }
           - compiler: clang
             target: m33
             config: { name: "-O3 + LTO", flags: -DOPSY_OPTIMISATION=-O3 -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON }

@@ -68,7 +68,7 @@ bool install_irq(void (*body)())
 /** @brief Raises the interrupt, and returns once its handler has run. */
 void fire()
 {
-	opsy::cortex_m::set_pending(g_irq);
+	qemu_test::raise(g_irq);
 	opsy::sleep_for(1ms);
 }
 

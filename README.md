@@ -380,6 +380,34 @@ OpSy's synchronization primitives normally, as long as the `isr_lock` or
 that masks them -- and no more urgent than
 `scheduler::os_callable_priority`, the first level below OpSy's.
 
+### Raising an interrupt from software
+
+`cortex_m::set_pending(irq)` makes a handler run, and the usual reason is
+to hand it data written just before. Pending is a volatile store to the
+NVIC, and the compiler is allowed to move an ordinary store after a
+volatile one: the handler can then run on what was there before. Order the
+two with the standard's tool for a handler on the same core:
+
+```cpp
+std::atomic_signal_fence(std::memory_order_seq_cst);
+opsy::cortex_m::set_pending(irq);
+```
+
+Without it this is not a theoretical concern: at `-O2` GCC 14 moves the
+store past the pend, and the handler sees the previous value. In a real
+program a call to a function the compiler cannot see often happens to sit
+between the two and hide it; inlining and LTO take that away.
+
+The same holds, and more often, for data handed to the hardware: filling
+a buffer, then writing the register that starts a DMA or a peripheral. The
+writes to the buffer are ordinary, the start is volatile, and the compiler
+may put some of the former after the latter. There the hardware needs a
+`dsb` as well (`cortex_m::data_barrier()`), and on a core with a data cache
+the buffer cleaned to memory.
+
+`set_pending` and the other register accessors in `cortex_m` do not order
+anything for you: each does what it says and no more.
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).

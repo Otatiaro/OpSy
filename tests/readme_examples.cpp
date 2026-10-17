@@ -19,6 +19,7 @@
  ******************************************************************************
  */
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -148,6 +149,22 @@ constexpr uint32_t error   = 1u << 1;
 }
 
 } // namespace condition_variable_example
+
+// ──────────────── "Raising an interrupt from software" ─────────────────────
+
+namespace raising_an_interrupt
+{
+
+uint32_t g_request = 0;
+
+[[gnu::used]] void hand_over(uint32_t request, uint32_t irq)
+{
+	g_request = request;
+	std::atomic_signal_fence(std::memory_order_seq_cst);
+	opsy::cortex_m::set_pending(irq);
+}
+
+} // namespace raising_an_interrupt
 
 // ────────────────────────────── "Sleeping" ─────────────────────────────────
 

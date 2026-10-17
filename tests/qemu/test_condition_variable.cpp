@@ -395,7 +395,7 @@ bool install_event_irq()
 void raise_event(uint32_t bits)
 {
 	g_event_to_raise = bits;
-	opsy::cortex_m::set_pending(g_event_irq);
+	qemu_test::raise(g_event_irq);
 	opsy::sleep_for(1ms);
 }
 

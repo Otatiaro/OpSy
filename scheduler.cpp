@@ -741,6 +741,54 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 	hooks::exit_service_call(task_switch);
 }
 
+namespace
+{
+
+/**
+ * @brief Bytes of a stack that no longer hold the fill pattern
+ * @remark Counted from the base, where the stack grows towards: the first
+ *         word that changed marks the deepest point ever reached.
+ */
+std::size_t stack_used(const uint32_t* base, std::size_t words)
+{
+	std::size_t untouched = 0;
+	while (untouched < words && base[untouched] == detail::stack_fill)
+		++untouched;
+	return (words - untouched) * sizeof(uint32_t);
+}
+
+/**
+ * @brief Runs @p scan where the task whose stack it reads cannot be running
+ * @remark An interrupt handler runs while every task is suspended. A task
+ *         holds the scheduler's critical section, which keeps any other from
+ *         being switched in; if it is itself the one measured, it is not
+ *         writing the part being read.
+ */
+template<typename Scan>
+std::size_t with_tasks_held(Scan scan)
+{
+	if (cortex_m::ipsr() != 0)
+		return scan();
+	const auto section = scheduler::try_critical_section();
+	return scan();
+}
+
+}
+
+std::size_t task_control_block::stack_high_water() const
+{
+	if (stack_base_ == nullptr)
+		return 0;
+	return with_tasks_held([this] { return stack_used(stack_base_, stack_size_); });
+}
+
+std::size_t idle_task_control_block::stack_high_water() const
+{
+	if (stack_base_ == nullptr)
+		return 0;
+	return with_tasks_held([this] { return stack_used(stack_base_, stack_size_); });
+}
+
 /**
  * @brief Whether this task is sitting in the scheduler's ready list
  */
@@ -793,9 +841,9 @@ bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_si
 	entry_ = std::move(entry);
 	name_ = name;
 
-#ifndef NDEBUG
+	// Release builds too: it is what stack_high_water() measures against, and
+	// what the overflow check in PendSV looks for in debug builds.
 	std::fill(stack_base_, stack_base_ + stack_size_, dummy_pattern);
-#endif
 
 	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
 	stack_base_[stack_size_ - 1] = 0; // keep this pointer to zero to stop stack trace

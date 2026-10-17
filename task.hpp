@@ -62,6 +62,16 @@ extern "C" [[noreturn]] void opsy_idle_returned();
 namespace opsy
 {
 
+namespace detail
+{
+/**
+ * @brief What a task's or the idle task's stack is filled with when it starts
+ * @remark What is still this value was never written: how much of it is left
+ *         is how the most stack ever used is measured.
+ */
+inline constexpr uint32_t stack_fill = 0xDEADBEEF;
+}
+
 /**
  * @brief task priority
  * @remark You can create custom ones by casting an uint8_t to this type. Lower values means higher priority.
@@ -337,6 +347,33 @@ public:
 	}
 
 	/**
+	 * @brief The size of this task's stack, in bytes
+	 */
+	[[nodiscard]] std::size_t stack_size() const noexcept
+	{
+		return stack_size_ * sizeof(stack_item);
+	}
+
+	/**
+	 * @brief The most of its stack this task has used since it was started, in bytes
+	 *
+	 *        The stack is filled with a pattern when the task starts; this is
+	 *        how much of it no longer holds the pattern, so it is the deepest
+	 *        the task ever went, not how deep it is now. Compared with
+	 *        @ref stack_size , it is what a stack is sized from. A value
+	 *        equal to @ref stack_size means the stack was used to its last
+	 *        word, or overflowed.
+	 *
+	 * @remark Reads the whole untouched part of the stack, so it costs a loop
+	 *         over it. Called from a task, the scan runs in the scheduler's
+	 *         critical section; from an interrupt handler, no task runs during
+	 *         it. Either way the task measured cannot be writing its stack
+	 *         while it is read.
+	 * @return @c 0 for a task that was never started
+	 */
+	[[nodiscard]] std::size_t stack_high_water() const;
+
+	/**
 	 * @brief Gets the current @c task_priority of the @c task_control_block
 	 * @return The current @c task_priority of the @c task_control_block
 	 */
@@ -439,7 +476,7 @@ protected:
 
 private:
 
-	static constexpr uint32_t dummy_pattern = 0xDEADBEEF;
+	static constexpr uint32_t dummy_pattern = detail::stack_fill;
 
 	// All defaults below are zero so that a default-constructed task_control_block
 	// (and therefore a default-constructed task<N>, including its stack buffer)
@@ -575,6 +612,21 @@ public:
 	 */
 	constexpr idle_task_control_block() = default;
 
+	/**
+	 * @brief The size of the idle task's stack, in bytes
+	 */
+	[[nodiscard]] std::size_t stack_size() const noexcept
+	{
+		return stack_size_ * sizeof(uint32_t);
+	}
+
+	/**
+	 * @brief The most of its stack the idle task has used, in bytes
+	 * @remark As @ref task_control_block::stack_high_water : what the idle
+	 *         loop and the hooks it calls reached, to size it from.
+	 */
+	[[nodiscard]] std::size_t stack_high_water() const;
+
 protected:
 
 	/**
@@ -590,6 +642,9 @@ protected:
 	void prepare_impl(uint32_t* stack_base, std::size_t stack_size, code_pointer entry)
 	{
 		stack_base_ = stack_base;
+		stack_size_ = stack_size;
+		for (std::size_t i = 0; i < stack_size; ++i)
+			stack_base[i] = detail::stack_fill;   // what stack_high_water measures against
 		stack_pointer_ = &stack_base[stack_size];
 
 		stack_pointer_ -= sizeof(stack_frame) / sizeof(uint32_t);
@@ -612,6 +667,7 @@ private:
 	// (and any task<N> embedding it) is BSS-eligible. Filled in by prepare_impl.
 	uint32_t* stack_base_ = nullptr;
 	uint32_t* stack_pointer_ = nullptr;
+	std::size_t stack_size_ = 0;
 };
 
 /**

@@ -21,6 +21,8 @@
 
 #pragma once
 
+namespace opsy { class idle_task_control_block; }
+
 /**
  * @brief Entry point of the test image.
  *
@@ -71,6 +73,9 @@ inline constexpr unsigned no_irq = 0xFFFFFFFFu;
  * @return An IRQ the NVIC accepts, or @ref no_irq
  */
 unsigned find_usable_irq();
+
+/** @brief The idle task the suite starts the scheduler with. */
+opsy::idle_task_control_block& idle();
 
 } // namespace qemu_test
 

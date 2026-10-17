@@ -309,4 +309,125 @@ OPSY_QEMU_TEST(a_restarted_task_starts_with_no_stop_pending)
 	stop_all();
 }
 
+// ───────────────────────────── stack high water ────────────────────────────
+
+// Recursion in frames of about 200 bytes rather than one large array: the
+// stack goes as deep, and no single frame trips -Wstack-usage. Each frame
+// writes its chunk before recursing and reads it back after, through
+// volatile, so the frames are all live at the deepest point -- an optimiser
+// cannot turn the recursion into a loop, as it does with a plain accumulator.
+[[gnu::noinline]] uint32_t use_stack(uint32_t bytes)
+{
+	volatile uint32_t chunk[48];
+	for (uint32_t i = 0; i < 48; ++i)
+		chunk[i] = i;
+	uint32_t sum = bytes > sizeof(chunk) ? use_stack(bytes - static_cast<uint32_t>(sizeof(chunk))) : 0;
+	for (uint32_t i = 0; i < 48; ++i)
+		sum += chunk[i];
+	return sum;
+}
+
+std::atomic<std::size_t> g_measured = 0;
+
+OPSY_QEMU_TEST(a_task_that_has_not_run_far_reports_a_small_high_water)
+{
+	g_alpha_ran = 0;
+	CHECK(g_alpha.start([] { g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }, "idle-ish"));
+	g_alpha.priority(opsy::task_priority::highest);
+	CHECK(g_alpha_ran == 1);
+
+	const auto used = g_alpha.stack_high_water();
+	CHECK(used > 0);                    // its initial frame, at least
+	CHECK(used < 512);
+	CHECK(g_alpha.stack_size() == 1024 * sizeof(uint32_t));
+
+	(void) g_alpha.kill();
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+}
+
+OPSY_QEMU_TEST(the_high_water_is_the_deepest_the_task_went_and_stays_there)
+{
+	g_alpha_ran = 0;
+	CHECK(g_alpha.start([]
+	{
+		(void) use_stack(1800);
+		g_alpha_ran = 1;
+		while (true) opsy::sleep_for(1ms);   // back near the top of its stack
+	}, "deep"));
+	g_alpha.priority(opsy::task_priority::highest);
+	CHECK(g_alpha_ran == 1);
+
+	const auto used = g_alpha.stack_high_water();
+	CHECK(used >= 1800);
+	CHECK(used < g_alpha.stack_size());
+	opsy::sleep_for(5ms);
+	CHECK(g_alpha.stack_high_water() == used);   // the use ended; the mark did not move
+
+	(void) g_alpha.kill();
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+}
+
+OPSY_QEMU_TEST(a_restarted_task_measures_from_scratch)
+{
+	g_alpha_ran = 0;
+	CHECK(g_alpha.start([] { (void) use_stack(1800); g_alpha_ran = 1; }, "deep then done"));
+	g_alpha.priority(opsy::task_priority::highest);
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+	CHECK(g_alpha_ran == 1);
+	CHECK(g_alpha.stack_high_water() >= 1800);   // still readable once it ended
+
+	CHECK(g_alpha.start([] { g_alpha_ran = 2; while (true) opsy::sleep_for(1ms); }, "shallow"));
+	g_alpha.priority(opsy::task_priority::highest);
+	CHECK(g_alpha_ran == 2);
+	CHECK(g_alpha.stack_high_water() < 512);
+
+	(void) g_alpha.kill();
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+}
+
+OPSY_QEMU_TEST(the_idle_task_reports_its_high_water)
+{
+	const auto used = qemu_test::idle().stack_high_water();
+	CHECK(used > 0);        // it has run: every test case sleeps
+	CHECK(used < qemu_test::idle().stack_size());
+	CHECK(qemu_test::idle().stack_size() == 256 * sizeof(uint32_t));
+}
+
+unsigned g_hw_irq = qemu_test::no_irq;
+
+void measure_from_isr()
+{
+	g_measured = g_alpha.stack_high_water();
+}
+
+OPSY_QEMU_TEST(the_high_water_can_be_read_from_an_interrupt_handler)
+{
+	g_alpha_ran = 0;
+	CHECK(g_alpha.start([] { (void) use_stack(1200); g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }, "measured"));
+	g_alpha.priority(opsy::task_priority::highest);
+	CHECK(g_alpha_ran == 1);
+
+	if (g_hw_irq == qemu_test::no_irq)
+		g_hw_irq = qemu_test::find_usable_irq();
+	CHECK(g_hw_irq != qemu_test::no_irq);
+	g_measured = 0;
+	opsy::cortex_m::set_priority(g_hw_irq, opsy::scheduler::os_callable_priority);
+	opsy::cortex_m::set_isr_handler(g_hw_irq, &measure_from_isr);
+	opsy::cortex_m::enable_interrupt(g_hw_irq);
+	opsy::cortex_m::set_pending(g_hw_irq);
+	opsy::sleep_for(2ms);
+	opsy::cortex_m::disable_interrupt(g_hw_irq);
+
+	CHECK(g_measured >= 1200);
+	CHECK(g_measured == g_alpha.stack_high_water());
+
+	(void) g_alpha.kill();
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+}
+
 } // namespace

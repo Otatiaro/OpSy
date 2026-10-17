@@ -116,6 +116,11 @@ opsy::idle_task<256>  g_idle;
 
 } // namespace
 
+opsy::idle_task_control_block& qemu_test::idle()
+{
+	return g_idle;
+}
+
 int opsy_test_main()
 {
 	qemu::write("OpSy on-target test suite\n\n");

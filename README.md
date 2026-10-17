@@ -73,7 +73,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `main.cpp`. |
 | `scheduler.hpp` | The `scheduler` class itself. Most users only call `scheduler::start()`. |
 | `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
-| `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
+| `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. `stack_high_water()` reports the most stack a task, or the idle task, ever used: what to size its stack from. |
 | `mutex.hpp` | `mutex` — blocking, owning mutual exclusion between tasks, with priority inheritance. |
 | `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |
 | `condition_variable.hpp` | `condition_variable`, plus an `opsy::cv_status` enum mirroring `std::cv_status` (the standard one lives in `<condition_variable>`, which is not available on bare-metal Cortex-M). |

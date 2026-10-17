@@ -225,6 +225,7 @@ static constexpr time_point startup = time_point{ duration{ 0 } };
 
 static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption bits is more than what is available in the system");
 static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
+static_assert(opsy::opsy_preemption + 1 < (1<<opsy::preemption_bits), "OpSy must leave a preemption level below its own: interrupt handlers can only call OpSy from there");
 
 // Pull in our assert override AFTER every header config.hpp brings in, since
 // a standard header may include <cassert> and define the standard macro.

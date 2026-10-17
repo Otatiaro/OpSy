@@ -333,11 +333,14 @@ Typical reasons to provide an `<opsy_hooks.hpp>`:
 The scheduler runs at one specific NVIC preemption level
 (`opsy_preemption`, default 1). Anything at a numerically *lower* preempt
 value (so higher hardware priority) than OpSy **must not** call any OpSy
-API: such an ISR can preempt the SVC handler and break atomicity. ISRs
-at a numerically *higher* preempt value (lower priority) can use OpSy's
-synchronization primitives normally, as long as the `isr_lock` or
+API: such an ISR can preempt the SVC handler and break atomicity. Nor can
+an ISR at OpSy's own preemption level: it preempts none of OpSy's
+exceptions, so a service call raised from it escalates to HardFault.
+ISRs at a numerically *higher* preempt value (lower priority) can use
+OpSy's synchronization primitives normally, as long as the `isr_lock` or
 `condition_variable` they touch was constructed with an `isr_priority`
-that masks them.
+that masks them -- and no more urgent than
+`scheduler::os_callable_priority`, the first level below OpSy's.
 
 ## License
 

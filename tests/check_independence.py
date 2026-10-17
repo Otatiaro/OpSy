@@ -40,7 +40,6 @@ from pathlib import Path
 SCHEDULER_HEADERS = {
     "opsy.hpp",
     "scheduler.hpp",
-    "scheduler_inl.hpp",
     "task.hpp",
     "mutex.hpp",
     "isr_lock.hpp",

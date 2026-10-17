@@ -152,7 +152,7 @@ OPSY_QEMU_TEST(a_priority_carrying_isr_lock_locks_and_unlocks)
 	// Locking one raises BASEPRI to the mutex's priority for the guarded
 	// region, so this exercises the ISR-masking path rather than just the
 	// task-switch one. No sleeping under it: a mutex with a non-zero priority
-	// takes the scheduler's critical section too (scheduler_inl.hpp:123), and
+	// takes the scheduler's critical section too (isr_lock::lock), and
 	// the sleep service call asserts it is not held.
 	for (int round = 0; round < 4; ++round)
 	{

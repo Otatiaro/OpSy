@@ -73,7 +73,6 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `main.cpp`. |
 | `scheduler.hpp` | The `scheduler` class itself. Most users only call `scheduler::start()`. |
 | `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
-| `scheduler_inl.hpp` | Inline definitions for the header-only primitives, included from the bottom of `scheduler.hpp`. Never include this directly. |
 | `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. |
 | `mutex.hpp` | `mutex` — blocking, owning mutual exclusion between tasks, with priority inheritance. |
 | `isr_lock.hpp` | `isr_lock` — masking exclusion between a task and an interrupt handler. |

@@ -1,4 +1,7 @@
 #include "scheduler.hpp"
+#include "condition_variable.hpp"
+#include "isr_lock.hpp"
+#include "mutex.hpp"
 
 #include <algorithm>
 #include <ranges>
@@ -78,6 +81,43 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool
 	if(!do_switch())
 		opsy::trap();
 	while(true) {} // can not reach
+}
+
+inline void scheduler::systick_handler()
+{
+	hooks::enter_systick();
+	ticks_+=duration(1); // the only writer, and nothing above system preemption level runs while it does; readers below that level go through now(), which masks
+
+	bool dirty = false;
+
+
+	// Tasks on the timeouts_ list always have wait_until_ engaged (it is set
+	// before insertion and cleared after pop). Use * not .value() to avoid
+	// the bad_optional_access -> abort path under -fno-exceptions.
+	while(!timeouts_.empty() && *timeouts_.front().wait_until_ <= ticks_)
+	{
+		auto& task = timeouts_.front();
+		timeouts_.pop_front();
+		task.wait_until_ = std::nullopt;
+
+		if(task.waiting_ != nullptr)
+		{
+			task.waiting_->remove_waiting(task);
+			task.waiting_ = nullptr; // the task no longer waits on it -- see wake_up, which does the same
+			task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
+		}
+
+		// Same path as a notification: a task that waited holding a mutex
+		// must own it again before it can run, and may have to block on
+		// it instead of becoming runnable.
+		resume_waiter(task);
+		dirty = true;
+	}
+
+	if(dirty)
+		hooks::exit_systick(do_switch());
+	else
+		hooks::exit_systick(false);
 }
 
 bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
@@ -646,6 +686,176 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 
 	}
 	hooks::exit_service_call(task_switch);
+}
+
+/**
+ * @brief Whether this task is sitting in the scheduler's ready list
+ */
+bool task_control_block::is_ready() const
+{
+	// next_task_ matters as much as current_task_: a task do_switch() has
+	// elected is popped out of ready_ and sits in no list at all until PendSV
+	// runs. Treating it as ready makes ready_.erase() a silent no-op and the
+	// following insert link it a second time.
+	return is_started()
+		&& this != scheduler::current_task()
+		&& this != scheduler::next_task()
+		&& blocked_on_ == nullptr
+		&& waiting_ == nullptr
+		&& !wait_until_.has_value();
+}
+
+/**
+ * @brief Configures storage + priority and starts the task with the given @p entry callback
+ * @param stack_base Pointer to the base of the task's stack (provided by @c task<StackSize>)
+ * @param stack_size Size of the stack, in @c stack_item increments
+ * @param entry The @c callback the task will execute
+ * @param name Optional name for the task
+ * @return @c true if the task was successfully started, @c false if it was already active
+ * @remark @c stack_base_, @c stack_size_ and @c priority_ are written here on
+ *         first launch (see the BSS-placement note on the @c task_control_block
+ *         default constructor). Sets up the initial stack so the task starts in
+ *         @c task_starter, with @c scheduler::terminate_task wired as the link
+ *         register so the task terminates cleanly when its entry callback
+ *         returns. frame->lr points at the global label
+ *         @c opsy_terminate_task_resume, exposed by the inline asm inside
+ *         @c scheduler::terminate_task right before its @c SVC — no fragile
+ *         "+ N" offset past the leading @c nop (which is kept solely so GDB
+ *         renders the link return one instruction before the SVC).
+ */
+bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
+                                           callback<void(void)>&& entry, const char* name)
+{
+	assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
+
+	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
+		return false;
+
+	stack_base_ = stack_base;
+	stack_size_ = stack_size;
+	base_priority_ = task_priority::lowest;
+	priority_      = task_priority::lowest;   // no inheritance on a fresh task
+	stop_requested_.store(false, std::memory_order_relaxed); // a reused slot starts clean
+
+	entry_ = std::move(entry);
+	name_ = name;
+
+#ifndef NDEBUG
+	std::fill(stack_base_, stack_base_ + stack_size_, dummy_pattern);
+#endif
+
+	stack_pointer_ = &stack_base_[stack_size_ - 1]; // this pointer is reserved to stop stack trace unwinding
+	stack_base_[stack_size_ - 1] = 0; // keep this pointer to zero to stop stack trace
+
+	// Round the top of the frame down to an 8-byte boundary before carving it
+	// out. stack_base_ is 8-aligned (see stack_storage), but &stack_base_[N - 1]
+	// is deliberately one word below the top, so the frame — 8 words, alignment
+	// preserving — would otherwise start the task with SP at 4-mod-8. The word
+	// reserved just above to stop stack-trace unwinding is left untouched.
+	stack_pointer_ = reinterpret_cast<stack_item*>(
+		reinterpret_cast<std::uintptr_t>(stack_pointer_) & ~std::uintptr_t{7});
+
+	stack_pointer_ -= sizeof(stack_frame) / sizeof(stack_item);
+	static_assert(sizeof(stack_frame) % 8 == 0, "the exception frame must preserve 8-byte stack alignment");
+	assert(reinterpret_cast<std::uintptr_t>(stack_pointer_) % 8 == 0);
+	const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
+
+	frame->psr = 1 << 24;
+	frame->pc = reinterpret_cast<code_pointer>(task_starter);
+	frame->lr = reinterpret_cast<code_pointer>(&opsy_terminate_task_resume); // address of the SVC instruction inside terminate_task — see the comment on terminate_task in scheduler.cpp for why this avoids a "+ 2" offset
+	frame->r0 = reinterpret_cast<uint32_t>(this);
+
+	stack_pointer_ -= sizeof(context) / sizeof(stack_item);
+	const auto ctx = reinterpret_cast<context*>(stack_pointer_);
+	ctx->control = cortex_m::control_thread_psp_privileged;
+	ctx->lr = cortex_m::exc_return_thread_psp_basic;
+
+	scheduler::add_task(*this);
+	return true;
+}
+
+/**
+ * @brief Terminates the task immediately
+ * @return @c true if the task was running and has been signalled to terminate, @c false if it was already inactive
+ * @remark Issues an @c SVC carrying @c service_call_number::terminate; the actual
+ *         teardown happens in @c scheduler::service_call_handler.
+ */
+bool task_control_block::kill()
+{
+	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
+
+	if(!is_started()) // can only terminate an active task
+		return false;
+
+	// "memory" clobber: see scheduler::trigger_hard_switch.
+	asm volatile(
+			"mov r0, %[task] \n\t"
+			"svc %[immediate]"
+			:
+			: [immediate] "I" (scheduler::service_call_number::terminate), [task] "r" (this)
+			: "r0", "memory");
+	return true;
+}
+
+/**
+ * @brief Updates the task priority
+ * @param new_priority The new priority value
+ * @remark No-op if the priority is unchanged. Otherwise delegates to
+ *         @c scheduler::update_priority which may re-order ready/waiting lists
+ *         and request a context switch.
+ */
+void task_control_block::priority(task_priority new_priority)
+{
+	// Setting a priority on a task that has not been started is lost: start
+	// puts every task at task_priority::lowest, so the value written here
+	// would be overwritten by the launch and never take effect. Nothing else
+	// would report it -- the task simply runs at the wrong priority.
+	assert(is_started());
+
+	// Changing a priority re-sorts ready_, re-sorts the waiting list of a
+	// condition variable, or walks the chain of mutex holders paying priority
+	// inheritance -- all of it under a BASEPRI that does not mask an interrupt
+	// more urgent than OpSy. Called from such a handler, it would edit those
+	// lists while the scheduler is halfway through editing them itself.
+	assert(scheduler::is_os_callable());
+
+	// Compared against the requested priority, not the effective one: while
+	// this task is boosted by a waiter, priority_ is the inherited value, and
+	// comparing to it would silently drop a genuine change.
+	if(new_priority == base_priority_)
+		return;
+
+	scheduler::update_priority(*this, new_priority);
+}
+
+void task_control_block::set_name(const char* name)
+{
+	// Naming a task that has not been started is lost: start takes the name
+	// as an argument and writes it, so anything set beforehand is overwritten
+	// by the launch. Pass the name to start instead.
+	assert(is_started());
+
+	// name_ is a plain pointer, not an atomic, and the scheduler's hooks read
+	// it to label what they trace. Writing it from an interrupt handler more
+	// urgent than OpSy would be a data race with any such read -- undefined
+	// behaviour, whatever a given core happens to do with an aligned word.
+	assert(scheduler::is_os_callable());
+
+	name_ = name;
+}
+
+/**
+ * @brief Trampoline executed at the start of every task
+ * @param thisPtr Pointer to the @c task_control_block being started
+ * @remark Calls the user-provided entry callback, then terminates the task
+ *         via @c scheduler::terminate_task. The link register set up in
+ *         @c start would also lead here, this trampoline is for the normal
+ *         (non-fault) entry path.
+ */
+void task_control_block::task_starter(task_control_block* thisPtr)
+{
+	thisPtr->entry_();
+	scheduler::terminate_task(thisPtr);
 }
 
 }

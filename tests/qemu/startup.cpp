@@ -9,6 +9,7 @@
  ******************************************************************************
  */
 
+#include "qemu_test.hpp"
 #include "semihosting.hpp"
 
 #include <cstddef>
@@ -47,16 +48,24 @@ void SVC_Handler();
  */
 uint32_t SystemCoreClock = 25'000'000u;
 
-} // extern "C"
+// What newlib and the C++ ABI expect the image to provide, defined further
+// down. Nothing calls them by name from here.
+void __aeabi_unwind_cpp_pr0();
+void _init();
+void _fini();
+void* _sbrk(int);
+int _close(int);
+int _fstat(int, void*);
+int _isatty(int);
+int _lseek(int, int, int);
+int _read(int, char*, int);
+int _write(int, const char*, int);
+int _getpid();
+int _kill(int, int);
+[[noreturn]] void _exit(int);
+int __aeabi_atexit(void*, void (*)(void*), void*);
 
-/**
- * @brief Entry point of the test image.
- *
- *        Deliberately not called @c main : ISO C++ forbids naming @c ::main
- *        from the program, and -Wpedantic enforces it. A freestanding image
- *        has no reason to insist on the name anyway.
- */
-int opsy_test_main();
+} // extern "C"
 
 namespace
 {

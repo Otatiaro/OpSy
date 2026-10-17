@@ -1,8 +1,9 @@
 # Compile-only sanity test for the OpSy public API and utility headers.
 #
-# Builds scheduler.cpp + sanity.cpp + utility_sanity.cpp into a static
-# library so the entire API surface is exercised at compile time on every
-# Cortex-M target supported by OpSy. utility_sanity.cpp also runs the
+# Builds scheduler.cpp + sanity.cpp + utility_sanity.cpp into static
+# libraries, one per build configuration, so the entire API surface is
+# exercised at compile time on every Cortex-M target supported by OpSy.
+# utility_sanity.cpp also runs the
 # constexpr/static_assert tests embedded in utility/*.hpp by instantiating
 # every template with valid configurations. No executable is produced (no
 # startup, no linker script needed).
@@ -30,14 +31,7 @@ endif()
 
 set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-add_library(opsy_sanity STATIC
-    ${OPSY_ROOT}/scheduler.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/sanity.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/readme_examples.cpp
-)
-
-target_include_directories(opsy_sanity PUBLIC ${OPSY_ROOT})
+include(${CMAKE_CURRENT_SOURCE_DIR}/warnings.cmake)
 
 # OpSy targets C++23, and is kept building under C++26 as that lands: the CI
 # builds both so a construct C++26 changes or removes is caught here rather
@@ -46,39 +40,47 @@ if(NOT DEFINED OPSY_CXX_STANDARD)
     set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
 endif()
 
-set_target_properties(opsy_sanity PROPERTIES
-    CXX_STANDARD ${OPSY_CXX_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
+# The same sources once per configuration a project ships with: debug and
+# release, the latter with and without asserts. The optimiser decides what
+# several warnings see, and NDEBUG removes code, so one configuration passing
+# says little about the others.
+set(OPSY_SANITY_CONFIGS
+    "O0|-O0"
+    "Os|-Os"
+    "O2|-O2"
+    "Os_ndebug|-Os -DNDEBUG"
+    "O2_ndebug|-O2 -DNDEBUG"
 )
 
-# Optimisation level. The default (empty) leaves it to the build type, but the
-# CI drives this explicitly: the MMIO-volatile and missing-"memory"-clobber
-# class of bug only exists once the optimiser is allowed to reorder, cache or
-# eliminate, so a suite built without -O proves nothing about them.
-if(DEFINED OPSY_OPTIMISATION)
-    add_compile_options(${OPSY_OPTIMISATION})
-endif()
+foreach(config IN LISTS OPSY_SANITY_CONFIGS)
+    string(REPLACE "|" ";" config "${config}")
+    list(POP_FRONT config name)
+    separate_arguments(config)
+    set(target opsy_sanity_${name})
 
-target_compile_options(opsy_sanity PRIVATE
-    ${OPSY_CPU_FLAGS}
-    -Wall -Werror -Wpedantic -Wextra
-    -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference
-    -Wconversion -Wsign-conversion -Wdouble-promotion
-    -Wno-psabi
-    -fno-exceptions -fno-rtti
-    -ffunction-sections -fdata-sections
-)
-
-# GCC-only diagnostics. clang does not recognise these flags and would
-# error out on them, so add them only when the compiler is actually GCC.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(opsy_sanity PRIVATE
-        -Wlogical-op
-        -Wduplicated-cond
-        -Wduplicated-branches
+    add_library(${target} STATIC
+        ${OPSY_ROOT}/scheduler.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/sanity.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/readme_examples.cpp
     )
-endif()
+
+    target_include_directories(${target} PUBLIC ${OPSY_ROOT})
+
+    set_target_properties(${target} PROPERTIES
+        CXX_STANDARD ${OPSY_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_compile_options(${target} PRIVATE
+        ${OPSY_CPU_FLAGS}
+        ${config}
+        -fno-exceptions -fno-rtti
+        -ffunction-sections -fdata-sections
+    )
+    opsy_strict_warnings(${target})
+endforeach()
 
 # Standalone directories: the check that they really are.
 #
@@ -142,6 +144,17 @@ if(Python3_Interpreter_FOUND)
         NAME opsy_diagnostics_${OPSY_TARGET}
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/check_diagnostics.py
+                ${CMAKE_CXX_COMPILER}
+                ${OPSY_ROOT}
+                ${CMAKE_CURRENT_BINARY_DIR}/diagnostic_flags.txt
+    )
+
+    # Every public header usable on its own: whatever it declares is defined
+    # by the header itself or by scheduler.cpp.
+    add_test(
+        NAME opsy_self_contained_${OPSY_TARGET}
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/check_self_contained.py
                 ${CMAKE_CXX_COMPILER}
                 ${OPSY_ROOT}
                 ${CMAKE_CURRENT_BINARY_DIR}/diagnostic_flags.txt

@@ -91,24 +91,14 @@ set_target_properties(opsy_qemu_tests PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-# Same strict set as the other two suites.
 target_compile_options(opsy_qemu_tests PRIVATE
     ${OPSY_CPU_FLAGS}
-    -Wall -Werror -Wpedantic -Wextra
-    -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference
-    -Wconversion -Wsign-conversion -Wdouble-promotion
-    -Wno-psabi
     -fno-exceptions -fno-rtti
     -ffunction-sections -fdata-sections
 )
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(opsy_qemu_tests PRIVATE
-        -Wlogical-op
-        -Wduplicated-cond
-        -Wduplicated-branches
-    )
-endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/../warnings.cmake)
+opsy_strict_warnings(opsy_qemu_tests)
 
 target_link_options(opsy_qemu_tests PRIVATE
     ${OPSY_CPU_FLAGS}

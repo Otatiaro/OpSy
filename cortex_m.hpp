@@ -538,7 +538,7 @@ public:
 		case system_irq::initial_sp:
 		default:
 			assert(false);
-			return 0;
+			return nullptr;
 		}
 	}
 

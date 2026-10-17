@@ -26,6 +26,11 @@
 extern "C"
 {
 
+// Extern so check_codegen.py finds them in the object by name.
+uint32_t probe_two_reads_stay_two();
+uint32_t probe_spin_on_register();
+void probe_stores_are_not_eliminated();
+
 /**
  * @brief Reads the same MMIO register twice and returns both halves.
  *

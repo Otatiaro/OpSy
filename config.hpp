@@ -63,6 +63,10 @@
 
 #pragma once
 
+// First, so that opsy::trap is declared before the definition below (or the
+// one in opsy_config.hpp) rather than redeclared after it.
+#include "opsy_assert.hpp"
+
 #include <cstdint>
 #include <chrono>
 #include <ratio>

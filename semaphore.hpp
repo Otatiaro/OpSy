@@ -62,6 +62,10 @@ namespace opsy
  *        Waiters are released in priority order, the most important first,
  *        and keep that order when their priority changes while they wait.
  *
+ *        As with @c std::counting_semaphore , a release synchronizes with
+ *        the acquire that takes its count: what was written before releasing
+ *        is visible after acquiring.
+ *
  * @tparam LeastMaxValue The largest count it has to hold. Releasing past it
  *         is a precondition violation, asserted.
  *
@@ -105,7 +109,7 @@ public:
 	{
 		assert(scheduler::is_os_callable());
 		assert(update >= 0);
-		[[maybe_unused]] const auto previous = count_.fetch_add(static_cast<int32_t>(update), std::memory_order_relaxed);
+		[[maybe_unused]] const auto previous = count_.fetch_add(static_cast<int32_t>(update), std::memory_order_release);
 		assert(previous <= max() - update); // released past max()
 
 		// Read without the lock: a waiter only queues itself while holding it,
@@ -146,7 +150,7 @@ public:
 		assert(scheduler::is_os_callable());
 		auto current = count_.load(std::memory_order_relaxed);
 		while (current > 0)
-			if (count_.compare_exchange_weak(current, current - 1, std::memory_order_relaxed))
+			if (count_.compare_exchange_weak(current, current - 1, std::memory_order_acquire, std::memory_order_relaxed))
 				return true;
 		return false;
 	}

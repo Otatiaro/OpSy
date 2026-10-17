@@ -36,7 +36,7 @@
  *          Note that this is the storage-side helper: it sits in the actual
  *          peripheral struct that lives at the peripheral's base address.
  *          For one-off accesses to a known address (e.g. SCB / NVIC), use
- *          @c opsy::cortex_m::memory_register, which holds an address rather
+ *          @c opsy::detail::memory_register (in @c cortex_m.hpp ), which holds an address rather
  *          than a value.
  *
  ******************************************************************************

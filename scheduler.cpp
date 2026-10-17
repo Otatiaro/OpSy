@@ -221,6 +221,24 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
 
 
 /**
+ * @brief The return address of the idle task's entry function
+ *
+ *        An idle loop never returns; if one does, it stops on the breakpoint.
+ *        Same shape as terminate_task: the label sits one instruction in, so a
+ *        backtrace shows a call returning rather than a function at +0, and
+ *        the address is taken from the label rather than computed.
+ */
+[[gnu::used]] static void __attribute__((naked, section(".text.opsy.idlereturned"))) idle_return_site()
+{
+	asm volatile(
+			"nop\n\t"
+			".global opsy_idle_returned\n\t"
+			".thumb_func\n\t"
+			"opsy_idle_returned:\n\t"
+			"bkpt 0");
+}
+
+/**
  * @brief Puts a task woken from a condition variable back where it belongs
  *
  *        A task that waited with an @c opsy::mutex has to own it again before

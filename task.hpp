@@ -53,6 +53,10 @@
 #include "embedded_list.hpp"
 #include "cortex_m.hpp"
 #include "callback.hpp"
+
+// Where an idle entry function that returns lands: a breakpoint, defined by
+// the asm in scheduler.cpp. Only its address is taken.
+extern "C" [[noreturn]] void opsy_idle_returned();
 //#include "mutex.hpp"
 
 namespace opsy
@@ -593,7 +597,7 @@ protected:
 
 		frame->psr = 1 << 24;
 		frame->pc = entry;
-		frame->lr = reinterpret_cast<code_pointer>(reinterpret_cast<uint32_t>(no_return) + 2);
+		frame->lr = reinterpret_cast<code_pointer>(&opsy_idle_returned);
 
 		stack_pointer_ -= sizeof(context) / sizeof(uint32_t);
 		const auto ctx = reinterpret_cast<context*>(stack_pointer_);
@@ -608,13 +612,6 @@ private:
 	// (and any task<N> embedding it) is BSS-eligible. Filled in by prepare_impl.
 	uint32_t* stack_base_ = nullptr;
 	uint32_t* stack_pointer_ = nullptr;
-
-	static void __attribute__((naked)) no_return()
-	{
-		asm volatile(
-				"nop \n\t"
-				"bkpt 0");
-	}
 };
 
 /**

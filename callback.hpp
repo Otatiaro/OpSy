@@ -70,10 +70,70 @@ static constexpr std::size_t default_callback_storage_size = 3;
 template<typename, std::size_t StorageSize = default_callback_storage_size>
 class callback;
 
-enum class callback_validity
+namespace detail
 {
-	invalid = 0, valid_no_destructor, valid_destructor,
+
+/**
+ * @brief What a @c callback does with the callable it holds, without knowing its type
+ *
+ *        One constant instance per callable type, in flash; a @c callback
+ *        points at the one for what it holds, and at none when empty. It
+ *        depends on the signature only, not on the storage size, so a
+ *        callable moves between callbacks of different sizes unchanged.
+ */
+template<typename ReturnType, typename ... Arguments>
+struct callback_operations
+{
+	ReturnType (*invoke)(const void* storage, Arguments&&... arguments);
+	void (*relocate)(void* from, void* to); ///< move-constructs at @p to, then destroys at @p from
+	void (*destroy)(void* storage);         ///< @c nullptr when the callable is trivially destructible
 };
+
+/**
+ * @brief The operations for one callable type
+ * @remark Each one finds the callable through @c std::launder at the address
+ *         it was placement-new'd at, which is what makes the access defined:
+ *         an object of exactly that type lives there.
+ */
+template<typename Function, typename ReturnType, typename ... Arguments>
+struct callback_operations_for
+{
+	[[gnu::always_inline]] static Function& get(void* storage)
+	{
+		return *std::launder(static_cast<Function*>(storage));
+	}
+
+	[[gnu::always_inline]] static const Function& get(const void* storage)
+	{
+		return *std::launder(static_cast<const Function*>(storage));
+	}
+
+	static ReturnType invoke(const void* storage, Arguments&&... arguments)
+	{
+		return get(storage)(std::forward<Arguments>(arguments)...);
+	}
+
+	// static_cast and a destructor call rather than std::move and
+	// std::destroy_at: the same thing, without one more function per callable
+	// type in a build that does not inline.
+	static void relocate(void* from, void* to)
+	{
+		Function& source = get(from);
+		::new (to) Function(static_cast<Function&&>(source));
+		source.~Function();
+	}
+
+	static void destroy(void* storage)
+	{
+		get(storage).~Function();
+	}
+
+	static constexpr callback_operations<ReturnType, Arguments...> table{
+		&invoke, &relocate,
+		std::is_trivially_destructible_v<Function> ? nullptr : &destroy };
+};
+
+}
 
 /**
  * @brief A callback.
@@ -82,13 +142,18 @@ enum class callback_validity
  * @tparam StorageSize The size available to store the callback data (in @c void* increment)
  * @tparam ReturnType The type of the return value (if none, use @c void)
  * @tparam Arguments The arguments of the callback (id none, use @c void)
- * @remark It is a replacement for @c std::function
+ * @remark It is a replacement for @c std::function . The callable lives in
+ *         the callback's own storage, constructed there by placement new:
+ *         one that does not fit, or needs more alignment than a pointer, is
+ *         a compile-time error, never a heap allocation.
  */
 template<std::size_t StorageSize, typename ReturnType, typename ... Arguments>
 class callback<ReturnType(Arguments...), StorageSize>
 {
-    template<typename, std::size_t>
-    friend class callback;
+	template<typename, std::size_t>
+	friend class callback;
+
+	using operations = detail::callback_operations<ReturnType, Arguments...>;
 
 public:
 
@@ -100,77 +165,65 @@ public:
 	/**
 	 * Creates a @c callback executing a function
 	 * @param function The function to execute when the @c callback is called
-	 * @tparam Function Any type invocable with @c Arguments... (and not the
+	 * @tparam Function Any type whose @c const instances are invocable with
+	 *         @c Arguments... (and not the
 	 *         @c callback type itself, which would otherwise satisfy the
 	 *         @c std::invocable constraint via @c operator()).
 	 */
 	template<typename Function>
-		requires std::invocable<Function, Arguments...>
+		requires std::invocable<const std::decay_t<Function>&, Arguments...>
 		      && (!std::same_as<std::remove_cvref_t<Function>, callback>)
-	callback(Function&& function) :
-			valid_(std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>> ? callback_validity::valid_destructor : callback_validity::valid_no_destructor)
+	callback(Function&& function)
 	{
-		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
-
-		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
+		emplace(std::forward<Function>(function));
 	}
 
 	callback(const callback&) = delete;
 	callback& operator=(const callback&) = delete;
 
 	/**
-	 * Creates a @c callback by moving data from another @c callback
-	 * @param from The @c callback to move data from
+	 * Creates a @c callback by moving the callable out of another @c callback
+	 * @param from The @c callback to move from, left empty
 	 */
-    template<std::size_t FromSize>
-	constexpr callback(callback<ReturnType(Arguments...), FromSize>&& from) :
-			valid_(from.valid_)
+	template<std::size_t FromSize>
+	callback(callback<ReturnType(Arguments...), FromSize>&& from)
 	{
-        static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");        
-        *reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = callback_validity::invalid;
+		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
+		take(from);
 	}
 
 	/**
-	 * Assigns @c callback from another @c callback by moving data
-	 * @param from The @c callback to move from
+	 * Assigns @c callback from another @c callback by moving its callable
+	 * @param from The @c callback to move from, left empty
 	 */
-    template<std::size_t FromSize>
-	constexpr callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from)
+	template<std::size_t FromSize>
+	callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from)
 	{
-        static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
+		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
-		if (valid_ == callback_validity::valid_destructor)
-			std::destroy_at(get());
-
-		valid_ = from.valid_;
-		if (valid_ != callback_validity::invalid)
-			*reinterpret_cast<typename callback<ReturnType(Arguments...), FromSize>::storage*>(&storage_) = from.storage_; // copy only necessary data
-		from.valid_ = callback_validity::invalid;
+		if (static_cast<const void*>(&from) != static_cast<const void*>(this))
+		{
+			reset();
+			take(from);
+		}
 		return *this;
 	}
 
 	/**
 	 * Assigns @c callback from a function
 	 * @param function The function to encapsulate
-	 * @tparam Function Any type invocable with @c Arguments... (and not the
+	 * @tparam Function Any type whose @c const instances are invocable with
+	 *         @c Arguments... (and not the
 	 *         @c callback type itself, which would otherwise satisfy the
 	 *         @c std::invocable constraint via @c operator()).
 	 */
 	template<typename Function>
-		requires std::invocable<Function, Arguments...>
+		requires std::invocable<const std::decay_t<Function>&, Arguments...>
 		      && (!std::same_as<std::remove_cvref_t<Function>, callback>)
-	constexpr callback& operator=(Function&& function)
+	callback& operator=(Function&& function)
 	{
-		static_assert(sizeof(callback_impl<std::decay_t<Function>>) < FullSize, "Cannot store the invokable in the callback");
-
-		// The storage may already hold a live object, exactly as in the
-		// callback&& overload above: destroy it before placement-newing over it.
-		if (valid_ == callback_validity::valid_destructor)
-			std::destroy_at(get());
-
-		valid_ = (std::is_destructible_v<std::decay_t<Function>> && !std::is_trivially_destructible_v<std::decay_t<Function>>) ? callback_validity::valid_destructor : callback_validity::valid_no_destructor;
-		new (&storage_) callback_impl<std::decay_t<Function>>(std::forward<Function>(function));
+		reset();
+		emplace(std::forward<Function>(function));
 		return *this;
 	}
 
@@ -179,50 +232,23 @@ public:
 	 * @tparam The arguments types
 	 * @param args The arguments to pass to the function
 	 * @return If the @c callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c callback is not empty, execute the function and return its result
-	 * @remark This is the @c const version of the operator
+	 * @remark The callable is invoked as @c const , whether or not the
+	 *         callback is: a mutable lambda is refused at construction.
 	 */
 	template<typename ... Args>
 	auto operator()(Args&&... args) const
 	{
 		if constexpr(std::is_void_v<ReturnType>)
 		{
-			if(valid_ != callback_validity::invalid)
-			get()->apply(std::forward<Args>(args)...);
+			if (operations_ != nullptr)
+				operations_->invoke(storage_, std::forward<Args>(args)...);
 		}
 		else
 		{
-			if(valid_ != callback_validity::invalid)
-			return std::optional<ReturnType>
-			{	get()->apply(std::forward<Args>(args)...)};
+			if (operations_ != nullptr)
+				return std::optional<ReturnType>{ operations_->invoke(storage_, std::forward<Args>(args)...) };
 			else
-			return std::optional<ReturnType>
-			{	std::nullopt};
-		}
-	}
-
-	/**
-	 * Calls the @c callback function if it contains one
-	 * @tparam The arguments types
-	 * @param args The arguments to pass to the function
-	 * @return If the @c callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c callback is not empty, execute the function and return its result
-	 * @remark This is the non @c const version of the operator
-	 */
-	template<typename ... Args>
-	auto operator()(Args&&... args)
-	{
-		if constexpr(std::is_void_v<ReturnType>)
-		{
-			if(valid_ != callback_validity::invalid)
-			get()->apply(std::forward<Args>(args)...);
-		}
-		else
-		{
-			if(valid_ != callback_validity::invalid)
-			return std::optional<ReturnType>
-			{	get()->apply(std::forward<Args>(args)...)};
-			else
-			return std::optional<ReturnType>
-			{	std::nullopt};
+				return std::optional<ReturnType>{ std::nullopt };
 		}
 	}
 
@@ -235,100 +261,46 @@ public:
 	// if (cb), !cb, cb && x -- still works.
 	[[nodiscard]] constexpr explicit operator bool() const
 	{
-		return valid_ != callback_validity::invalid;
+		return operations_ != nullptr;
 	}
 
 	~callback()
 	{
-	if (valid_ == callback_validity::valid_destructor)
-		std::destroy_at(get());
+		reset();
 	}
 
-	private:
-
-	class i_callback
-	{
-	public:
-		virtual ReturnType apply(Arguments&&... arguments) const = 0;
-		virtual ReturnType apply(Arguments&&... arguments) = 0;
-		virtual ~i_callback() = default;
-
-		/**
-		 * @brief Never called, and present so that nothing here reaches a heap
-		 *
-		 *        A class with a virtual destructor gets a second, hidden
-		 *        destructor in its vtable -- the "deleting" one, which runs
-		 *        the destructor and then frees the storage. The compiler emits
-		 *        it whether or not any @c delete is ever written, and it calls
-		 *        whichever @c operator @c delete is visible from the class.
-		 *
-		 *        With only the global one visible, that pulls @c operator
-		 *        @c delete into the image, and with it @c free , @c malloc and
-		 *        @c _sbrk -- a heap, in an RTOS that has none, and one that a
-		 *        linker script with no heap region may not even be able to
-		 *        satisfy.
-		 *
-		 *        Declaring one here means the deleting destructor calls this
-		 *        instead, and nothing outside is needed. It cannot be reached:
-		 *        a callback owns its target inside its own storage, destroys
-		 *        it through @c std::destroy_at , and never allocates it, so no
-		 *        @c delete is ever applied to one. @c i_callback is a private
-		 *        nested class, so nothing outside can write one either. The
-		 *        assert says as much, and would fire if that ever stopped
-		 *        being true.
-		 *
-		 * @remark Deleting it instead of defining it does not work: the
-		 *         deleting destructor still has to be emitted, and would
-		 *         then fail to compile.
-		 */
-		static void operator delete(void*, std::size_t)
-		{
-			assert(false); // a callback's target is never heap-allocated
-		}
-	};
-
-	static constexpr std::size_t FullSize = sizeof(i_callback) + StorageSize * sizeof(void*);
-	using storage = struct alignas(std::alignment_of_v<i_callback>) { std::byte data[FullSize]; };
+private:
 
 	template<typename Function>
-	class callback_impl final : i_callback
+	void emplace(Function&& function)
 	{
+		using stored = std::decay_t<Function>;
+		static_assert(sizeof(stored) <= sizeof(storage_), "Cannot store the invokable in the callback");
+		static_assert(alignof(stored) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
 
-	public:
-
-		constexpr explicit callback_impl(Function&& func) :
-				function_(std::forward<Function>(func))
-		{
-
-		}
-
-		ReturnType apply(Arguments&&... args) const final
-		{
-			return function_(std::forward<Arguments>(args)...);
-		}
-
-		ReturnType apply(Arguments&&... args) final
-		{
-			return function_(std::forward<Arguments>(args)...);
-		}
-
-		~callback_impl() final = default;
-
-	private:
-		Function function_;
-	};
-
-	constexpr inline i_callback* get()
-	{
-		return reinterpret_cast<i_callback*>(&storage_);
+		::new (static_cast<void*>(storage_)) stored(std::forward<Function>(function));
+		operations_ = &detail::callback_operations_for<stored, ReturnType, Arguments...>::table;
 	}
 
-	constexpr inline const i_callback* get() const
+	template<std::size_t FromSize>
+	void take(callback<ReturnType(Arguments...), FromSize>& from)
 	{
-		return reinterpret_cast<const i_callback*>(&storage_);
+		if (from.operations_ == nullptr)
+			return;
+
+		from.operations_->relocate(from.storage_, storage_);
+		operations_ = from.operations_;
+		from.operations_ = nullptr;
 	}
 
-	callback_validity valid_{ callback_validity::invalid };
-	storage storage_{ };
+	void reset()
+	{
+		if (operations_ != nullptr && operations_->destroy != nullptr)
+			operations_->destroy(storage_);
+		operations_ = nullptr;
+	}
+
+	const operations* operations_ = nullptr;
+	alignas(void*) std::byte storage_[StorageSize * sizeof(void*)]{};
 };
 }

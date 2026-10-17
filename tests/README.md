@@ -155,7 +155,10 @@ Several cases race a task against a deadline, and with wall-clock time
 how much a task got done per tick depended on how busy the machine
 running QEMU was: a slow CI runner failed them, a fast workstation never
 did. Counted, a run is the same every time, on every machine. The suite
-starts failing on throughput from `shift=8`, eight times slower.
+also runs at `shift=9`, sixteen times slower (`opsy_qemu_tests_slow_*`): a
+case that passes at one speed and not the other depends on how much work a
+task gets through per tick, not on what the scheduler decides, and has to
+be written against an event instead.
 
 Cases run back to back on one runner task, so each must leave the system
 as it found it: no task left started, no mutex left locked. The runner

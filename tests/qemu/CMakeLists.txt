@@ -137,7 +137,19 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
 )
 
-set_tests_properties(opsy_qemu_tests_${OPSY_TARGET} PROPERTIES TIMEOUT 120)
+# The same image on a core sixteen times slower. A case that passes at the
+# nominal speed and fails here depends on how much a task gets done per tick
+# rather than on what the scheduler decides -- see run_qemu.cmake.
+add_test(
+    NAME opsy_qemu_tests_slow_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_tests>
+            -DQEMU_ICOUNT_SHIFT=9
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
+set_tests_properties(opsy_qemu_tests_${OPSY_TARGET} opsy_qemu_tests_slow_${OPSY_TARGET} PROPERTIES TIMEOUT 120)
 
 # OpSy never allocates, so an image built on it should contain no allocator.
 # Checked on the linked image because that is where one appears: a single

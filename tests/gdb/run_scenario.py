@@ -49,9 +49,15 @@ def main() -> int:
     # stop dead with the session still waiting on a target that never moves.
     with tempfile.TemporaryFile(mode="w+") as emulator_output:
         # -S freezes the CPU at reset, so the scenario gets to set breakpoints
-        # before a single instruction of the image has run.
+        # before a single instruction of the image has run. -icount as in
+        # tests/qemu/run_qemu.cmake, which says why: the scenarios run the
+        # same image, and should see the same time. Without sleep=off here:
+        # with the clock jumping over idle periods, a core stopped by the
+        # debugger in WFI finds no timer left armed when it resumes, and
+        # stays there.
         emulator = subprocess.Popen(
-            [qemu, "-machine", machine, "-kernel", image, "-nographic",
+            [qemu, "-machine", machine, "-icount", "shift=5",
+             "-kernel", image, "-nographic",
              "-semihosting-config", "enable=on,target=native",
              "-monitor", "none", "-serial", "none",
              "-S", "-gdb", f"tcp::{GDB_PORT}"],

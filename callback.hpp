@@ -186,7 +186,7 @@ public:
 	 * @param from The @c callback to move from, left empty
 	 */
 	template<std::size_t FromSize>
-	callback(callback<ReturnType(Arguments...), FromSize>&& from)
+	callback(callback<ReturnType(Arguments...), FromSize>&& from) noexcept
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 		take(from);
@@ -197,7 +197,7 @@ public:
 	 * @param from The @c callback to move from, left empty
 	 */
 	template<std::size_t FromSize>
-	callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from)
+	callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from) noexcept
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
@@ -277,6 +277,8 @@ private:
 		using stored = std::decay_t<Function>;
 		static_assert(sizeof(stored) <= sizeof(storage_), "Cannot store the invokable in the callback");
 		static_assert(alignof(stored) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
+		static_assert(std::is_nothrow_move_constructible_v<stored> && std::is_nothrow_destructible_v<stored>,
+			"The invokable is moved and destroyed by a callback's noexcept move and destructor");
 
 		::new (static_cast<void*>(storage_)) stored(std::forward<Function>(function));
 		operations_ = &detail::callback_operations_for<stored, ReturnType, Arguments...>::table;

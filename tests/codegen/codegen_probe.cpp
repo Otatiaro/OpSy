@@ -35,6 +35,7 @@ void probe_pend_sv_is_synchronised();
 void probe_disable_interrupt_is_synchronised();
 void probe_control_write_is_synchronised(uint32_t control);
 void probe_vtor_move_is_synchronised(opsy::cortex_m::isr_handler_t* table);
+void probe_handler_write_is_synchronised(opsy::cortex_m::isr_handler_t handler);
 
 /**
  * @brief Reads the same MMIO register twice and returns both halves.
@@ -155,6 +156,20 @@ void probe_vtor_move_is_synchronised(opsy::cortex_m::isr_handler_t* table);
 [[gnu::noinline, gnu::used]] void probe_vtor_move_is_synchronised(opsy::cortex_m::isr_handler_t* table)
 {
 	opsy::cortex_m::move_vtor(table);
+}
+
+/**
+ * @brief Installs a handler in the vector table.
+ *
+ *        The core reads the entry when the exception is taken, which may be
+ *        right after the write -- the caller typically enables the interrupt
+ *        next. A dsb completes the write first.
+ *
+ *        Expected: the store, then dsb.
+ */
+[[gnu::noinline, gnu::used]] void probe_handler_write_is_synchronised(opsy::cortex_m::isr_handler_t handler)
+{
+	opsy::cortex_m::set_isr_handler(27u, handler);
 }
 
 } // extern "C"

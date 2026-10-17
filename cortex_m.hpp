@@ -503,10 +503,14 @@ public:
 	/**
 	 * @brief Gets the current interrupt handler vector
 	 * @return The current interrupt handler vector
+	 * @remark Volatile because the core reads it when an exception is taken:
+	 *         installing a handler then enabling its interrupt must stay in
+	 *         that order, which the language only guarantees between volatile
+	 *         accesses.
 	 */
-	static isr_handler_t* vtor()
+	static isr_handler_t volatile* vtor()
 	{
-		return reinterpret_cast<isr_handler_t*>(detail::memory_register<uint32_t>(ScbVtorAddress).get());
+		return reinterpret_cast<isr_handler_t volatile*>(detail::memory_register<uint32_t>(ScbVtorAddress).get());
 	}
 
 	/**
@@ -583,7 +587,10 @@ public:
 	static void set_isr_handler(system_irq irq, isr_handler_t handler)
 	{
 		if (isr_handler(irq) != handler)
+		{
 			vtor()[static_cast<std::size_t>(irq)] = handler;
+			data_barrier(); // written before the exception can be taken through it
+		}
 	}
 
 	/**
@@ -597,7 +604,10 @@ public:
 	{
 		assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
+		{
 			vtor()[irq + system_irqs_count] = handler;
+			data_barrier(); // written before the exception can be taken through it
+		}
 	}
 
 	/**

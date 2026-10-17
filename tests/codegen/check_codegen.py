@@ -135,6 +135,8 @@ def main() -> int:
          "instructions after the CONTROL write may run with the old stack or privilege"),
         ("probe_vtor_move_is_synchronised", ("str", "dsb"),
          "an exception may still be vectored through the old table"),
+        ("probe_handler_write_is_synchronised", ("str", "dsb"),
+         "an exception may still be taken through the previous handler"),
     ):
         body = require(name)
         if body and not in_order(body, *sequence):

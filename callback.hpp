@@ -4,18 +4,16 @@
  * @author  Thomas Legrand
  * @version V0.1
  * @date    01-March-2019
- * @brief   Replacement for @c std::function
+ * @brief   Move-only callable wrapper with the interface of
+ *          @c std::move_only_function , holding its target inline
  *
- * 		 Compared to @c std::function, @c callback does not:
- * 		  - allocate any memory on the heap
- * 		    it does not compile if the storage is not big enough
- * 		    to contain the required data
- * 		    the storage size is a template parameter with default value
- * 		  - throw exception
- * 		    if the empty callback has no return value, calling does nothing
- * 		    if the callback target has return value, the callback returns
- * 		    an @c std::optional<ReturnType> and empty callback returns @c nullopt
- * 		  - allow copy, only moves are allowed
+ * 		 What differs from @c std::move_only_function :
+ * 		  - the target lives in the callback's own storage, whose size is
+ * 		    a template parameter; one that does not fit, or needs more
+ * 		    alignment than a pointer, does not compile -- nothing is ever
+ * 		    allocated;
+ * 		  - moving and destroying the target must not throw, so that a
+ * 		    callback moves without throwing too.
  *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
@@ -48,12 +46,12 @@
 #pragma once
 
 #include <concepts>
-#include <type_traits>
 #include <cstddef>
-#include <utility>
-#include <new>
-#include <optional>
+#include <functional>
 #include <memory>
+#include <new>
+#include <type_traits>
+#include <utility>
 
 #include "opsy_assert.hpp"
 
@@ -65,139 +63,226 @@ namespace opsy
 static constexpr std::size_t default_callback_storage_size = 3;
 
 /**
- * @brief The base definition of a @c callback, which will be specialized by @c callback<ReturnType(Arguments...), StorageSize> for concrete implementation
+ * @brief A move-only callable wrapper, with the interface of @c std::move_only_function
+ * @tparam Signature As for @c std::move_only_function : @c R(Args...) , with
+ *         any of @c const , @c & or @c && , and @c noexcept . They say how the
+ *         target is called -- @c R(Args...) const only accepts what can be
+ *         called as @c const , a plain @c R(Args...) also takes a mutable lambda.
+ * @tparam StorageSize The size available to store the target, in @c void* increments
  */
-template<typename, std::size_t StorageSize = default_callback_storage_size>
+template<typename Signature, std::size_t StorageSize = default_callback_storage_size>
 class callback;
 
 namespace detail
 {
 
 /**
- * @brief What a @c callback does with the callable it holds, without knowing its type
+ * @brief What a @c callback does with the target it holds, without knowing its type
  *
- *        One constant instance per callable type, in flash; a @c callback
- *        points at the one for what it holds, and at none when empty. It
- *        depends on the signature only, not on the storage size, so a
- *        callable moves between callbacks of different sizes unchanged.
+ *        One constant instance per target type and signature, in flash; a
+ *        @c callback points at the one for what it holds, and at none when
+ *        empty. It depends on the signature only, not on the storage size,
+ *        so a target moves between callbacks of different sizes unchanged.
  */
-template<typename ReturnType, typename ... Arguments>
+template<typename R, typename... A>
 struct callback_operations
 {
-	ReturnType (*invoke)(const void* storage, Arguments&&... arguments);
-	void (*relocate)(void* from, void* to); ///< move-constructs at @p to, then destroys at @p from
-	void (*destroy)(void* storage);         ///< @c nullptr when the callable is trivially destructible
+	R (*invoke)(void* storage, A&&... arguments);
+	void (*relocate)(void* from, void* to) noexcept; ///< move-constructs at @p to, then destroys at @p from
+	void (*destroy)(void* storage) noexcept;         ///< @c nullptr when the target is trivially destructible
 };
 
 /**
- * @brief The operations for one callable type
- * @remark Each one finds the callable through @c std::launder at the address
- *         it was placement-new'd at, which is what makes the access defined:
- *         an object of exactly that type lives there.
+ * @brief How a signature calls its target: as what, whether that is
+ *        possible for a given target type, and the call itself
  */
-template<typename Function, typename ReturnType, typename ... Arguments>
+template<typename Signature>
+struct callback_signature;
+
+// One specialization per cv / ref combination; noexcept is deduced. INV is the
+// reference the target is called through: an unqualified signature calls it as
+// an lvalue, as std::move_only_function does.
+#define OPSY_CALLBACK_SIGNATURE(CV, REF, INV)                                              \
+	template<typename R, typename... A, bool Noexcept>                                     \
+	struct callback_signature<R(A...) CV REF noexcept(Noexcept)>                           \
+	{                                                                                      \
+		using operations = callback_operations<R, A...>;                                   \
+                                                                                           \
+		template<typename F>                                                               \
+		using invoked = F CV INV;                                                          \
+                                                                                           \
+		template<typename F>                                                               \
+		static constexpr bool invocable = Noexcept                                         \
+			? std::is_nothrow_invocable_r_v<R, invoked<F>, A...>                           \
+			: std::is_invocable_r_v<R, invoked<F>, A...>;                                  \
+                                                                                           \
+		template<typename F>                                                               \
+		static R invoke(void* storage, A&&... arguments) noexcept(Noexcept)                \
+		{                                                                                  \
+			return std::invoke_r<R>(                                                       \
+				static_cast<invoked<F>>(*std::launder(static_cast<F*>(storage))),          \
+				std::forward<A>(arguments)...);                                            \
+		}                                                                                  \
+	};
+
+OPSY_CALLBACK_SIGNATURE(, , &)
+OPSY_CALLBACK_SIGNATURE(, &, &)
+OPSY_CALLBACK_SIGNATURE(, &&, &&)
+OPSY_CALLBACK_SIGNATURE(const, , &)
+OPSY_CALLBACK_SIGNATURE(const, &, &)
+OPSY_CALLBACK_SIGNATURE(const, &&, &&)
+
+#undef OPSY_CALLBACK_SIGNATURE
+
+/**
+ * @brief The operator() a signature gives a @c callback , with the signature's
+ *        own qualifiers
+ */
+template<typename Derived, typename Signature>
+struct callback_call;
+
+#define OPSY_CALLBACK_CALL(CV, REF)                                                        \
+	template<typename Derived, typename R, typename... A, bool Noexcept>                   \
+	struct callback_call<Derived, R(A...) CV REF noexcept(Noexcept)>                       \
+	{                                                                                      \
+		/** @pre The callback holds a target: calling an empty one is a precondition      \
+		 *       violation, as for @c std::move_only_function , asserted. */               \
+		R operator()(A... arguments) CV REF noexcept(Noexcept)                             \
+		{                                                                                  \
+			auto& self = static_cast<Derived CV &>(*this);                                 \
+			assert(self.operations_ != nullptr);                                           \
+			return self.operations_->invoke(                                               \
+				const_cast<void*>(static_cast<CV void*>(self.storage_)),                   \
+				std::forward<A>(arguments)...);                                            \
+		}                                                                                  \
+	};
+
+OPSY_CALLBACK_CALL(, )
+OPSY_CALLBACK_CALL(, &)
+OPSY_CALLBACK_CALL(, &&)
+OPSY_CALLBACK_CALL(const, )
+OPSY_CALLBACK_CALL(const, &)
+OPSY_CALLBACK_CALL(const, &&)
+
+#undef OPSY_CALLBACK_CALL
+
+/**
+ * @brief The operations for one target type under one signature
+ * @remark Each one finds the target through @c std::launder at the address it
+ *         was placement-new'd at, which is what makes the access defined: an
+ *         object of exactly that type lives there.
+ */
+template<typename F, typename Signature>
 struct callback_operations_for
 {
-	[[gnu::always_inline]] static Function& get(void* storage)
+	static F& get(void* storage) noexcept
 	{
-		return *std::launder(static_cast<Function*>(storage));
-	}
-
-	[[gnu::always_inline]] static const Function& get(const void* storage)
-	{
-		return *std::launder(static_cast<const Function*>(storage));
-	}
-
-	static ReturnType invoke(const void* storage, Arguments&&... arguments)
-	{
-		return get(storage)(std::forward<Arguments>(arguments)...);
+		return *std::launder(static_cast<F*>(storage));
 	}
 
 	// static_cast and a destructor call rather than std::move and
-	// std::destroy_at: the same thing, without one more function per callable
+	// std::destroy_at: the same thing, without one more function per target
 	// type in a build that does not inline.
-	static void relocate(void* from, void* to)
+	static void relocate(void* from, void* to) noexcept
 	{
-		Function& source = get(from);
-		::new (to) Function(static_cast<Function&&>(source));
-		source.~Function();
+		F& source = get(from);
+		::new (to) F(static_cast<F&&>(source));
+		source.~F();
 	}
 
-	static void destroy(void* storage)
+	static void destroy(void* storage) noexcept
 	{
-		get(storage).~Function();
+		get(storage).~F();
 	}
 
-	static constexpr callback_operations<ReturnType, Arguments...> table{
-		&invoke, &relocate,
-		std::is_trivially_destructible_v<Function> ? nullptr : &destroy };
+	static constexpr typename callback_signature<Signature>::operations table{
+		&callback_signature<Signature>::template invoke<F>, &relocate,
+		std::is_trivially_destructible_v<F> ? nullptr : &destroy };
 };
+
+template<typename T>
+inline constexpr bool is_in_place_type = false;
+
+template<typename T>
+inline constexpr bool is_in_place_type<std::in_place_type_t<T>> = true;
 
 }
 
 /**
- * @brief A callback.
- * A callback is used as a way to defer code execution. For example, when you ask a peripheral to do something, you may want
- * the peripheral to execute code when it has finished, calling you back (hence the name) so that you can e.g. set a flag.
- * @tparam StorageSize The size available to store the callback data (in @c void* increment)
- * @tparam ReturnType The type of the return value (if none, use @c void)
- * @tparam Arguments The arguments of the callback (id none, use @c void)
- * @remark It is a replacement for @c std::function . The callable lives in
- *         the callback's own storage, constructed there by placement new:
- *         one that does not fit, or needs more alignment than a pointer, is
- *         a compile-time error, never a heap allocation.
+ * @brief A move-only callable wrapper, with the interface of @c std::move_only_function
+ *
+ *        A callback is used as a way to defer code execution. For example, when
+ *        you ask a peripheral to do something, you may want the peripheral to
+ *        execute code when it has finished, calling you back (hence the name).
+ *
+ *        The target lives in the callback's own storage, constructed there by
+ *        placement new: one that does not fit, or needs more alignment than a
+ *        pointer, is a compile-time error, never a heap allocation.
  */
-template<std::size_t StorageSize, typename ReturnType, typename ... Arguments>
-class callback<ReturnType(Arguments...), StorageSize>
+template<typename Signature, std::size_t StorageSize>
+class callback : public detail::callback_call<callback<Signature, StorageSize>, Signature>
 {
 	template<typename, std::size_t>
 	friend class callback;
+	friend struct detail::callback_call<callback, Signature>;
 
-	using operations = detail::callback_operations<ReturnType, Arguments...>;
+	using traits = detail::callback_signature<Signature>;
+	using operations = typename traits::operations;
+
+	template<typename F>
+	static constexpr bool accepts = traits::template invocable<F>;
 
 public:
 
-	/**
-	 * Creates an empty @c callback.
-	 */
-	constexpr callback() = default;
+	/** @brief Creates an empty callback */
+	constexpr callback() noexcept = default;
+
+	/** @brief Creates an empty callback */
+	constexpr callback(std::nullptr_t) noexcept {}
 
 	/**
-	 * Creates a @c callback executing a function
-	 * @param function The function to execute when the @c callback is called
-	 * @tparam Function Any type whose @c const instances are invocable with
-	 *         @c Arguments... (and not the
-	 *         @c callback type itself, which would otherwise satisfy the
-	 *         @c std::invocable constraint via @c operator()).
+	 * @brief Creates a callback calling @p function
+	 * @remark Empty if @p function is a null function or member pointer.
 	 */
-	template<typename Function>
-		requires std::invocable<const std::decay_t<Function>&, Arguments...>
-		      && (!std::same_as<std::remove_cvref_t<Function>, callback>)
-	callback(Function&& function)
+	template<typename F>
+		requires (!std::same_as<std::remove_cvref_t<F>, callback>)
+		      && (!detail::is_in_place_type<std::remove_cvref_t<F>>)
+		      && std::is_constructible_v<std::decay_t<F>, F>
+		      && accepts<std::decay_t<F>>
+	callback(F&& function)
 	{
-		emplace(std::forward<Function>(function));
+		using stored = std::decay_t<F>;
+		if constexpr (std::is_pointer_v<stored> || std::is_member_pointer_v<stored>)
+			if (function == nullptr)
+				return;
+		emplace<stored>(std::forward<F>(function));
+	}
+
+	/** @brief Creates a callback calling a @p T constructed in place from @p arguments */
+	template<typename T, typename... Arguments>
+		requires std::is_constructible_v<T, Arguments...> && accepts<T>
+	explicit callback(std::in_place_type_t<T>, Arguments&&... arguments)
+	{
+		emplace<T>(std::forward<Arguments>(arguments)...);
 	}
 
 	callback(const callback&) = delete;
 	callback& operator=(const callback&) = delete;
 
 	/**
-	 * Creates a @c callback by moving the callable out of another @c callback
-	 * @param from The @c callback to move from, left empty
+	 * @brief Takes the target of @p from, which is left empty
+	 * @remark Also from a callback with less storage, never more.
 	 */
 	template<std::size_t FromSize>
-	callback(callback<ReturnType(Arguments...), FromSize>&& from) noexcept
+	callback(callback<Signature, FromSize>&& from) noexcept
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 		take(from);
 	}
 
-	/**
-	 * Assigns @c callback from another @c callback by moving its callable
-	 * @param from The @c callback to move from, left empty
-	 */
+	/** @copydoc callback(callback<Signature, FromSize>&&) */
 	template<std::size_t FromSize>
-	callback& operator=(callback<ReturnType(Arguments...), FromSize>&& from) noexcept
+	callback& operator=(callback<Signature, FromSize>&& from) noexcept
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
@@ -209,59 +294,24 @@ public:
 		return *this;
 	}
 
-	/**
-	 * Assigns @c callback from a function
-	 * @param function The function to encapsulate
-	 * @tparam Function Any type whose @c const instances are invocable with
-	 *         @c Arguments... (and not the
-	 *         @c callback type itself, which would otherwise satisfy the
-	 *         @c std::invocable constraint via @c operator()).
-	 */
-	template<typename Function>
-		requires std::invocable<const std::decay_t<Function>&, Arguments...>
-		      && (!std::same_as<std::remove_cvref_t<Function>, callback>)
-	callback& operator=(Function&& function)
+	/** @brief Empties the callback */
+	callback& operator=(std::nullptr_t) noexcept
 	{
 		reset();
-		emplace(std::forward<Function>(function));
 		return *this;
 	}
 
-	/**
-	 * Calls the @c callback function if it contains one
-	 * @tparam The arguments types
-	 * @param args The arguments to pass to the function
-	 * @return If the @c callback is empty and its return type is void, does nothing, otherwise return @c nullopt, if the @c callback is not empty, execute the function and return its result
-	 * @remark The callable is invoked as @c const , whether or not the
-	 *         callback is: a mutable lambda is refused at construction.
-	 */
-	template<typename ... Args>
-	auto operator()(Args&&... args) const
+	/** @brief Replaces the target with @p function */
+	template<typename F>
+		requires (!std::same_as<std::remove_cvref_t<F>, callback>)
+		      && std::is_constructible_v<std::decay_t<F>, F>
+		      && accepts<std::decay_t<F>>
+	callback& operator=(F&& function)
 	{
-		if constexpr(std::is_void_v<ReturnType>)
-		{
-			if (operations_ != nullptr)
-				operations_->invoke(storage_, std::forward<Args>(args)...);
-		}
-		else
-		{
-			if (operations_ != nullptr)
-				return std::optional<ReturnType>{ operations_->invoke(storage_, std::forward<Args>(args)...) };
-			else
-				return std::optional<ReturnType>{ std::nullopt };
-		}
-	}
-
-	/**
-	 * Checks if the @c callback is valid (contains an actual function)
-	 * @return @c true if the @c callback contains a function, @c false if it is empty
-	 */
-	// explicit, like std::function's: without it a callback converts silently
-	// to bool, so `int n = cb;` and `cb + 1` compile. Contextual conversion --
-	// if (cb), !cb, cb && x -- still works.
-	[[nodiscard]] constexpr explicit operator bool() const
-	{
-		return operations_ != nullptr;
+		callback replacement(std::forward<F>(function));
+		reset();
+		take(replacement);
+		return *this;
 	}
 
 	~callback()
@@ -269,23 +319,45 @@ public:
 		reset();
 	}
 
+	/** @return @c true if it holds a target */
+	[[nodiscard]] explicit operator bool() const noexcept
+	{
+		return operations_ != nullptr;
+	}
+
+	void swap(callback& other) noexcept
+	{
+		callback held(std::move(other));
+		other = std::move(*this);
+		*this = std::move(held);
+	}
+
+	friend void swap(callback& left, callback& right) noexcept
+	{
+		left.swap(right);
+	}
+
+	friend bool operator==(const callback& function, std::nullptr_t) noexcept
+	{
+		return !function;
+	}
+
 private:
 
-	template<typename Function>
-	void emplace(Function&& function)
+	template<typename T, typename... Arguments>
+	void emplace(Arguments&&... arguments)
 	{
-		using stored = std::decay_t<Function>;
-		static_assert(sizeof(stored) <= sizeof(storage_), "Cannot store the invokable in the callback");
-		static_assert(alignof(stored) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
-		static_assert(std::is_nothrow_move_constructible_v<stored> && std::is_nothrow_destructible_v<stored>,
+		static_assert(sizeof(T) <= sizeof(storage_), "Cannot store the invokable in the callback");
+		static_assert(alignof(T) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
+		static_assert(std::is_nothrow_move_constructible_v<T> && std::is_nothrow_destructible_v<T>,
 			"The invokable is moved and destroyed by a callback's noexcept move and destructor");
 
-		::new (static_cast<void*>(storage_)) stored(std::forward<Function>(function));
-		operations_ = &detail::callback_operations_for<stored, ReturnType, Arguments...>::table;
+		::new (static_cast<void*>(storage_)) T(std::forward<Arguments>(arguments)...);
+		operations_ = &detail::callback_operations_for<T, Signature>::table;
 	}
 
 	template<std::size_t FromSize>
-	void take(callback<ReturnType(Arguments...), FromSize>& from)
+	void take(callback<Signature, FromSize>& from) noexcept
 	{
 		if (from.operations_ == nullptr)
 			return;
@@ -295,7 +367,7 @@ private:
 		from.operations_ = nullptr;
 	}
 
-	void reset()
+	void reset() noexcept
 	{
 		if (operations_ != nullptr && operations_->destroy != nullptr)
 			operations_->destroy(storage_);

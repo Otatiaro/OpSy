@@ -196,6 +196,9 @@ static_assert(decltype(g_queue)::capacity() == 8);
 	opsy::cortex_m::nop();
 	(void) opsy::cortex_m::is_primask();
 	(void) opsy::cortex_m::msp();
+	(void) opsy::cortex_m::enable_cycle_count();
+	opsy::cortex_m::cycle_count(0);
+	(void) opsy::cortex_m::cycle_count();
 	(void) opsy::cortex_m::psp();
 }
 

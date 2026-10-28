@@ -915,11 +915,35 @@ public:
 	    return result;
 	}
 
+	/**
+	 * @brief Starts the DWT cycle counter, which @c cycle_count() reads
+	 *
+	 *        After a reset the counter does not count unless a debugger started it. This sets
+	 *        DWT_CTRL.CYCCNTENA, and DEMCR.TRCENA without which the DWT does not run; every
+	 *        other bit of both registers is left as it is.
+	 * @return @c true if the counter runs: @c false on a core without one, or when the DWT is
+	 *         locked against software writes (a Cortex-M7 may be, see its CoreSight lock)
+	 */
+	static bool enable_cycle_count()
+	{
+		detail::memory_register<uint32_t>(DemcrAddress).set(detail::memory_register<uint32_t>(DemcrAddress).get() | DemcrTrcena);
+		detail::memory_register<uint32_t>(DwtCtrlAddress).set(detail::memory_register<uint32_t>(DwtCtrlAddress).get() | DwtCtrlCycCntEna);
+		return (detail::memory_register<uint32_t>(DwtCtrlAddress).get() & DwtCtrlCycCntEna) != 0;
+	}
+
+	/**
+	 * @brief Gets the DWT cycle counter: core clock cycles, wrapping at 2^32
+	 * @remark Counts only once started, by @c enable_cycle_count() or a debugger
+	 */
 	static inline uint32_t cycle_count()
 	{
 		return detail::memory_register<uint32_t>(CycCntAddress).get();
 	}
 
+	/**
+	 * @brief Sets the DWT cycle counter
+	 * @param value The value it counts on from
+	 */
 	static inline void cycle_count(uint32_t value)
 	{
 		detail::memory_register<uint32_t>(CycCntAddress).set(value);
@@ -929,7 +953,15 @@ private:
 
 	static constexpr const uint32_t DwtAddress = 0xE0001000;
 
+	static constexpr uint32_t DwtCtrlAddress = DwtAddress + 0x000;
 	static constexpr uint32_t CycCntAddress = DwtAddress + 0x004;
+
+	static constexpr std::size_t DwtCtrlCycCntEnaPos = 0;
+	static constexpr uint32_t DwtCtrlCycCntEna = 1 << DwtCtrlCycCntEnaPos;
+
+	static constexpr uint32_t DemcrAddress = 0xE000EDFC;
+	static constexpr std::size_t DemcrTrcenaPos = 24;
+	static constexpr uint32_t DemcrTrcena = 1 << DemcrTrcenaPos;
 
 	static constexpr const uint32_t ScsAddress = 0xE000E000;
 

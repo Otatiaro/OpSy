@@ -54,6 +54,7 @@
 #include <ratio>
 #include "opsy_assert.hpp"
 #include <atomic>
+#include <concepts>
 
 #include "config.hpp"
 #include "task.hpp"
@@ -84,6 +85,22 @@ extern "C" [[noreturn]] void opsy_terminate_task_resume();
 
 namespace opsy
 {
+
+/**
+ * @brief What OpSy needs of a vector table built at compile time to place its handlers in it
+ *
+ *        Names the exceptions OpSy runs on through @c Table::exception_type,
+ *        and fills a slot with @c with<exception, handler>(), returning the
+ *        table with that slot filled. SvdGenerator's @c vector_table is one;
+ *        OpSy does not know its type, only this.
+ */
+template<typename Table>
+concept vector_table = requires(const Table table)
+{
+	{ table.template with<Table::exception_type::svcall, ::SVC_Handler>() } -> std::same_as<Table>;
+	{ table.template with<Table::exception_type::pendsv, ::PendSV_Handler>() } -> std::same_as<Table>;
+	{ table.template with<Table::exception_type::systick, ::SysTick_Handler>() } -> std::same_as<Table>;
+};
 
 /**
  * @brief The @c scheduler is the OpSy manager, it handles @c task switch, timeouts, etc.
@@ -152,6 +169,32 @@ public:
 		idle.prepare(entry);
 		start_impl(idle);
 	}
+
+	/**
+	 * @brief Places the scheduler's three handlers in a vector table built at compile time
+	 *
+	 *        @c SVC_Handler, @c PendSV_Handler and @c SysTick_Handler, in the
+	 *        slots of the service call, PendSV and SysTick. Given to the
+	 *        table's @c with(install):
+	 *
+	 * @code
+	 * constexpr auto g_vectors = STM32H563::vector_table<Default_Handler, opsy::hooked_isr>(&_estack, Reset_Handler)
+	 *     .with(opsy::scheduler::isrs)
+	 *     .with<USART3_IRQn, uart::rx_isr>();
+	 * @endcode
+	 *
+	 * @remark Each slot is filled with @c with<>: on a table that refuses an
+	 *         occupied slot, as SvdGenerator's does, a handler already there
+	 *         does not compile, whoever put it there. @c start checks the three are in the table it runs on, whichever
+	 *         way they got there.
+	 */
+	static constexpr auto isrs = []<vector_table Table>(const Table& table) -> Table
+	{
+		using exception = typename Table::exception_type;
+		return table.template with<exception::svcall, ::SVC_Handler>()
+		            .template with<exception::pendsv, ::PendSV_Handler>()
+		            .template with<exception::systick, ::SysTick_Handler>();
+	};
 
 private:
 

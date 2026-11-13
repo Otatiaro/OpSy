@@ -218,4 +218,93 @@ static_assert(decltype(g_queue)::capacity() == 8);
 	if (cb) cb(7);
 }
 
+// ───────────────────── a vector table built at compile time ─────────────────
+// scheduler::isrs and hooked_isr are written against what a generated table
+// offers -- SvdGenerator's vectors.hpp -- without OpSy depending on it. This
+// stand-in has the shape that matters and nothing more: the exception
+// enumeration, with<>() filling one slot and returning the table, with(install)
+// handing the table to a function, and a Decoration applied to the device
+// interrupts. Checked at compile time, on every target.
+
+using handler_t = void (*)();
+
+enum class fake_exception : std::uint8_t { nmi = 2, hard_fault = 3, svcall = 11, pendsv = 14, systick = 15 };
+enum class fake_irq : std::uint8_t { uart = 0, timer = 1 };
+
+template<typename Decoration>
+class fake_vector_table
+{
+public:
+	using exception_type = fake_exception;
+	using irq_type = fake_irq;
+
+	template<fake_exception E, handler_t H>
+	constexpr auto with() const -> fake_vector_table
+	{
+		auto copy = *this;
+		copy.slots_[static_cast<std::size_t>(E)] = H;
+		return copy;
+	}
+
+	template<fake_irq I, handler_t H>
+	constexpr auto with() const -> fake_vector_table
+	{
+		auto copy = *this;
+		copy.slots_[16 + static_cast<std::size_t>(I)] = Decoration::template wrap<H>;
+		return copy;
+	}
+
+	constexpr auto with(auto&& install) const { return install(*this); }
+
+	constexpr auto handler(std::size_t slot) const -> handler_t { return slots_[slot]; }
+
+private:
+	handler_t slots_[18]{};
+};
+
+void fake_uart_isr() {}
+
+constexpr auto g_fake_vectors = fake_vector_table<opsy::hooked_isr>{}
+	.with(opsy::scheduler::isrs)
+	.with<fake_irq::uart, fake_uart_isr>();
+
+static_assert(opsy::vector_table<fake_vector_table<opsy::hooked_isr>>);
+static_assert(std::same_as<decltype(g_fake_vectors), const fake_vector_table<opsy::hooked_isr>>);
+
+// The three handlers, in the slots the core vectors them from, and nothing else.
+static_assert(g_fake_vectors.handler(11) == &SVC_Handler);
+static_assert(g_fake_vectors.handler(14) == &PendSV_Handler);
+static_assert(g_fake_vectors.handler(15) == &SysTick_Handler);
+static_assert(g_fake_vectors.handler(2) == nullptr && g_fake_vectors.handler(3) == nullptr);
+
+// A device interrupt goes through hooks::decorate_isr; whatever the hooks make
+// of it is what the table holds.
+static_assert(g_fake_vectors.handler(16) == opsy::hooks::decorate_isr<fake_uart_isr>());
+static_assert(opsy::hooked_isr::wrap<fake_uart_isr> == opsy::hooks::decorate_isr<fake_uart_isr>());
+
+// A table that cannot name one of the three exceptions is not one OpSy can
+// start on, and says so before a line of it is built.
+enum class no_pendsv_exception : std::uint8_t { svcall = 11, systick = 15 };
+
+struct no_pendsv_table
+{
+	using exception_type = no_pendsv_exception;
+
+	template<no_pendsv_exception, handler_t>
+	constexpr auto with() const -> no_pendsv_table { return *this; }
+};
+
+static_assert(!opsy::vector_table<no_pendsv_table>);
+
+// One whose with<>() does not hand back a table cannot be chained.
+struct no_chaining_table
+{
+	using exception_type = fake_exception;
+
+	template<fake_exception, handler_t>
+	constexpr void with() const {}
+};
+
+static_assert(!opsy::vector_table<no_chaining_table>);
+
 } // namespace

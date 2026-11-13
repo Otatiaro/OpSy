@@ -50,7 +50,7 @@ compiled into a single static library, `opsy_sanity`:
 
 | File | What it covers |
 |---|---|
-| `sanity.cpp` | One instance of every public OpSy primitive (`task`, `idle_task`, `mutex`, `condition_variable`, `scheduler`, `cortex_m`, `isr_priority`, `callback`, `sleep_for` / `sleep_until`). The functions are kept alive with `[[gnu::used]]` so `-ffunction-sections` / `--gc-sections` does not eliminate them before the compiler has typechecked the call sites. |
+| `sanity.cpp` | One instance of every public OpSy primitive (`task`, `idle_task`, `mutex`, `condition_variable`, `scheduler`, `cortex_m`, `isr_priority`, `callback`, `sleep_for` / `sleep_until`). The functions are kept alive with `[[gnu::used]]` so `-ffunction-sections` / `--gc-sections` does not eliminate them before the compiler has typechecked the call sites. Also a stand-in for a generated vector table, built at compile time with `scheduler::isrs` and `hooked_isr`: `static_assert`s check the three handlers land in slots 11, 14 and 15, a device interrupt goes through `hooks::decorate_isr`, and a table missing an exception does not satisfy `opsy::vector_table`. No dependency on SvdGenerator. |
 | `utility_sanity.cpp` | Instantiates the `utility/*.hpp` and `algorithms/*.hpp` templates with valid configurations to fire the in-class `static_assert` checks, plus extra `static_assert` blocks on the `constexpr` surface (sizes, accessors, `at`, `append`, `prepend`, `sub`, arithmetic operators, …). Runtime-only paths (`std::sqrt`, `std::tan`, eigen-decomposition, `slerp`, `from_axis_angle`, …) are kept alive with `[[gnu::used]]` so they go through the front end too. Every header in those two directories is included here — if you add one, add it to the include list, or nothing in the repository will ever compile it. |
 | `scheduler.cpp` | The single OpSy translation unit, pulled in from `..` so the `PendSV` / `SVC` / `SysTick` handlers and the inline assembly are exercised on each `-mcpu`. |
 
@@ -185,6 +185,16 @@ Two notes on the plumbing, both learned the hard way:
   `run_qemu.cmake` looks for a `RESULT:` line across both streams and
   treats its absence as a failure — otherwise an image that hangs or
   faults halfway would read as a pass.
+
+`test_start_check.cpp` is a second image, `opsy_qemu_start_check`: it
+must stop, so it cannot share the suite's. It shows `scheduler::start`
+refuses a vector table that does not take its handlers. The MPU makes the
+table read-only and MemManage steps over the refused store, so a write to
+it goes nowhere, as to flash. The table lacks `SVC_Handler`; passing means
+reaching HardFault from a trap instruction while still on the main stack,
+with the store refused and the entry unchanged. A task running means start
+went on, and fails. Every QEMU job runs it, the `NDEBUG` ones included:
+the check is not an `assert`.
 
 `mps2-an505` needs its own linker script for a second reason beyond
 TrustZone addressing: its SRAM at `0x30000000` sits behind a Memory

@@ -64,6 +64,17 @@ __attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool
 	cortex_m::set_isr_handler(cortex_m::system_irq::pend_sv, ::PendSV_Handler);
 	cortex_m::set_isr_handler(cortex_m::system_irq::service_call, ::SVC_Handler);
 
+	// Read back what the core will vector through. A table a store does not
+	// change -- in flash, say -- keeps what it had, and OpSy would start on
+	// handlers that are not its own: the first tick or service call would
+	// land elsewhere, far from the cause. Not an assert: it has to hold in a
+	// release build too. On a core without VTOR the register reads as zero,
+	// which is where such a core's table is, so the check reads the right one.
+	if(cortex_m::isr_handler(cortex_m::system_irq::systick) != ::SysTick_Handler
+		|| cortex_m::isr_handler(cortex_m::system_irq::pend_sv) != ::PendSV_Handler
+		|| cortex_m::isr_handler(cortex_m::system_irq::service_call) != ::SVC_Handler)
+		opsy::trap();
+
 	assert(core_clock_value % ratio == 0u); // for exact time clock the core clock divided by ratio should not leave a remainder
 	cortex_m::enable_systick(core_clock_value / ratio);
 

@@ -76,10 +76,6 @@ add_executable(opsy_qemu_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/test_time.cpp
 )
 
-set_target_properties(opsy_qemu_tests PROPERTIES SUFFIX ".elf")
-
-target_include_directories(opsy_qemu_tests PRIVATE ${OPSY_ROOT} ${CMAKE_CURRENT_SOURCE_DIR})
-
 # OpSy targets C++23, and is kept building under C++26 as that lands: the CI
 # builds both so a construct C++26 changes or removes is caught here rather
 # than by a user on a newer toolchain. Override with -DOPSY_CXX_STANDARD=26.
@@ -87,46 +83,67 @@ if(NOT DEFINED OPSY_CXX_STANDARD)
     set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
 endif()
 
-set_target_properties(opsy_qemu_tests PROPERTIES
-    CXX_STANDARD ${OPSY_CXX_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
-
-target_compile_options(opsy_qemu_tests PRIVATE
-    ${OPSY_CPU_FLAGS}
-    -fno-exceptions -fno-rtti
-    -ffunction-sections -fdata-sections
-)
-
 include(${CMAKE_CURRENT_SOURCE_DIR}/../warnings.cmake)
-opsy_strict_warnings(opsy_qemu_tests)
 
-target_link_options(opsy_qemu_tests PRIVATE
-    ${OPSY_CPU_FLAGS}
-    # Repeated at link time, not just when compiling: the LLVM Embedded
-    # Toolchain for Arm ships one runtime per configuration and picks which
-    # to link from the flags it is given here. Without these it links the
-    # variant built with exceptions and RTTI, which drags in the unwinder --
-    # and the unwinder needs stderr, which a bare-metal image has not got.
-    # Harmless with GCC, which has a single runtime.
-    -fno-exceptions
-    -fno-rtti
-    -T${OPSY_LINKER_SCRIPT_PATH}
-    -nostartfiles
-    -Wl,--gc-sections
-    # The image is one RWX load segment by design: code, .data's load image
-    # and the vector table share the board's ZBT SRAM, and there is no MPU or
-    # loader here to care. Binutils 2.39+ warns about it on every link, so the
-    # warning is turned off -- but only for GNU ld: lld does not warn about
-    # it, does not know the option, and fails the link on the unknown
-    # argument rather than ignoring it.
-    $<$<CXX_COMPILER_ID:GNU>:-Wl,--no-warn-rwx-segments>
-    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/opsy_qemu_tests.map
+# Everything an image of this suite is built with: the target flags, the
+# warnings, the linker script and the bare-metal link.
+function(opsy_qemu_image target)
+    set_target_properties(${target} PROPERTIES SUFFIX ".elf")
+
+    target_include_directories(${target} PRIVATE ${OPSY_ROOT} ${CMAKE_CURRENT_SOURCE_DIR})
+
+    set_target_properties(${target} PROPERTIES
+        CXX_STANDARD ${OPSY_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_compile_options(${target} PRIVATE
+        ${OPSY_CPU_FLAGS}
+        -fno-exceptions -fno-rtti
+        -ffunction-sections -fdata-sections
+    )
+
+    opsy_strict_warnings(${target})
+
+    target_link_options(${target} PRIVATE
+        ${OPSY_CPU_FLAGS}
+        # Repeated at link time, not just when compiling: the LLVM Embedded
+        # Toolchain for Arm ships one runtime per configuration and picks which
+        # to link from the flags it is given here. Without these it links the
+        # variant built with exceptions and RTTI, which drags in the unwinder --
+        # and the unwinder needs stderr, which a bare-metal image has not got.
+        # Harmless with GCC, which has a single runtime.
+        -fno-exceptions
+        -fno-rtti
+        -T${OPSY_LINKER_SCRIPT_PATH}
+        -nostartfiles
+        -Wl,--gc-sections
+        # The image is one RWX load segment by design: code, .data's load image
+        # and the vector table share the board's ZBT SRAM, and there is no MPU or
+        # loader here to care. Binutils 2.39+ warns about it on every link, so the
+        # warning is turned off -- but only for GNU ld: lld does not warn about
+        # it, does not know the option, and fails the link on the unknown
+        # argument rather than ignoring it.
+        $<$<CXX_COMPILER_ID:GNU>:-Wl,--no-warn-rwx-segments>
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${target}.map
+    )
+
+    # Relink when the linker script changes.
+    set_target_properties(${target} PROPERTIES LINK_DEPENDS ${OPSY_LINKER_SCRIPT_PATH})
+endfunction()
+
+opsy_qemu_image(opsy_qemu_tests)
+
+# scheduler::start on a vector table that will not take its handlers. A
+# separate image, because it must stop there: see test_start_check.cpp.
+add_executable(opsy_qemu_start_check
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_start_check.cpp
 )
 
-# Relink when the linker script changes.
-set_target_properties(opsy_qemu_tests PROPERTIES LINK_DEPENDS ${OPSY_LINKER_SCRIPT_PATH})
+opsy_qemu_image(opsy_qemu_start_check)
 
 # The runner turns QEMU's output into a verdict. QEMU maps every non-zero
 # application exit code onto a process status of 1, and a hung image would
@@ -151,7 +168,19 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
 )
 
-set_tests_properties(opsy_qemu_tests_${OPSY_TARGET} opsy_qemu_tests_slow_${OPSY_TARGET} PROPERTIES TIMEOUT 120)
+add_test(
+    NAME opsy_qemu_start_check_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_start_check>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
+set_tests_properties(
+    opsy_qemu_tests_${OPSY_TARGET}
+    opsy_qemu_tests_slow_${OPSY_TARGET}
+    opsy_qemu_start_check_${OPSY_TARGET}
+    PROPERTIES TIMEOUT 120)
 
 # OpSy never allocates, so an image built on it should contain no allocator.
 # Checked on the linked image because that is where one appears: a single

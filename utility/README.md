@@ -1,10 +1,15 @@
 # OpSy utility headers
 
-A small set of self-contained C++23 headers shipped alongside OpSy. Most
-have no dependency on the scheduler — feel free to use them on a hosted
-platform too. The only exception is `interrupt_vector.hpp`, which is
-ARM Cortex-M specific by design (it builds the architectural vector
-table).
+A small set of self-contained C++23 headers shipped alongside OpSy. None
+depends on the scheduler — feel free to use them on a hosted platform too.
+
+The vector table builder (`interrupt_vector.hpp`) and the memory-mapped
+register primitives (`memory.hpp`) used to live here. Both moved to
+[SvdGenerator](https://github.com/Otatiaro/SvdGenerator), which generates
+them for each device: the vector table in the generated `vectors.hpp`, the
+register primitives in `Support/mmio.hpp`, namespace `mmio`. The top-level
+[README](../README.md#the-vector-table) shows how OpSy's handlers go into a
+generated table, and how to migrate.
 
 All identifiers live in `namespace opsy::utility`. The headers are
 header-only, allocate nothing on the heap, throw no exceptions, and
@@ -17,9 +22,7 @@ core scheduler.
 |---|---|
 | `allocator.hpp` | `allocator<N, UseDummy, Dummy>` — fixed-size, in-band-tagged allocator. Slots are `int` (negative = allocated, positive = free); free space is coalesced on `deallocate`. Optional sentinel fill helps catch use-after-free. |
 | `biquad.hpp` | `biquad<T, Coef>` — second-order IIR filter (direct form II transposed). `filter_type::{low_pass, high_pass, notch, band_pass}`, Butterworth Q default, value and coefficient types are independent template parameters. |
-| `interrupt_vector.hpp` | `interrupt_vector<PeripheralIrqs>` — compile-time builder for the ARM Cortex-M vector table. System exception slots are passed by name to the constructor; peripheral ISRs are added by chaining `.with_handler<IRQ, fn>()`. The whole expression is constant-initialisable so the table lives in `.isr_vector` in flash. **Cortex-M only.** |
 | `matrix.hpp` | `matrix<Rows, Cols, T>` — fixed-size full matrix targeted at small dimensions (rotations, small Kalman blocks, ellipsoid fits up to 9×9, …). Row-major storage, element access via `m(i, j)` (Eigen-style), compile-time `m.at<I, J>()`, plus `m.row(i)` / `m.col(j)` returning the matching `vector<>`. Basic algebra: `==`, `+`, `-`, unary `-`, scalar `*` / `/` and compound forms, `transposed()`, `operator*(matrix, matrix)`, `operator*(matrix, vector)`. Row primitives `swap_rows`, `scale_row`, `add_scaled_row` for Gauss-style algorithms, plus `sub_matrix<R, C>(top, left)` and in-place `apply(f)`. `determinant()` and `inverse()` for square matrices: closed-form (1×1…4×4) or Gauss-Jordan with partial pivoting (≥ 5×5). For real symmetric square matrices, `eigenvalues()` and `symmetric_eigen_decomposition()` (Householder + QL with implicit Wilkinson shifts; eigenvalues sorted ascending). Free function `identity_matrix<N, T>()`. Multiplications and inverse are `[[gnu::always_inline]]` so they stay inlined down to `-Og`. |
-| `memory.hpp` | Building blocks for typed, atomic-aware memory-mapped register layouts: `memory<TInt, TReg>` / `read_only_memory<TInt, TReg>` / `write_only_memory<TInt, TReg>` for register storage, `clear_set<TReg>` for read-modify-write masks, the `atomic` tag and `\| atomic` / `\|\| atomic` postfix syntax that promote a write to a `fetch_or` / `compare_exchange` (atomic against tasks and interrupt handlers, not against a DMA; whether a device supports exclusive accesses to its peripherals is checked per device, see the header), plus `padding<Size>` to align successive registers in a struct to the offsets the hardware expects. Used by generated peripheral header packs (RCC, GPIO, USART, ...). |
 | `quaternion.hpp` | `quaternion<T>` — strong-typed unit quaternion built as a thin composition wrapper around `vector<4, T>` (xyz = i/j/k, w = scalar). Distinct from a plain `vector<4>` so `q1 * q2` (Hamilton product) and `q * v3` (rotation) are unambiguous and a `vector<4>` holding RGBA / homogeneous coordinates / etc. is not misinterpreted. Constructors from raw components, from a rotation vector (axis × angle, the form gyroscope integrators produce — zero-length input maps to identity), and shortest-arc from two unit vectors (with antiparallel handling). Includes `identity_quaternion`, `hamilton_product`, `conjugate`, `inverse`, `from_axis_angle`, `rotate`, `slerp`, Tait-Bryan ZYX extraction `roll()` / `pitch()` / `yaw()` (pitch clamped at the gimbal-lock singularity), plus the usual element-wise `+`, `-`, scalar `*`/`/`, `norm`/`length`/`normalize` (used internally by `slerp`). The wrapper costs zero at any optimisation level: `[[gnu::always_inline]]` on the hot ops keeps them inlined down to `-Og` — verified byte-for-byte against a hand-written direct-on-`vector<4>` version. |
 | `routine.hpp` | `routine` / `routine_storage<Size>` / `suspended<Value>` — an interrupt's state machine written as straight-line code, using C++ coroutines. `co_await` marks where the next hardware event is needed; the loop stays a loop and the error paths stay `return`s. The frame goes in a `routine_storage` you provide, sized by the compiler and checked, never on a heap. See [the section below](#routinehpp-in-more-detail). |
 | `slope.hpp` | `slope<N, T, Coef>` — FIR numerical derivative based on a least-squares linear fit over `N` samples. Coefficients are computed at compile time, so `value()` is a fixed-size dot product. Mean delay is `N/2` samples. |

@@ -113,9 +113,9 @@ deprecated on GitHub Actions.
 
 Nothing here discovers files on its own — with one exception, noted
 below. A file nobody lists is a file nothing compiles, and the CI stays
-green while covering none of it. That has happened: `utility/`'s
-interrupt vector header was included by no translation unit in the
-repository, so a change breaking it passed every job.
+green while covering none of it. That has happened: a header of
+`utility/` was once included by no translation unit in the repository,
+so a change breaking it passed every job.
 
 | You added | You must also |
 |---|---|

@@ -11,9 +11,9 @@ a project that runs no scheduler at all.
 Nothing enforced it. A header only has to include one thing that includes
 opsy.hpp -- which is easy, since the umbrella is the convenient include -- and
 the claim becomes false while every job stays green, because the test build
-compiles those headers alongside the scheduler anyway. That is how
-utility/interrupt_vector.hpp came to drag in the tasks, the locks and the
-scheduler in order to name one function-pointer alias.
+compiles those headers alongside the scheduler anyway. That is how a header
+of utility/ once came to drag in the tasks, the locks and the scheduler in
+order to name one function-pointer alias.
 
 So the claim is checked the only way that survives: by asking the compiler
 what each header actually includes, transitively, and failing on anything from

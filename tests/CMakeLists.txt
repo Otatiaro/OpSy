@@ -93,9 +93,9 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/utility_sanity.cpp
 # READMEs say so. Nothing enforced it: this build compiles them alongside
 # scheduler.cpp, so a header that started pulling in opsy.hpp would go on
 # passing every job while the claim in its README quietly became false. That
-# is not hypothetical -- utility/interrupt_vector.hpp was in exactly that
-# state, dragging in the tasks, the locks and the scheduler in order to name
-# one function-pointer alias.
+# is not hypothetical -- a header of utility/ was once in exactly that state,
+# dragging in the tasks, the locks and the scheduler in order to name one
+# function-pointer alias.
 #
 # So it is asked of the compiler instead: check_independence.py reads what
 # each header transitively includes and fails on anything from the

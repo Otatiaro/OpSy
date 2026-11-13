@@ -348,3 +348,31 @@ namespace opsy
 
 #endif
 
+namespace opsy
+{
+	/**
+	 * @brief Passes the handler of each device interrupt through @c hooks::decorate_isr
+	 *
+	 *        The decoration a generated vector table takes as a template
+	 *        argument -- SvdGenerator's @c vector_table<Unhandled, Decoration>,
+	 *        or any table that asks for a type with a member
+	 *        @c template<isr_handler_t> @c static @c constexpr @c isr_handler_t @c wrap.
+	 *        It is what keeps a tracer wired to @c decorate_isr seeing every
+	 *        interrupt handler the table holds.
+	 *
+	 * @code
+	 * constexpr auto g_vectors = STM32H563::vector_table<Default_Handler, opsy::hooked_isr>(&_estack, Reset_Handler)
+	 *     .with(opsy::scheduler::isrs)
+	 *     .with<USART3_IRQn, uart::rx_isr>();
+	 * @endcode
+	 *
+	 * @remark Defined here rather than in the default hooks, so that it follows
+	 *         the @c decorate_isr of an @c <opsy_hooks.hpp> as well.
+	 */
+	struct hooked_isr
+	{
+		template<void (*Handler)()>
+		static constexpr void (*wrap)() = hooks::decorate_isr<Handler>();
+	};
+}
+

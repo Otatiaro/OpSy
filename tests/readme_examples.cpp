@@ -181,4 +181,71 @@ using namespace std::chrono_literals;
 
 } // namespace sleeping
 
+// ─────────────────────────── "The vector table" ────────────────────────────
+
+namespace vector_table_example
+{
+
+// Stand-in for the vectors.hpp SvdGenerator generates: the part of its
+// vector_table the example uses, and the symbols a startup file provides.
+// OpSy does not depend on the generator; sanity.cpp checks what the table
+// ends up holding.
+std::uint32_t _estack = 0;
+void Reset_Handler() {}
+void Default_Handler() {}
+void uart_isr() {}
+
+namespace STM32H563
+{
+
+using isr_handler_t = void (*)();
+
+enum class exception : std::uint8_t { svcall = 11, pendsv = 14, systick = 15 };
+enum IRQn_Type : std::uint8_t { USART3_IRQn = 60 };
+
+template<isr_handler_t Unhandled, typename Decoration>
+class vector_table
+{
+public:
+	using exception_type = exception;
+
+	constexpr vector_table(std::uint32_t*, isr_handler_t)
+	{
+		for (auto& handler : handlers_)
+			handler = Unhandled;
+	}
+
+	template<exception Exception, isr_handler_t Handler>
+	constexpr auto with() const -> vector_table
+	{
+		auto table = *this;
+		table.handlers_[static_cast<std::size_t>(Exception)] = Handler;
+		return table;
+	}
+
+	template<IRQn_Type Irq, isr_handler_t Handler>
+	constexpr auto with() const -> vector_table
+	{
+		auto table = *this;
+		table.handlers_[16 + Irq] = Decoration::template wrap<Handler>;
+		return table;
+	}
+
+	constexpr auto with(auto&& install) const { return install(*this); }
+
+private:
+	isr_handler_t handlers_[16 + 64]{};
+};
+
+} // namespace STM32H563
+
+using namespace STM32H563;
+
+[[gnu::section(".isr_vector"), gnu::used]]
+constexpr auto g_vectors = vector_table<Default_Handler, opsy::hooked_isr>(&_estack, Reset_Handler)
+    .with(opsy::scheduler::isrs)
+    .with<USART3_IRQn, uart_isr>();
+
+} // namespace vector_table_example
+
 } // namespace

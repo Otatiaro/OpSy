@@ -458,7 +458,9 @@ switch.
 
 On ARMv8-M, a task that runs out of stack is a `stack_overflow()` with
 `exc_return` bit 2 set; the stack pointer is then below its limit, and the
-handler cannot resume the task.
+handler cannot resume the task. What else watches a task's stack, and
+what does on ARMv7-M, is in
+[architecture.md](docs/architecture.md#three-nets-under-a-tasks-stack).
 
 ## Configuration
 

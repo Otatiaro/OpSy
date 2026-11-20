@@ -242,7 +242,10 @@ public:
 
 	/**
 	 * @brief Creates a callback calling @p function
-	 * @remark Empty if @p function is a null function or member pointer.
+	 * @remark Empty if @p function is a null function or member pointer. A
+	 *         function passed by name is a reference, not a pointer, and is
+	 *         never null: it is stored without a check, which is also what
+	 *         keeps @c -Wnonnull-compare quiet.
 	 */
 	template<typename F>
 		requires (!std::same_as<std::remove_cvref_t<F>, callback>)
@@ -251,11 +254,11 @@ public:
 		      && accepts<std::decay_t<F>>
 	callback(F&& function)
 	{
-		using stored = std::decay_t<F>;
-		if constexpr (std::is_pointer_v<stored> || std::is_member_pointer_v<stored>)
+		using given = std::remove_cvref_t<F>;
+		if constexpr (std::is_pointer_v<given> || std::is_member_pointer_v<given>)
 			if (function == nullptr)
 				return;
-		emplace<stored>(std::forward<F>(function));
+		emplace<std::decay_t<F>>(std::forward<F>(function));
 	}
 
 	/** @brief Creates a callback calling a @p T constructed in place from @p arguments */

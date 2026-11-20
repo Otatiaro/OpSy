@@ -50,24 +50,39 @@ using handler_t = void (*)();
 /** @brief The shape SvdGenerator generates, enough of it for with(): the exceptions by name, and a slot filled per call. */
 enum class exception : uint8_t { nmi = 2, hard_fault = 3, mem_manage = 4, bus_fault = 5, usage_fault = 6, svcall = 11, pendsv = 14, systick = 15 };
 
+[[noreturn]] void unexpected_exception();
+
+/**
+ * @brief The initial stack pointer, then the handlers by slot. Built at compile
+ *        time, as a user builds it: a runtime with() chain copies this
+ *        512-byte object once per call, on the stack.
+ */
 struct alignas(512) vector_table
 {
 	using exception_type = exception;
+
+	constexpr vector_table(uint32_t* stack, handler_t reset) : initial_sp(stack)
+	{
+		for (auto& handler : handlers)
+			handler = &unexpected_exception;
+		handlers[0] = reset;
+	}
 
 	template<exception Exception, handler_t Handler>
 	constexpr auto with() const -> vector_table
 	{
 		auto copy = *this;
-		copy.slots[static_cast<std::size_t>(Exception)] = Handler;
+		copy.handlers[static_cast<std::size_t>(Exception) - 1] = Handler;
 		return copy;
 	}
 
 	constexpr auto with(auto&& install) const { return install(*this); }
 
-	handler_t slots[16 + 64];
+	uint32_t* initial_sp;
+	handler_t handlers[15 + 64];
 };
 
-vector_table g_table;
+static_assert(offsetof(vector_table, handlers) == sizeof(uint32_t*), "slot 1, the reset handler, follows the initial stack pointer");
 
 /** @brief What the handler saw last, read by the task once the fault is over. */
 struct record
@@ -130,6 +145,10 @@ void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, ui
 	frame.pc += qemu_test::thumb_instruction_length(frame.pc);
 	opsy::cortex_m::clear_fault_status();
 }
+
+constexpr auto g_table = vector_table(&_estack, Reset_Handler)
+	.with(opsy::scheduler::isrs)
+	.with(opsy::fault_isrs<on_fault>);
 
 /** @brief Runs @p raise and checks it faulted exactly once. */
 template<typename Raise>
@@ -230,14 +249,6 @@ void run_cases()
 int opsy_test_main()
 {
 	qemu::write("OpSy faults: every fault through one handler, decoded and stepped over\n\n");
-
-	vector_table table{};
-	for (auto& slot : table.slots)
-		slot = &unexpected_exception;
-	table.slots[0] = reinterpret_cast<handler_t>(&_estack);
-	table.slots[1] = &Reset_Handler;
-
-	g_table = table.with(opsy::scheduler::isrs).with(opsy::fault_isrs<on_fault>);
 
 	*reinterpret_cast<volatile uint32_t*>(vtor) = reinterpret_cast<uint32_t>(&g_table);
 	asm volatile("dsb\n\tisb" ::: "memory");

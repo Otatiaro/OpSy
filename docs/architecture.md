@@ -343,6 +343,35 @@ frame the hardware would have pushed, with `PC` at the task entry
 trampoline and `LR` at the terminate path — so a task that returns from
 its entry callback terminates cleanly, without any special case.
 
+### Three nets under a task's stack
+
+A task that runs past its stack is caught three ways, and they do not
+catch the same things:
+
+1. **`PSPLIM`, on ARMv8-M.** `pend_sv_handler` sets it to the incoming
+   task's stack base at every switch (the idle task's when nothing is
+   ready). A push or a stack adjustment below it faults on that
+   instruction, `STKOF` in the fault status, asserts or not: the handler
+   of [`fault_isrs`](../README.md#faults) sees `stack_overflow()` and
+   cannot resume the task. Only the stack pointer is watched; a store
+   through a pointer that lands below the base passes.
+2. **The asserts in `pend_sv_handler`.** At every switch, the outgoing
+   task's `PSP` must not be below its base, and the lowest slot must
+   still hold the fill pattern. This is the net on ARMv7-M, which has no
+   limit register, and on ARMv8-M it catches what `PSPLIM` does not: a
+   write that reached the base without moving the stack pointer. It sees
+   the overflow at the next switch, not when it happens, and only with
+   asserts enabled. The two nets stay together for that reason.
+3. **The fill pattern and `stack_high_water()`.** A stack is filled with
+   `0xDEADBEEF` when its task starts, and `stack_high_water()` reports
+   how much of it no longer holds the pattern: the most the task ever
+   used. Not a net but the ruler, what a stack is sized from before
+   either of the others has anything to say.
+
+The main stack gets none of these from OpSy. Its limit, `MSPLIM` on
+ARMv8-M, is for the startup code to set before anything runs on it, and
+nothing fills it.
+
 Both handlers keep `MSP` 8-byte aligned across their calls, as AAPCS
 requires at a public interface: user hooks run from inside them.
 

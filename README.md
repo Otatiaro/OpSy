@@ -396,6 +396,70 @@ device at hand.
   `padding`): use SvdGenerator's `Support/mmio.hpp`, namespace `mmio`,
   which the generated peripheral headers are written on.
 
+## Faults
+
+Out of reset every fault is a HardFault, and a vendor table routes it to a
+handler that loops. OpSy puts the four fault exceptions behind one function
+of yours, with the cause decoded:
+
+```cpp
+[[noreturn]] void reset();
+
+void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, uint32_t exc_return)
+{
+	if (status.stack_overflow())
+		reset(); // the stack pointer is below its limit: nothing more can be pushed on it
+
+	if (status.escalated())
+	{
+		// one of the three configurable faults, taken as HardFault
+	}
+
+	if (const auto address = status.memory_fault_address())
+	{
+		// the MPU refused an access to *address
+	}
+
+	(void) frame.pc;       // the faulting instruction, for a precise fault
+	(void) exc_return;     // bit 2 set: the frame is on the process stack, a task faulted
+	reset();
+}
+
+[[gnu::section(".isr_vector"), gnu::used]]
+constexpr auto g_vectors = vector_table<Default_Handler, opsy::hooked_isr>(&_estack, Reset_Handler)
+    .with(opsy::scheduler::isrs)
+    .with(opsy::fault_isrs<on_fault>);
+
+void application()
+{
+	opsy::cortex_m::enable_configurable_faults();
+	opsy::cortex_m::enable_divide_by_zero_trap();
+	opsy::cortex_m::set_priority(opsy::cortex_m::system_irq::usage_fault, opsy::isr_priority{0});
+	opsy::scheduler::start();
+}
+```
+
+`opsy::fault_status` is a copy of `CFSR`, `HFSR`, `MMFAR` and `BFAR`, taken
+on entry and left in the registers; its predicates name the bits the
+architecture defines (`undefined_instruction()`, `divide_by_zero()`,
+`precise_bus_fault()`, `stack_overflow()`, ...). `opsy::exception_frame` is
+the frame the core stacked, writable. Returning from the handler returns
+from the exception, to `frame.pc`: a handler that steps over the faulting
+instruction moves `pc` and calls `cortex_m::clear_fault_status()` first,
+or the next fault reads as this one on top of its own.
+
+`enable_configurable_faults()` gives MemManage, BusFault and UsageFault
+their own exceptions; until then they reach the handler as HardFault, with
+`escalated()` set. Each then has a priority of its own, set through
+`cortex_m::set_priority(system_irq::usage_fault, ...)`; a fault in OpSy's
+own handlers reaches yours only if it outranks them. The handler must not
+call OpSy: it may be running on the main stack, in the middle of a context
+switch.
+
+On ARMv8-M, a task that runs out of stack is a `stack_overflow()` with
+`exc_return` bit 2 set; the stack pointer is then below its limit, and the
+handler cannot resume the task.
+
 ## Configuration
 
 OpSy ships with sensible defaults in `config.hpp` and `hooks.hpp`. To

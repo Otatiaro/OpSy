@@ -200,7 +200,7 @@ namespace STM32H563
 
 using isr_handler_t = void (*)();
 
-enum class exception : std::uint8_t { svcall = 11, pendsv = 14, systick = 15 };
+enum class exception : std::uint8_t { hard_fault = 3, mem_manage = 4, bus_fault = 5, usage_fault = 6, svcall = 11, pendsv = 14, systick = 15 };
 enum IRQn_Type : std::uint8_t { USART3_IRQn = 60 };
 
 template<isr_handler_t Unhandled, typename Decoration>
@@ -247,5 +247,52 @@ constexpr auto g_vectors = vector_table<Default_Handler, opsy::hooked_isr>(&_est
     .with<USART3_IRQn, uart_isr>();
 
 } // namespace vector_table_example
+
+// ────────────────────────────── "Faults" ───────────────────────────────────
+
+namespace faults_example
+{
+
+using vector_table_example::_estack;
+using vector_table_example::Reset_Handler;
+using vector_table_example::Default_Handler;
+using namespace vector_table_example::STM32H563;
+
+[[noreturn]] void reset() { while (true) {} }
+
+void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, uint32_t exc_return)
+{
+	if (status.stack_overflow())
+		reset(); // the stack pointer is below its limit: nothing more can be pushed on it
+
+	if (status.escalated())
+	{
+		// one of the three configurable faults, taken as HardFault
+	}
+
+	if (const auto address = status.memory_fault_address())
+	{
+		// the MPU refused an access to *address
+	}
+
+	(void) frame.pc;       // the faulting instruction, for a precise fault
+	(void) exc_return;     // bit 2 set: the frame is on the process stack, a task faulted
+	reset();
+}
+
+[[gnu::section(".isr_vector"), gnu::used]]
+constexpr auto g_vectors = vector_table<Default_Handler, opsy::hooked_isr>(&_estack, Reset_Handler)
+    .with(opsy::scheduler::isrs)
+    .with(opsy::fault_isrs<on_fault>);
+
+[[gnu::used]] void application()
+{
+	opsy::cortex_m::enable_configurable_faults();
+	opsy::cortex_m::enable_divide_by_zero_trap();
+	opsy::cortex_m::set_priority(opsy::cortex_m::system_irq::usage_fault, opsy::isr_priority{0});
+	opsy::scheduler::start();
+}
+
+} // namespace faults_example
 
 } // namespace

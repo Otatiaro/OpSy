@@ -534,9 +534,94 @@ Typical reasons to provide an `<opsy_config.hpp>`:
 
 Typical reasons to provide an `<opsy_hooks.hpp>`:
 
-- Wire `Hooks::task_started` / `task_stopped` / `enter_pend_sv` / etc.
+- Wire `hooks::task_started` / `task_stopped` / `enter_pend_sv` / etc.
   to a tracing tool such as SEGGER SystemView.
 - Add custom asserts or logging on context switches.
+- Measure where the cycles go, as below.
+
+`hooks.hpp` includes `<opsy_hooks.hpp>` in place of its own class, outside
+any namespace: the file defines `opsy::hooks` with every hook OpSy calls,
+used or empty, and `decorate_isr`, which the vector table applies to every
+device handler through `opsy::hooked_isr`. [`hooks.hpp`](hooks.hpp) is
+the list.
+
+### Measuring OpSy's handlers
+
+What OpSy adds to the latency of a handler below its level is the time
+its own handlers run; what a handler adds to everything below it is its
+own. The hooks see both ends of each. This `opsy::hooks` keeps the
+longest run of the service call, of SysTick, of PendSV's C++ half (up to
+the choice of the next task; the register restore after it is assembly,
+and not seen) and of any decorated interrupt handler, from the DWT cycle
+counter, which `starting` turns on. It is
+[`tests/examples/opsy_hooks.hpp`](tests/examples/opsy_hooks.hpp), which
+the sanity build compiles OpSy against, without the empty hooks it also
+has to define:
+
+```cpp
+/** @brief The longest run of each handler since the scheduler started, in core cycles */
+struct latency
+{
+    static inline uint32_t service_call = 0; ///< SVC_Handler, as a whole
+    static inline uint32_t systick      = 0; ///< SysTick_Handler, as a whole
+    static inline uint32_t pend_sv      = 0; ///< PendSV_Handler, up to the choice of the next task
+    static inline uint32_t isr          = 0; ///< the longest decorated interrupt handler
+
+    /** @brief Raises longest to the cycles elapsed since entered when they are more */
+    static void record(uint32_t& longest, uint32_t entered)
+    {
+        const uint32_t elapsed = cortex_m::cycle_count() - entered;
+        if (elapsed > longest)
+            longest = elapsed;
+    }
+};
+
+class hooks
+{
+public:
+    /** @brief Starts the cycle counter: after a reset it does not run unless a debugger started it */
+    static void starting(idle_task_control_block&, uint32_t, callback<void(callback<void(const task_control_block&)>)>)
+    {
+        (void) cortex_m::enable_cycle_count();
+    }
+
+    static void enter_service_call() { service_call_entered_ = cortex_m::cycle_count(); }
+    static void exit_service_call(bool) { latency::record(latency::service_call, service_call_entered_); }
+    static void enter_systick() { systick_entered_ = cortex_m::cycle_count(); }
+    static void exit_systick(bool) { latency::record(latency::systick, systick_entered_); }
+    static void enter_pend_sv() { pend_sv_entered_ = cortex_m::cycle_count(); }
+    static void task_started(task_control_block&) { latency::record(latency::pend_sv, pend_sv_entered_); }
+    static void enter_idle() { latency::record(latency::pend_sv, pend_sv_entered_); }
+
+    /** @brief The handler the vector table holds in place of Routine: the same, timed */
+    template<void (*Routine)()>
+    static constexpr auto decorate_isr()
+    {
+        return +[]
+        {
+            const uint32_t entered = cortex_m::cycle_count();
+            Routine();
+            latency::record(latency::isr, entered);
+        };
+    }
+
+    // ... every other hook OpSy calls, empty ...
+
+private:
+    static inline uint32_t service_call_entered_ = 0;
+    static inline uint32_t systick_entered_      = 0;
+    static inline uint32_t pend_sv_entered_      = 0;
+};
+```
+
+Each of OpSy's handlers keeps its own entry time, as SysTick and the
+service call preempt PendSV; a decorated handler keeps its on its own
+stack, as another may preempt it. Read `opsy::latency` from the debugger
+or from a task, and divide by `core_clock()` for seconds. It does not see
+the time between an interrupt pending and its handler's first instruction,
+which the core spends alone, nor what a `critical_section` or an
+`isr_lock` holds back: those are a task's choice, and the task knows how
+long it held them.
 
 ## ISR priorities and OpSy
 

@@ -313,6 +313,12 @@ static_assert(opsy::preemption_bits == 3);
 static_assert(opsy::scheduler::service_call_priority.value() == 0x20);
 static_assert(opsy::scheduler::systick_priority.value() == 0x3F);
 static_assert(opsy::scheduler::os_callable_priority.value() == 0x40);
+
+// And the README's opsy_hooks.hpp is the hooks: its latency exists, and the
+// decoration it applies is what the vector table holds. The library compiling
+// at all is what checks that it defines every hook scheduler.cpp calls.
+[[gnu::used]] uint32_t worst_isr_cycles() { return opsy::latency::isr; }
+static_assert(opsy::hooked_isr::wrap<vector_table_example::uart_isr> != &vector_table_example::uart_isr);
 #else
 static_assert(opsy::preemption_bits == 2);
 static_assert(opsy::scheduler::service_call_priority.value() == 0x40);

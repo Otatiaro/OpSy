@@ -121,7 +121,7 @@ so a change breaking it passed every job.
 |---|---|
 | a header in `utility/` or `algorithms/` | include it in [`tests/utility_sanity.cpp`](../tests/utility_sanity.cpp), and instantiate the templates it declares. Nothing else in the repository includes those headers. |
 | a public class or function to OpSy | use it in [`tests/sanity.cpp`](../tests/sanity.cpp), so its every call site goes through both front ends on all four cores |
-| an override file the README shows (`opsy_config.hpp`, `opsy_hooks.hpp`) | put it in `tests/examples/`, the directory `opsy_sanity_examples` has on its include path, and assert in `tests/readme_examples.cpp` under `OPSY_SANITY_EXAMPLES` what it changes. One file of each name lives there; the README quotes it as is |
+| an override file the README shows (`opsy_config.hpp`, `opsy_hooks.hpp`) | put it in `tests/examples/`, the directory `opsy_sanity_examples` has on its include path, and assert in `tests/readme_examples.cpp` under `OPSY_SANITY_EXAMPLES` what it changes. One file of each name lives there; the README quotes it, whole or its working part |
 | a `.cpp` to OpSy itself | add it to the source lists in `tests/CMakeLists.txt`, `tests/qemu/CMakeLists.txt` and `tests/codegen/CMakeLists.txt`, each of which names `scheduler.cpp` today |
 | a host test file | add it to `OPSY_HOST_TEST_SOURCES` in `tests/host/CMakeLists.txt` |
 | a host case in an existing file | nothing — `OPSY_TEST(name)` registers itself |

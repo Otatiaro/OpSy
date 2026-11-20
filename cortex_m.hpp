@@ -324,7 +324,8 @@ public:
 	/**
 	 * @brief @c EXC_RETURN value used to initialise a fresh task context: return to Thread
 	 *        mode, use @c PSP, basic stack frame (no FP context). Equivalent to
-	 *        @c 0xFFFFFFFD on ARMv7-M / ARMv8-M Mainline.
+	 *        @c 0xFFFFFFFD on ARMv7-M, and on ARMv8-M Mainline without the Security
+	 *        Extension; with it, this is the Secure-state value (@c S and @c ES set).
 	 */
 	static constexpr uint32_t exc_return_thread_psp_basic = 0xFFFFFFFDu;
 

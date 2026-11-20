@@ -295,4 +295,29 @@ constexpr auto g_vectors = vector_table<Default_Handler, opsy::hooked_isr>(&_est
 
 } // namespace faults_example
 
+// ──────────────────────── "ISR priorities and OpSy" ────────────────────────
+
+// What the README's table says of the levels, whatever the split: OpSy's
+// level holds SVC and SysTick, PendSV is at the very bottom, and handlers
+// call OpSy from the level right below OpSy's.
+constexpr auto opsy_level = static_cast<uint8_t>(opsy::opsy_preemption);
+static_assert(opsy::scheduler::service_call_priority.preempt<opsy::preemption_bits>() == opsy_level);
+static_assert(opsy::scheduler::systick_priority.preempt<opsy::preemption_bits>() == opsy_level);
+static_assert(opsy::scheduler::pend_sv_priority.value() == 0xFF);
+static_assert(opsy::scheduler::os_callable_priority.preempt<opsy::preemption_bits>() == opsy_level + 1);
+
+#ifdef OPSY_SANITY_EXAMPLES
+// Built with tests/examples/ on the include path: the README's opsy_config.hpp
+// is the configuration, not config.hpp's defaults.
+static_assert(opsy::preemption_bits == 3);
+static_assert(opsy::scheduler::service_call_priority.value() == 0x20);
+static_assert(opsy::scheduler::systick_priority.value() == 0x3F);
+static_assert(opsy::scheduler::os_callable_priority.value() == 0x40);
+#else
+static_assert(opsy::preemption_bits == 2);
+static_assert(opsy::scheduler::service_call_priority.value() == 0x40);
+static_assert(opsy::scheduler::systick_priority.value() == 0x7F);
+static_assert(opsy::scheduler::os_callable_priority.value() == 0x80);
+#endif
+
 } // namespace

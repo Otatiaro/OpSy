@@ -52,12 +52,11 @@ set(OPSY_SANITY_CONFIGS
     "O2_ndebug|-O2 -DNDEBUG"
 )
 
-foreach(config IN LISTS OPSY_SANITY_CONFIGS)
-    string(REPLACE "|" ";" config "${config}")
-    list(POP_FRONT config name)
-    separate_arguments(config)
-    set(target opsy_sanity_${name})
-
+# The sanity sources as one static library, compiled with FLAGS. Any further
+# arguments are include directories, searched before OpSy's own: a directory
+# holding an opsy_config.hpp or opsy_hooks.hpp is then found by __has_include,
+# as it is in a project.
+function(opsy_sanity_library target flags)
     add_library(${target} STATIC
         ${OPSY_ROOT}/scheduler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/sanity.cpp
@@ -65,7 +64,7 @@ foreach(config IN LISTS OPSY_SANITY_CONFIGS)
         ${CMAKE_CURRENT_SOURCE_DIR}/readme_examples.cpp
     )
 
-    target_include_directories(${target} PUBLIC ${OPSY_ROOT})
+    target_include_directories(${target} PUBLIC ${ARGN} ${OPSY_ROOT})
 
     set_target_properties(${target} PROPERTIES
         CXX_STANDARD ${OPSY_CXX_STANDARD}
@@ -75,12 +74,27 @@ foreach(config IN LISTS OPSY_SANITY_CONFIGS)
 
     target_compile_options(${target} PRIVATE
         ${OPSY_CPU_FLAGS}
-        ${config}
+        ${flags}
         -fno-exceptions -fno-rtti
         -ffunction-sections -fdata-sections
     )
     opsy_strict_warnings(${target})
+endfunction()
+
+foreach(config IN LISTS OPSY_SANITY_CONFIGS)
+    string(REPLACE "|" ";" config "${config}")
+    list(POP_FRONT config name)
+    separate_arguments(config)
+    opsy_sanity_library(opsy_sanity_${name} "${config}")
 endforeach()
+
+# The override files the README shows, used the way a project uses them: their
+# directory on the include path, and nothing else. OpSy is built with the
+# three preemption bits of examples/opsy_config.hpp here, and with its defaults
+# everywhere else; readme_examples.cpp asserts under OPSY_SANITY_EXAMPLES that
+# the override was indeed the one seen, since a directory not found would
+# leave this build identical to opsy_sanity_Os and just as green.
+opsy_sanity_library(opsy_sanity_examples "-Os;-DOPSY_SANITY_EXAMPLES" ${CMAKE_CURRENT_SOURCE_DIR}/examples)
 
 # utility_sanity.cpp checks constexpr results for exact equality on purpose:
 # they are computed at compile time and known exactly.

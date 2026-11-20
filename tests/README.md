@@ -99,7 +99,7 @@ is the property that makes them worth keeping.
 |---|---|
 | `test_allocator.cpp` | Chunk merging and arena coherence, including the max-sized allocation whose split leaves a zero-payload trailing chunk, an exhaustive single-allocation size sweep, and deterministic LIFO traffic across 64 seeds. |
 | `test_embedded_list.cpp` | `erase` from every position, erasing an item that heads a *different* list, `clear` leaving nodes reusable, const iteration through `begin() const` / `cbegin()` / range-for, and move construction. |
-| `test_callback.cpp` | That assignment destroys the functor it replaces, for both the functor and the `callback` overloads, and that a held functor is released at scope exit. |
+| `test_callback.cpp` | That assignment destroys the functor it replaces, for both the functor and the `callback` overloads, and that a held functor is released at scope exit. That a function passed by name (a reference, never null) builds under `-Werror`, that a null function or member pointer gives an empty callback, and that a non-null member pointer is held. |
 | `test_ellipsoid_fit.cpp` | That a known ellipsoid is mapped back onto the unit sphere (the direction of the `soft_iron` transform), and that degenerate accumulators — empty, too few samples, coplanar, collinear — are rejected rather than yielding NaN. |
 | `test_biquad.cpp` | DC gain per filter type, `reset` reaching its requested output, and that static and automatic storage agree. |
 

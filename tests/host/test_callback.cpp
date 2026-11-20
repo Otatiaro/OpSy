@@ -243,6 +243,49 @@ OPSY_TEST(a_null_function_pointer_gives_an_empty_callback)
 	CHECK(from_function() == 1);
 }
 
+// ────────────── regression: a function passed by name ──────────────────────
+// The constructor compared its argument to nullptr whenever the *decayed*
+// type was a pointer. Given a function by name, the argument is a reference
+// to that function, which decays to a pointer but is never null: GCC rejected
+// the comparison under -Werror (-Wnonnull-compare), so `task.start(run)` did
+// not build and callers had to wrap the function in a lambda. The check now
+// only applies to an argument that is a pointer to begin with.
+
+OPSY_TEST(a_function_passed_by_name_gives_a_callback_to_it)
+{
+	opsy::callback<int()> by_name = counted;
+	CHECK(by_name);
+	g_free_function_calls = 0;
+	CHECK(by_name() == 1);
+
+	opsy::callback<int()> assigned;
+	assigned = counted;
+	CHECK(assigned);
+	CHECK(assigned() == 2);
+}
+
+OPSY_TEST(a_member_pointer_is_held_when_non_null_and_empty_when_null)
+{
+	struct widget
+	{
+		int value = 5;
+		int get() const { return value; }
+	};
+	widget object;
+
+	opsy::callback<int(const widget&)> get = &widget::get;
+	CHECK(get);
+	CHECK(get(object) == 5);
+
+	opsy::callback<int(const widget&)> data = &widget::value;
+	CHECK(data);
+	CHECK(data(object) == 5);
+
+	int (widget::*none)() const = nullptr;
+	opsy::callback<int(const widget&)> from_none = none;
+	CHECK(!from_none);
+}
+
 OPSY_TEST(swap_exchanges_the_targets)
 {
 	opsy::callback<int()> one = [] { return 1; };

@@ -26,7 +26,7 @@ of hours in commercial flight controllers.
 
 - Cortex-M3 (ARMv7-M, no FPU)
 - Cortex-M4, Cortex-M7 (ARMv7-M, FPU)
-- Cortex-M33 (ARMv8-M Mainline, FPU, with TrustZone disabled / non-secure)
+- Cortex-M33 (ARMv8-M Mainline, FPU, without the Security Extension)
 
 The `PendSV` context-switch path saves and restores the floating-point
 callee-saved registers (`S16-S31`) only when the toolchain reports a
@@ -39,6 +39,17 @@ disappears at compile time. `cortex_m::enable_fpu()` is a compile-time
 error in those builds — the user project is responsible for calling it
 only on FPU-equipped targets. The scheduler asserts at startup that the
 running core is one of the above.
+
+"Without the Security Extension" is the assumption on ARMv8-M, and it is
+not the same as "Non-secure": a Cortex-M33 built without TrustZone, or
+one whose vendor configuration leaves it off. The `EXC_RETURN` OpSy writes
+into a fresh task's context is `0xFFFFFFFD`, and its fault handler reads
+bit 2 of the one the core hands it; neither looks at the `S` and `ES` bits
+TrustZone adds, which decide the security state a return goes to. Seen
+from a core with the extension, `0xFFFFFFFD` is the Secure-state value: a
+Non-secure OpSy would build another one, and a Secure OpSy would have to
+own the SAU, the interrupt targeting and the banked registers. None of
+that is here.
 
 ## Requirements
 

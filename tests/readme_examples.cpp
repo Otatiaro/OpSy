@@ -12,8 +12,8 @@
  *          Keep it in sync by hand: if you edit an example in README.md, edit
  *          it here too. The only changes allowed are the ones an example needs
  *          to exist inside a shared translation unit — each block gets its own
- *          namespace, `main` becomes a named function, and the hardware the
- *          examples call (`led_on`, ...) is stubbed just below.
+ *          namespace, and the hardware the examples call (`led_on`, ...) is
+ *          stubbed just below.
  ******************************************************************************
  * @see https://github.com/Otatiaro/OpSy
  ******************************************************************************
@@ -37,7 +37,7 @@ void led_off() {}
 namespace quick_start
 {
 
-[[gnu::used]] int main_example()
+[[gnu::used, noreturn]] void application()
 {
 	// Configure clocks, peripherals, ...
 	opsy::scheduler::start(); // [[noreturn]]
@@ -54,7 +54,7 @@ using namespace std::chrono_literals;
 
 opsy::task<512> blinker; // 512 stack slots = 2 KiB on Cortex-M
 
-[[gnu::used]] int main_example()
+[[gnu::used, noreturn]] void application()
 {
 	// ... clock and GPIO init ...
 

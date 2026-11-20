@@ -70,7 +70,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 
 | File | Purpose |
 |---|---|
-| `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `main.cpp`. |
+| `opsy.hpp` | Umbrella header — pulls in everything below and exposes `sleep_for` / `sleep_until`. Include this from `application.cpp`. |
 | `scheduler.hpp` | The `scheduler` class itself. Most users only call `scheduler::start()`, and `scheduler::isrs` to place OpSy's handlers in a vector table built at compile time (see *The vector table*). |
 | `scheduler.cpp` | **Add this to your build** — it holds every static of the scheduler and provides the `SVC` / `PendSV` / `SysTick` handlers. |
 | `task.hpp` | `task<StackSize>`, `task_control_block`, `idle_task<StackSize>`, `task_priority`. `stack_high_water()` reports the most stack a task, or the idle task, ever used: what to size its stack from. |
@@ -134,12 +134,12 @@ target_sources(my_app PRIVATE src/OpSy/scheduler.cpp)
 target_include_directories(my_app PRIVATE src/OpSy)
 ```
 
-Minimal `main.cpp`:
+Minimal `application.cpp`:
 
 ```cpp
 #include <opsy.hpp>
 
-int main()
+[[noreturn]] void application()
 {
     // Configure clocks, peripherals, ...
     opsy::scheduler::start(); // [[noreturn]]
@@ -150,6 +150,11 @@ int main()
 priority task, or to the idle task (a `WFI` loop by default) if no task
 has been registered. The system is now ready.
 
+`application()` is what the startup code calls once the runtime is up,
+in place of `main()`; [Starting up](#starting-up) says why, and what that
+startup code does. A project that keeps the C runtime's start files and
+`main()` writes the same body there.
+
 ## Blinky
 
 ```cpp
@@ -159,7 +164,7 @@ using namespace std::chrono_literals;
 
 opsy::task<512> blinker; // 512 stack slots = 2 KiB on Cortex-M
 
-int main()
+[[noreturn]] void application()
 {
     // ... clock and GPIO init ...
 
@@ -395,6 +400,38 @@ device at hand.
 - `utility/memory.hpp` (`opsy::utility::memory`, `clear_set`, `atomic`,
   `padding`): use SvdGenerator's `Support/mmio.hpp`, namespace `mmio`,
   which the generated peripheral headers are written on.
+
+## Starting up
+
+OpSy has no opinion on how the image comes up, only on what holds when
+`scheduler::start()` runs: `.data` copied, `.bss` zeroed, the static
+constructors run (a `task<N>` at file scope has one), `MSP` at the top of
+the main stack and, on ARMv8-M, `MSPLIM` at its bottom. The C runtime's
+start files do all of this and call `main()`. The examples here assume
+the other way, a startup the project owns:
+
+- the image links with `-nostartfiles`, so nothing refers to `main()` and
+  the program has none;
+- `Reset_Handler`, the one in the vector table, sets `MSP` and `MSPLIM`,
+  enables the FPU, copies `.data`, zeroes `.bss`, then runs
+  `.preinit_array` and `.init_array` in that order: the two arrays
+  `__libc_init_array()` walks, without newlib's start code to walk them;
+- it then calls `application()`, declared `[[noreturn]] void application();`
+  and defined once per image. That is where the Quick start's body goes.
+
+The reason is `main()` itself. C++ forbids calling it from the program and
+giving it C linkage, so a C++ `Reset_Handler` cannot call it: the function
+the startup calls has to be another one, and once it is, the start files
+have nothing left to do. `[[noreturn]]` states what `scheduler::start()`
+guarantees, and lets the compiler check that the image never falls out of
+its entry point.
+
+A complete one, with the no-heap traps and the `assert` replacement that
+go with it, is Bornier's
+[`startup.cpp`](https://github.com/bornier-dev/bornier/blob/2d561e5/firmware/boards/base/startup.cpp)
+and [`application.hpp`](https://github.com/bornier-dev/bornier/blob/2d561e5/firmware/boards/base/application.hpp),
+for an STM32H523. `cortex_m::set_msp()`, `set_msplim()` and `enable_fpu()`
+are the pieces OpSy provides.
 
 ## Faults
 

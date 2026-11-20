@@ -126,6 +126,7 @@ so a change breaking it passed every job.
 | a host case in an existing file | nothing — `OPSY_TEST(name)` registers itself |
 | an on-target test file | add it to `add_executable(opsy_qemu_tests ...)` in `tests/qemu/CMakeLists.txt` |
 | an on-target case in an existing file | nothing — `OPSY_QEMU_TEST(name)` registers itself |
+| an on-target image of its own (one that must stop, or owns the vector table) | `add_executable` + `opsy_qemu_image` + `add_test` in `tests/qemu/CMakeLists.txt`, and its name in the `set_tests_properties` timeout list, as `opsy_qemu_start_check` and `opsy_qemu_faults` are |
 | a GDB scenario | drop the `.gdb` file in `tests/gdb/` — nothing else; the glob that picks it up is `CONFIGURE_DEPENDS`, so a plain `cmake --build` re-configures and finds it. It must work on an unoptimised build, which is the only configuration it will be registered in |
 | a codegen check | add the probe function to `tests/codegen/codegen_probe.cpp` and the assertion about its disassembly to `tests/codegen/check_codegen.py` |
 

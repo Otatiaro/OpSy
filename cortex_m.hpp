@@ -126,6 +126,104 @@ namespace opsy
 static constexpr std::size_t prigroup_max = 7;
 
 /**
+ * @brief The fault status registers as a fault handler finds them, and what they say
+ *
+ *        A plain copy of @c CFSR, @c HFSR, @c MMFAR and @c BFAR, taken by
+ *        @ref cortex_m::read_fault_status. Reading changes nothing: the
+ *        registers keep their bits until @ref cortex_m::clear_fault_status
+ *        writes them away, so a handler that reads twice, or a debugger that
+ *        looks after it, sees the same fault.
+ *
+ *        The predicates name the bits the ARMv7-M and ARMv8-M architecture
+ *        reference manuals define; every one is @c constexpr, so a value
+ *        written by hand decodes at compile time -- that is how they are tested.
+ */
+struct fault_status
+{
+	uint32_t cfsr; ///< Configurable Fault Status Register: MMFSR, BFSR and UFSR, low byte up
+	uint32_t hfsr; ///< HardFault Status Register
+	uint32_t mmfar; ///< MemManage Fault Address Register, meaningful when @ref memory_fault_address has a value
+	uint32_t bfar; ///< BusFault Address Register, meaningful when @ref bus_fault_address has a value
+
+	// HFSR: why HardFault was taken.
+
+	/** @brief A configurable fault was taken as HardFault because its own exception could not be: disabled, or not allowed to preempt (@c FORCED). Its bits are in @c cfsr too. */
+	constexpr bool escalated() const { return (hfsr & (1u << 30)) != 0; }
+
+	/** @brief The core could not read the vector table entry of an exception (@c VECTTBL). */
+	constexpr bool vector_table_read() const { return (hfsr & (1u << 1)) != 0; }
+
+	// MMFSR: MemManage, from the MPU or from executing from a region that forbids it.
+
+	/** @brief An instruction fetch the MPU refused (@c IACCVIOL). */
+	constexpr bool instruction_access_violation() const { return (cfsr & (1u << 0)) != 0; }
+
+	/** @brief A data access the MPU refused (@c DACCVIOL); @ref memory_fault_address holds its address. */
+	constexpr bool data_access_violation() const { return (cfsr & (1u << 1)) != 0; }
+
+	/** @brief The address a MemManage fault was taken on, when the core recorded one (@c MMARVALID). */
+	constexpr std::optional<uint32_t> memory_fault_address() const
+	{
+		if ((cfsr & (1u << 7)) != 0)
+			return mmfar;
+		return std::nullopt;
+	}
+
+	// BFSR: a bus error, from the memory system.
+
+	/** @brief An instruction fetch the bus answered with an error (@c IBUSERR). */
+	constexpr bool instruction_bus_fault() const { return (cfsr & (1u << 8)) != 0; }
+
+	/** @brief A data access the bus answered with an error, taken on the instruction that made it (@c PRECISERR); @ref bus_fault_address holds its address. */
+	constexpr bool precise_bus_fault() const { return (cfsr & (1u << 9)) != 0; }
+
+	/** @brief A buffered write the bus answered with an error, taken after the instruction that made it (@c IMPRECISERR): the frame points past it, and no address is recorded. */
+	constexpr bool imprecise_bus_fault() const { return (cfsr & (1u << 10)) != 0; }
+
+	/** @brief The address a BusFault was taken on, when the core recorded one (@c BFARVALID). */
+	constexpr std::optional<uint32_t> bus_fault_address() const
+	{
+		if ((cfsr & (1u << 15)) != 0)
+			return bfar;
+		return std::nullopt;
+	}
+
+	// Stacking: faults on the frame the core pushes or pops itself. From either the MPU or the bus.
+
+	/** @brief Pushing the exception frame faulted (@c MSTKERR or @c STKERR): the stack was outside the memory it may use, so the frame is not to be trusted. */
+	constexpr bool stacking_error() const { return (cfsr & ((1u << 4) | (1u << 12))) != 0; }
+
+	/** @brief Popping the exception frame faulted (@c MUNSTKERR or @c UNSTKERR). */
+	constexpr bool unstacking_error() const { return (cfsr & ((1u << 3) | (1u << 11))) != 0; }
+
+	/** @brief Saving the floating-point state the core had put off faulted (@c MLSPERR or @c LSPERR). */
+	constexpr bool lazy_fp_state_error() const { return (cfsr & ((1u << 5) | (1u << 13))) != 0; }
+
+	// UFSR: UsageFault, from the instruction itself.
+
+	/** @brief The instruction at the frame's @c pc is not one (@c UNDEFINSTR): a @c udf, which is what @c __builtin_trap emits, or a jump into data. */
+	constexpr bool undefined_instruction() const { return (cfsr & (1u << 16)) != 0; }
+
+	/** @brief An instruction ran with @c EPSR.T clear (@c INVSTATE): a branch to an address whose bit 0 is not set, as a function pointer read from a corrupted memory. */
+	constexpr bool invalid_state() const { return (cfsr & (1u << 17)) != 0; }
+
+	/** @brief An exception return with an @c EXC_RETURN the core rejects (@c INVPC): a corrupted @c lr in a handler, or a frame built by hand with the wrong value. */
+	constexpr bool invalid_pc() const { return (cfsr & (1u << 18)) != 0; }
+
+	/** @brief A coprocessor instruction with the coprocessor disabled or absent (@c NOCP): a floating-point instruction before @ref cortex_m::enable_fpu, most often. */
+	constexpr bool no_coprocessor() const { return (cfsr & (1u << 19)) != 0; }
+
+	/** @brief A stack pointer went below its limit register (@c STKOF, ARMv8-M only): the task whose stack ran out is the one the frame belongs to. The stack pointer itself is no longer to be trusted. */
+	constexpr bool stack_overflow() const { return (cfsr & (1u << 20)) != 0; }
+
+	/** @brief An unaligned access the core does not allow (@c UNALIGNED): a multi-word load or store, or any access with @c CCR.UNALIGN_TRP set. */
+	constexpr bool unaligned_access() const { return (cfsr & (1u << 24)) != 0; }
+
+	/** @brief An @c sdiv or @c udiv by zero, with the trap enabled by @ref cortex_m::enable_divide_by_zero_trap (@c DIVBYZERO). */
+	constexpr bool divide_by_zero() const { return (cfsr & (1u << 25)) != 0; }
+};
+
+/**
  * @brief Contains all addresses and static methods to access Cortex-M low level features and system peripherals (NVIC, Systick, etc.)
  */
 class cortex_m
@@ -157,6 +255,9 @@ public:
 		reset = 1, ///< First code to be executed at system reset
 		non_maskable_interrupt = 2, ///< Non maskable interrupt
 		hard_fault = 3, ///< Hard Fault
+		memory_management = 4, ///< MemManage: an access the MPU refused, or a fetch from a region that forbids execution
+		bus_fault = 5, ///< BusFault: an access the bus answered with an error
+		usage_fault = 6, ///< UsageFault: an undefined instruction, a divide by zero, a stack limit crossed, ...
 		service_call = 11, ///< Service Call, used by OpSy for precise calls and automatic interrupt masking
 		pend_sv = 14, ///< PendSV, used by OpSy for task switch
 		systick = 15, ///< Systick, used by OpSy as main clock source
@@ -413,7 +514,7 @@ public:
 	 * @brief Sets the priority for a system interrupt
 	 * @param irq The interrupt request to set priority for
 	 * @param priority The priority
-	 * @warning Only @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable.
+	 * @warning Only exceptions 4 to 15 are configurable: the three faults, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick.
 	 *          @c non_maskable_interrupt and @c hard_fault have architecturally fixed priorities (-2 and -1)
 	 *          and have no @c SHPR field: the register file only covers exceptions 4 to 15.
 	 */
@@ -421,6 +522,9 @@ public:
 	{
 		switch (irq)
 		{
+		case system_irq::memory_management:
+		case system_irq::bus_fault:
+		case system_irq::usage_fault:
 		case system_irq::service_call:
 		case system_irq::pend_sv:
 		case system_irq::systick:
@@ -441,7 +545,7 @@ public:
 	 * @brief Gets the current priority for a system interrupt
 	 * @param irq The interrupt request to get priority for
 	 * @return The current priority
-	 * @warning Only @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick are configurable.
+	 * @warning Only exceptions 4 to 15 are configurable: the three faults, @c system_irq::service_call, @c system_irq::pend_sv and @c system_irq::systick.
 	 *          @c non_maskable_interrupt and @c hard_fault have architecturally fixed priorities (-2 and -1)
 	 *          and have no @c SHPR field: the register file only covers exceptions 4 to 15.
 	 */
@@ -449,6 +553,9 @@ public:
 	{
 		switch (irq)
 		{
+		case system_irq::memory_management:
+		case system_irq::bus_fault:
+		case system_irq::usage_fault:
 		case system_irq::service_call:
 		case system_irq::pend_sv:
 		case system_irq::systick:
@@ -750,6 +857,62 @@ public:
 	}
 
 	/**
+	 * @brief Gives MemManage, BusFault and UsageFault their own exceptions
+	 *
+	 *        Out of reset the three are disabled and every one of them is
+	 *        taken as HardFault, with @ref fault_status::escalated set. Enabled,
+	 *        each is taken through its own vector, at its own priority -- which
+	 *        @ref set_priority sets, and which is what lets a fault handler run
+	 *        where OpSy's handlers cannot be preempted by it, or can.
+	 *
+	 * @remark Writes @c SHCSR : @c USGFAULTENA , @c BUSFAULTENA and @c MEMFAULTENA .
+	 */
+	static void enable_configurable_faults()
+	{
+		const detail::memory_register<uint32_t> shcsr(ScbShcsrAddress);
+		shcsr.set(shcsr.get() | ScbShcsrFaultEnables);
+	}
+
+	/**
+	 * @brief Makes @c sdiv and @c udiv by zero a UsageFault rather than a quiet zero
+	 *
+	 * @remark Writes @c CCR.DIV_0_TRP . A handler sees it as @ref fault_status::divide_by_zero.
+	 */
+	static void enable_divide_by_zero_trap()
+	{
+		const detail::memory_register<uint32_t> ccr(ScbCcrAddress);
+		ccr.set(ccr.get() | ScbCcrDivideByZeroTrap);
+	}
+
+	/**
+	 * @brief Reads the fault status registers, leaving them as they are
+	 * @return @c CFSR , @c HFSR , @c MMFAR and @c BFAR , as @ref fault_status decodes them
+	 */
+	static fault_status read_fault_status()
+	{
+		return {
+			detail::memory_register<uint32_t>(ScbCfsrAddress).get(),
+			detail::memory_register<uint32_t>(ScbHfsrAddress).get(),
+			detail::memory_register<uint32_t>(ScbMmfarAddress).get(),
+			detail::memory_register<uint32_t>(ScbBfarAddress).get(),
+		};
+	}
+
+	/**
+	 * @brief Clears every fault status bit, so the next fault is read on its own
+	 *
+	 *        For a handler that returns to the faulting code: the bits stay set
+	 *        otherwise, and the next fault reads as this one on top of its own.
+	 *
+	 * @remark @c CFSR and @c HFSR are write-one-to-clear; all their bits are written.
+	 */
+	static void clear_fault_status()
+	{
+		detail::memory_register<uint32_t>(ScbCfsrAddress).set(0xFFFFFFFFu);
+		detail::memory_register<uint32_t>(ScbHfsrAddress).set(0xFFFFFFFFu);
+	}
+
+	/**
 	 * @brief Triggers the pending state for system interrupt @c PendSV
 	 * @remark PendSV is taken before the next instruction whenever its priority
 	 *         allows: a task blocking on a mutex relies on not running a single
@@ -975,6 +1138,15 @@ private:
 	static constexpr uint32_t AircrAddress = ScbAddress + 0x0C;
 	static constexpr uint32_t IcsrAddress = ScbAddress + 0x04;
 	static constexpr uint32_t ScbCpacrAddress = ScbAddress + 0x88;
+	static constexpr uint32_t ScbCcrAddress = ScbAddress + 0x14;
+	static constexpr uint32_t ScbShcsrAddress = ScbAddress + 0x24;
+	static constexpr uint32_t ScbCfsrAddress = ScbAddress + 0x28;
+	static constexpr uint32_t ScbHfsrAddress = ScbAddress + 0x2C;
+	static constexpr uint32_t ScbMmfarAddress = ScbAddress + 0x34;
+	static constexpr uint32_t ScbBfarAddress = ScbAddress + 0x38;
+
+	static constexpr uint32_t ScbCcrDivideByZeroTrap = 1u << 4;
+	static constexpr uint32_t ScbShcsrFaultEnables = (1u << 16) | (1u << 17) | (1u << 18); // MEMFAULTENA, BUSFAULTENA, USGFAULTENA
 
 	static constexpr uint32_t SystickCtrlAddress = SystickAddress;
 	static constexpr uint32_t SystickLoadAddress = SystickAddress + 0x04;

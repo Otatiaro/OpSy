@@ -46,6 +46,7 @@
 #include "condition_variable.hpp"
 #include "semaphore.hpp"
 #include "queue.hpp"
+#include "fault.hpp"
 
 namespace opsy
 {

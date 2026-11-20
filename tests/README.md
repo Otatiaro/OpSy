@@ -196,6 +196,19 @@ with the store refused and the entry unchanged. A task running means start
 went on, and fails. Every QEMU job runs it, the `NDEBUG` ones included:
 the check is not an `assert`.
 
+`test_faults.cpp` is a third image, `opsy_qemu_faults`: every fault
+through `opsy::fault_isrs`, decoded by `opsy::fault_status` and stepped
+over. The table is built the way a user builds it, `with(scheduler::isrs)`
+then `with(fault_isrs<on_fault>)`, and the faults are raised from a task.
+An undefined instruction with the configurable faults still disabled, so
+it escalates to HardFault; the same once enabled; a divide by zero; a store
+the MPU refuses, with its address; a load from an address nothing answers,
+a precise BusFault with its address. On `mps2-an505` the last case takes
+the process stack pointer below `PSPLIM`: the handler sees `STKOF` and
+ends the run from there, as the stack pointer is not to be trusted after
+it. The `mpu.hpp` and `thumb.hpp` helpers (a read-only region, the length
+of a Thumb instruction) are shared with the start check.
+
 `mps2-an505` needs its own linker script for a second reason beyond
 TrustZone addressing: its SRAM at `0x30000000` sits behind a Memory
 Protection Controller that comes up blocking, so the very first stack

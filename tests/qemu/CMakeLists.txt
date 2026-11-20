@@ -145,6 +145,17 @@ add_executable(opsy_qemu_start_check
 
 opsy_qemu_image(opsy_qemu_start_check)
 
+# Every fault through opsy::fault_isrs, decoded and stepped over. A separate
+# image: it owns the vector table and the fault configuration, and its last
+# case ends the run from the handler. See test_faults.cpp.
+add_executable(opsy_qemu_faults
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_faults.cpp
+)
+
+opsy_qemu_image(opsy_qemu_faults)
+
 # The runner turns QEMU's output into a verdict. QEMU maps every non-zero
 # application exit code onto a process status of 1, and a hung image would
 # otherwise look like a pass, so the script insists on seeing the RESULT line.
@@ -176,10 +187,19 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
 )
 
+add_test(
+    NAME opsy_qemu_faults_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_faults>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
 set_tests_properties(
     opsy_qemu_tests_${OPSY_TARGET}
     opsy_qemu_tests_slow_${OPSY_TARGET}
     opsy_qemu_start_check_${OPSY_TARGET}
+    opsy_qemu_faults_${OPSY_TARGET}
     PROPERTIES TIMEOUT 120)
 
 # OpSy never allocates, so an image built on it should contain no allocator.

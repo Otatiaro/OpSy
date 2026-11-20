@@ -33,8 +33,10 @@
  ******************************************************************************
  */
 
+#include "mpu.hpp"
 #include "qemu_test.hpp"
 #include "semihosting.hpp"
+#include "thumb.hpp"
 
 #include <opsy.hpp>
 
@@ -75,14 +77,8 @@ volatile uint32_t& reg(uint32_t address)
 	return *reinterpret_cast<volatile uint32_t*>(address);
 }
 
-constexpr uint32_t shcsr = 0xE000ED24u;
 constexpr uint32_t cfsr = 0xE000ED28u;
 constexpr uint32_t vtor = 0xE000ED08u;
-constexpr uint32_t mpu_ctrl = 0xE000ED94u;
-constexpr uint32_t mpu_rnr = 0xE000ED98u;
-constexpr uint32_t mpu_rbar = 0xE000ED9Cu;
-constexpr uint32_t mpu_rasr_rlar = 0xE000EDA0u;
-constexpr uint32_t mpu_mair0 = 0xE000EDC0u;
 
 [[noreturn]] void fail(const char* why)
 {
@@ -97,33 +93,10 @@ constexpr uint32_t mpu_mair0 = 0xE000EDC0u;
 	fail("an exception the table does not expect was taken");
 }
 
-/** @brief Region 0: the table, read-only to privileged code, no access otherwise. */
+/** @brief The table, read-only to privileged code, no access otherwise. */
 void protect_table()
 {
-	const auto base = reinterpret_cast<uint32_t>(&g_table[0]);
-
-	reg(mpu_rnr) = 0;
-#if defined(__ARM_ARCH_8M_MAIN__)
-	// PMSAv8: attribute 0 is normal memory, non-cacheable. RBAR holds the base,
-	// AP = 0b10 (read-only, privileged only), XN; RLAR the inclusive limit,
-	// attribute index 0, enabled.
-	reg(mpu_mair0) = 0x44u;
-	reg(mpu_rbar) = base | (0b10u << 1) | 1u;
-	reg(mpu_rasr_rlar) = ((base + protected_bytes - 1) & ~0x1Fu) | 1u;
-#else
-	// PMSAv7: RBAR holds the base (aligned to the size), RASR XN, AP = 0b101
-	// (read-only, privileged only), TEX = 0b001 (normal, non-cacheable), the
-	// size as log2(bytes) - 1, enabled.
-	static_assert(protected_bytes == 256);
-	(void) mpu_mair0;
-	reg(mpu_rbar) = base;
-	reg(mpu_rasr_rlar) = (1u << 28) | (0b101u << 24) | (0b001u << 19) | ((8u - 1u) << 1) | 1u;
-#endif
-
-	// PRIVDEFENA: everything outside the region keeps the default map.
-	reg(mpu_ctrl) = (1u << 2) | 1u;
-	reg(shcsr) |= 1u << 16; // MEMFAULTENA, or the fault escalates to HardFault
-	asm volatile("dsb\n\tisb" ::: "memory");
+	qemu_test::mpu::make_read_only(reinterpret_cast<uint32_t>(&g_table[0]), protected_bytes);
 }
 
 } // namespace
@@ -157,11 +130,7 @@ extern "C" [[gnu::naked]] void check_hard_fault_handler()
 /** @brief Steps over the store the MPU refused: the write goes nowhere, as it would to flash. */
 extern "C" [[gnu::used]] void check_skip_store(uint32_t* frame)
 {
-	const auto pc = frame[6];
-	const auto first = *reinterpret_cast<const volatile uint16_t*>(pc);
-
-	// Thumb-2: a first halfword from 0b11101 up opens a 32-bit instruction.
-	frame[6] = pc + ((first & 0xF800u) >= 0xE800u ? 4u : 2u);
+	frame[6] += qemu_test::thumb_instruction_length(frame[6]);
 
 	reg(cfsr) = reg(cfsr) & 0xFFu; // MMFSR, write-one-to-clear
 	g_skipped_stores = g_skipped_stores + 1;

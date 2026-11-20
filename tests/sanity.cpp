@@ -228,7 +228,7 @@ static_assert(decltype(g_queue)::capacity() == 8);
 
 using handler_t = void (*)();
 
-enum class fake_exception : std::uint8_t { nmi = 2, hard_fault = 3, svcall = 11, pendsv = 14, systick = 15 };
+enum class fake_exception : std::uint8_t { nmi = 2, hard_fault = 3, mem_manage = 4, bus_fault = 5, usage_fault = 6, svcall = 11, pendsv = 14, systick = 15 };
 enum class fake_irq : std::uint8_t { uart = 0, timer = 1 };
 
 template<typename Decoration>
@@ -306,5 +306,94 @@ struct no_chaining_table
 };
 
 static_assert(!opsy::vector_table<no_chaining_table>);
+
+// ─────────────────────────── opsy::fault_isrs ──────────────────────────────
+// One entry behind the four fault exceptions, next to the scheduler's three.
+
+void fake_on_fault(const opsy::fault_status&, opsy::exception_frame&, uint32_t) {}
+
+constexpr auto g_fake_fault_vectors = fake_vector_table<opsy::hooked_isr>{}
+	.with(opsy::scheduler::isrs)
+	.with(opsy::fault_isrs<fake_on_fault>);
+
+static_assert(opsy::fault_vector_table<fake_vector_table<opsy::hooked_isr>, fake_on_fault>);
+
+static_assert(g_fake_fault_vectors.handler(3) == &opsy::detail::fault_entry<fake_on_fault>);
+static_assert(g_fake_fault_vectors.handler(4) == &opsy::detail::fault_entry<fake_on_fault>);
+static_assert(g_fake_fault_vectors.handler(5) == &opsy::detail::fault_entry<fake_on_fault>);
+static_assert(g_fake_fault_vectors.handler(6) == &opsy::detail::fault_entry<fake_on_fault>);
+static_assert(g_fake_fault_vectors.handler(2) == nullptr);
+static_assert(g_fake_fault_vectors.handler(11) == &SVC_Handler);
+
+// A table that cannot name one of the four faults is not one the installer fills.
+enum class no_usage_fault_exception : std::uint8_t { hard_fault = 3, mem_manage = 4, bus_fault = 5 };
+
+struct no_usage_fault_table
+{
+	using exception_type = no_usage_fault_exception;
+
+	template<no_usage_fault_exception, handler_t>
+	constexpr auto with() const -> no_usage_fault_table { return *this; }
+};
+
+static_assert(!opsy::fault_vector_table<no_usage_fault_table, fake_on_fault>);
+
+// ─────────────────────────── opsy::fault_status ────────────────────────────
+// The decoder, on values written by hand from the ARMv7-M / ARMv8-M reference
+// manuals: each predicate reads its own bit and no other.
+
+namespace fault_status_decoding
+{
+
+constexpr opsy::fault_status nothing{0, 0, 0, 0};
+static_assert(!nothing.escalated() && !nothing.vector_table_read());
+static_assert(!nothing.undefined_instruction() && !nothing.divide_by_zero() && !nothing.stack_overflow());
+static_assert(!nothing.memory_fault_address().has_value() && !nothing.bus_fault_address().has_value());
+
+// UFSR, escalated: __builtin_trap with the configurable faults disabled.
+constexpr opsy::fault_status trap{1u << 16, 1u << 30, 0, 0};
+static_assert(trap.escalated() && trap.undefined_instruction());
+static_assert(!trap.invalid_state() && !trap.invalid_pc() && !trap.no_coprocessor());
+static_assert(!trap.unaligned_access() && !trap.divide_by_zero() && !trap.stack_overflow());
+
+constexpr opsy::fault_status usage{(1u << 17) | (1u << 18) | (1u << 19) | (1u << 20) | (1u << 24) | (1u << 25), 0, 0, 0};
+static_assert(usage.invalid_state() && usage.invalid_pc() && usage.no_coprocessor());
+static_assert(usage.stack_overflow() && usage.unaligned_access() && usage.divide_by_zero());
+static_assert(!usage.undefined_instruction() && !usage.escalated());
+
+// MMFSR: a data access violation with its address; the bus side untouched.
+constexpr opsy::fault_status mem_manage{(1u << 1) | (1u << 7), 0, 0x20001000u, 0xDEADBEEFu};
+static_assert(mem_manage.data_access_violation() && !mem_manage.instruction_access_violation());
+static_assert(mem_manage.memory_fault_address() == 0x20001000u);
+static_assert(!mem_manage.bus_fault_address().has_value());
+static_assert(!mem_manage.precise_bus_fault() && !mem_manage.stacking_error());
+
+// Without MMARVALID the address register means nothing, whatever it holds.
+constexpr opsy::fault_status mem_manage_no_address{1u << 1, 0, 0x20001000u, 0};
+static_assert(!mem_manage_no_address.memory_fault_address().has_value());
+
+// BFSR: precise, with its address.
+constexpr opsy::fault_status bus{(1u << 9) | (1u << 15), 0, 0, 0x40000000u};
+static_assert(bus.precise_bus_fault() && !bus.imprecise_bus_fault() && !bus.instruction_bus_fault());
+static_assert(bus.bus_fault_address() == 0x40000000u);
+static_assert(!bus.memory_fault_address().has_value());
+
+constexpr opsy::fault_status imprecise{(1u << 8) | (1u << 10), 0, 0, 0};
+static_assert(imprecise.imprecise_bus_fault() && imprecise.instruction_bus_fault() && !imprecise.precise_bus_fault());
+
+// Stacking, from either side.
+static_assert(opsy::fault_status{1u << 4, 0, 0, 0}.stacking_error());
+static_assert(opsy::fault_status{1u << 12, 0, 0, 0}.stacking_error());
+static_assert(opsy::fault_status{1u << 3, 0, 0, 0}.unstacking_error());
+static_assert(opsy::fault_status{1u << 11, 0, 0, 0}.unstacking_error());
+static_assert(opsy::fault_status{1u << 5, 0, 0, 0}.lazy_fp_state_error());
+static_assert(opsy::fault_status{1u << 13, 0, 0, 0}.lazy_fp_state_error());
+static_assert(!opsy::fault_status{1u << 4, 0, 0, 0}.unstacking_error());
+
+// HFSR on its own: a vector table the core could not read.
+static_assert(opsy::fault_status{0, 1u << 1, 0, 0}.vector_table_read());
+static_assert(!opsy::fault_status{0, 1u << 1, 0, 0}.escalated());
+
+} // namespace fault_status_decoding
 
 } // namespace

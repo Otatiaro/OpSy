@@ -467,6 +467,12 @@ override either, add an `<opsy_config.hpp>` or `<opsy_hooks.hpp>` file
 to any directory on your include path; OpSy detects them with
 `__has_include` and uses them in place of the defaults.
 
+`<opsy_config.hpp>` replaces the whole default block of `config.hpp`, and
+`config.hpp` includes it inside `namespace opsy`: the file defines every
+name the defaults define (`core_clock`, `priority_bits`, `preemption_bits`,
+`opsy_preemption`, `duration`, `max_inheritance_depth`, `trap`), with no
+namespace of its own. [One is shown below](#choosing-preemption_bits).
+
 Typical reasons to provide an `<opsy_config.hpp>`:
 
 - Change the time base (the default `duration` is `std::chrono::milliseconds`).
@@ -484,17 +490,89 @@ Typical reasons to provide an `<opsy_hooks.hpp>`:
 
 ## ISR priorities and OpSy
 
-The scheduler runs at one specific NVIC preemption level
-(`opsy_preemption`, default 1). Anything at a numerically *lower* preempt
-value (so higher hardware priority) than OpSy **must not** call any OpSy
-API: such an ISR can preempt the SVC handler and break atomicity. Nor can
-an ISR at OpSy's own preemption level: it preempts none of OpSy's
-exceptions, so a service call raised from it escalates to HardFault.
-ISRs at a numerically *higher* preempt value (lower priority) can use
-OpSy's synchronization primitives normally, as long as the `isr_lock` or
-`condition_variable` they touch was constructed with an `isr_priority`
-that masks them -- and no more urgent than
-`scheduler::os_callable_priority`, the first level below OpSy's.
+An NVIC priority is a byte of which the core implements the top
+`priority_bits` (4 on most parts; the vendor's `__NVIC_PRIO_BITS` when it
+is defined). `scheduler::start` splits them, through `PRIGROUP`, into
+`preemption_bits` of *preemption level*, which decide who interrupts whom,
+and the rest as *sub-priority*, which only orders handlers pending at the
+same time. The scheduler runs at one preemption level, `opsy_preemption`.
+With the defaults, two bits and level 1:
+
+| Level | Priorities | Who runs there |
+|---|---|---|
+| 0 | `0x00`-`0x3F` | Above OpSy: handlers that never call it. The scheduler never masks them. |
+| 1 | `0x40`-`0x7F` | OpSy: `SVC` at `0x40`, `SysTick` at `0x7F`. Nothing else. |
+| 2 | `0x80`-`0xBF` | `scheduler::os_callable_priority`: handlers that call OpSy, from here down. |
+| 3 | `0xC0`-`0xFF` | Handlers that call OpSy; `PendSV` at `0xFF`, the very last. |
+
+Anything at a numerically *lower* preempt value (so higher hardware
+priority) than OpSy **must not** call any OpSy API: such an ISR can
+preempt the SVC handler and break atomicity. Nor can an ISR at OpSy's own
+preemption level: it preempts none of OpSy's exceptions, so a service call
+raised from it escalates to HardFault. ISRs at a numerically *higher*
+preempt value (lower priority) can use OpSy's synchronization primitives
+normally, as long as the `isr_lock` or `condition_variable` they touch was
+constructed with an `isr_priority` that masks them -- and no more urgent
+than `scheduler::os_callable_priority`, the first level below OpSy's.
+
+Level 0 is what OpSy costs nothing: a handler there is never delayed by a
+service call, a tick or a context switch, which is the place for a bus
+whose timing the hardware dictates or a control loop. It cannot wake a
+task itself; it hands its data to a handler at a callable level, pended
+from software as [below](#raising-an-interrupt-from-software), and that
+one does.
+
+### Choosing `preemption_bits`
+
+The defaults leave two levels for handlers that call OpSy. When an
+application has more tiers than that among them -- a protocol handler
+that must not wait for a logger, say, and both wanting OpSy -- raise
+`preemption_bits` in an `<opsy_config.hpp>`. Three bits give level 0 above
+OpSy, OpSy at 1, and six levels for handlers that call it; the priorities
+shift with the split, so refer to them as `scheduler::os_callable_priority`
+and `isr_priority::from_preempt_sub<opsy::preemption_bits>(level, sub)`
+rather than as numbers. `preemption_bits` goes up to `priority_bits`
+(then there is no sub-priority, and `SVC` and `SysTick` share one
+priority, which changes nothing: they differ only in sub-priority, which
+never let one preempt the other), and must leave at least one level below
+OpSy's; `config.hpp` asserts both.
+
+This is [`tests/examples/opsy_config.hpp`](tests/examples/opsy_config.hpp),
+which the sanity build compiles OpSy against:
+
+```cpp
+extern "C"
+{
+	extern uint32_t SystemCoreClock;
+}
+
+/** @brief The system core clock in Hz, which SysTick is programmed from. */
+inline uint32_t core_clock()
+{
+	return SystemCoreClock;
+}
+
+/** @brief Priority bits the core implements: the vendor's __NVIC_PRIO_BITS. */
+constexpr uint32_t priority_bits = 4;
+
+/** @brief Of which this many decide who preempts whom; the rest is sub-priority. */
+constexpr uint32_t preemption_bits = 3;
+
+/** @brief The preemption level OpSy runs at. Handlers call OpSy from the level below, and only from there down. */
+constexpr uint32_t opsy_preemption = 1;
+
+/** @brief The time base of timeouts and sleep. */
+using duration = std::chrono::duration<int64_t, std::milli>;
+
+/** @brief How far priority inheritance follows a chain of blocked tasks. */
+constexpr std::size_t max_inheritance_depth = 8;
+
+/** @brief Where OpSy stops on an internal error it cannot recover from. */
+[[noreturn]] inline void trap()
+{
+	__builtin_trap();
+}
+```
 
 ### Raising an interrupt from software
 

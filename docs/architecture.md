@@ -29,7 +29,10 @@ See [what that costs](#what-that-costs-and-the-system-size-it-implies).
 ## Three exceptions, three jobs
 
 The scheduler runs entirely out of three ARM exceptions, each at a fixed
-priority. The numbers below are the defaults, with `preemption_bits = 2`:
+priority. The numbers below are the defaults, with `preemption_bits = 2`;
+another split moves them, and the README's
+[ISR priorities and OpSy](../README.md#isr-priorities-and-opsy) lays out
+the levels and the configuration that changes them:
 
 | Exception | Priority | Role |
 |---|---|---|

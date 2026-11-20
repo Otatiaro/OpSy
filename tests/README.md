@@ -45,8 +45,15 @@ warning set, not to run code on hardware.
 
 ### What gets built
 
-`scheduler.cpp` plus the two translation units in this directory are
-compiled into a single static library, `opsy_sanity`:
+`scheduler.cpp` plus the translation units in this directory are compiled
+into one static library per configuration (`opsy_sanity_O0`, `_Os`, `_O2`,
+and the two with `-DNDEBUG`), and once more as `opsy_sanity_examples`,
+with `examples/` first on the include path: that directory holds the
+override files the README shows (`opsy_config.hpp` today), which
+`__has_include` then picks up exactly as in a project. OpSy is built with
+three preemption bits there and with its defaults everywhere else, and
+`readme_examples.cpp` asserts under `OPSY_SANITY_EXAMPLES` that the
+override was the configuration seen.
 
 | File | What it covers |
 |---|---|

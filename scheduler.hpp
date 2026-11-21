@@ -107,34 +107,30 @@ namespace detail
 {
 
 /**
- * @brief The three operations of @c std::atomic<T> the scheduler uses, always generated in place
+ * @brief A flag read through @c std::atomic_ref , so the read is generated in place
  * @remark The scheduler's flags are read on every task switch and wake-up,
  *         from a dozen places. At @c -Os GCC takes an inline function that
  *         many callers share out of line to save the bytes, and
  *         @c std::atomic<bool>::load became a call: six instructions and a
- *         branch pair for a byte read. Wrapping it changes nothing, the
- *         attribute does not reach through to the call inside; the compiler
- *         builtins @c std::atomic is made of do, and generate the same
- *         @c ldrb , @c strb and @c ldrex/strex . Same single-byte flag a
- *         debugger watches by address.
+ *         branch pair for a byte read. The same operations through
+ *         @c std::atomic_ref on a plain byte are what the standard offers
+ *         instead; same single-byte flag a debugger watches by address.
  */
 template<typename T>
 class inline_atomic
 {
-	static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(uint32_t), "a word or less, which the core loads and stores in one access");
-
 public:
 	constexpr inline_atomic(T value) : value_(value) {}
 
 	inline_atomic(const inline_atomic&) = delete;
 	inline_atomic& operator=(const inline_atomic&) = delete;
 
-	[[gnu::always_inline]] T load(std::memory_order order) const { return __atomic_load_n(&value_, static_cast<int>(order)); }
-	[[gnu::always_inline]] void store(T value, std::memory_order order) { __atomic_store_n(&value_, value, static_cast<int>(order)); }
-	[[gnu::always_inline]] T exchange(T value, std::memory_order order) { return __atomic_exchange_n(&value_, value, static_cast<int>(order)); }
+	T load(std::memory_order order) const { return std::atomic_ref<const T>(value_).load(order); }
+	void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }
+	T exchange(T value, std::memory_order order) { return std::atomic_ref<T>(value_).exchange(value, order); }
 
 private:
-	T value_;
+	alignas(std::atomic_ref<T>::required_alignment) T value_;
 };
 
 } // namespace detail

@@ -1,0 +1,29 @@
+name: Install the arm-none-eabi toolchain
+description: >
+  Downloads a release of Otatiaro/arm-none-eabi-toolchain (GCC, binutils,
+  newlib; no GDB, which comes from the system), checks it against the
+  release's SHA256SUMS and puts its bin directory on PATH.
+inputs:
+  version:
+    description: The release to install, as its tag reads without the v
+    required: false
+    default: '16.2.0-1'
+runs:
+  using: composite
+  steps:
+    - name: Download and verify
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        base="https://github.com/Otatiaro/arm-none-eabi-toolchain/releases/download/v${VERSION}"
+        archive="arm-none-eabi-toolchain-${VERSION}-linux-x86_64.tar.xz"
+        cd "$RUNNER_TEMP"
+        curl --fail --silent --show-error --location --retry 3 -o "$archive" "$base/$archive"
+        curl --fail --silent --show-error --location --retry 3 -o SHA256SUMS "$base/SHA256SUMS"
+        sha256sum --check --ignore-missing SHA256SUMS
+        mkdir -p "$HOME/arm-none-eabi-toolchain"
+        tar -xJf "$archive" -C "$HOME/arm-none-eabi-toolchain" --strip-components=1
+        "$HOME/arm-none-eabi-toolchain/bin/arm-none-eabi-g++" --version | head -1
+        echo "$HOME/arm-none-eabi-toolchain/bin" >> "$GITHUB_PATH"

@@ -9,19 +9,19 @@ triggered on pushes to `master` and on pull requests targeting it. It is
 not triggered on pushes to other branches, so **work on a branch is not
 checked until you open the pull request**.
 
-60 jobs, all running in parallel on `ubuntu-latest`. A full run takes
+38 jobs, all running in parallel on `ubuntu-latest`. A full run takes
 about a minute and a half. `fail-fast` is off everywhere: one broken
 axis does not cancel the others, so a single run tells you whether a
-failure is specific to one compiler or target, or general.
+failure is specific to one target, or general.
 
 ## The six groups of jobs
 
 | Job group | Axes | Count | What a green run means |
 |---|---|---|---|
-| **Build** | `{gcc, clang}` × `{m3, m4, m7, m33}` × `{c++23, c++26}` | 16 | The whole public API and every `utility/` and `algorithms/` header compiles, on both compilers, all four cores, both standards, under the strict warning set with `-Werror`, at `-O0`, `-Os` and `-O2` and at both of the latter under `NDEBUG` -- five libraries per job. Every public header is shown to stand alone. Nothing is linked or run. |
-| **Host tests** | `{gcc, clang}` × `{c++23, c++26}` | 4 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
-| **QEMU and GDB tests** | `{gcc, clang}` × `{m3, m4, m7, m33}` | 8 | The scheduler behaves on an emulated Cortex-M: 125 on-target cases, run at the nominal speed and on a core sixteen times slower, 7 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
-| **QEMU tests, optimised** | gcc × `{m3, m4, m7, m33}` × `{-Os, -Os + NDEBUG, -O2 + NDEBUG, -O3 + LTO}`, clang × `{m4, m33}` × the same four | 24 | The same on-target cases at both speeds and the no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units, and in the release configurations a project ships. |
+| **Build** | `{m3, m4, m7, m33}` × `{c++23, c++26}` | 8 | The whole public API and every `utility/` and `algorithms/` header compiles, on all four cores, both standards, under the strict warning set with `-Werror`, at `-O0`, `-Os` and `-O2` and at both of the latter under `NDEBUG` -- five libraries per job. Every public header is shown to stand alone. Nothing is linked or run. |
+| **Host tests** | `{c++23, c++26}` | 2 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
+| **QEMU and GDB tests** | `{m3, m4, m7, m33}` | 4 | The scheduler behaves on an emulated Cortex-M: 125 on-target cases, run at the nominal speed and on a core sixteen times slower, 7 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
+| **QEMU tests, optimised** | `{m3, m4, m7, m33}` × `{-Os, -Os + NDEBUG, -O2 + NDEBUG, -O3 + LTO}` | 16 | The same on-target cases at both speeds and the no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units, and in the release configurations a project ships. |
 | **Bench** | `{m3, m4, m7, m33}` | 4 | The paths that cost -- a wake-up from an interrupt handler through a semaphore, a condition variable or a queue, a task switch, a mutex free and contended, a sleep ended by the tick, an `isr_lock` round trip, a release that wakes a lower task without switching, alone and past eight ready tasks -- execute no more instructions than `tests/qemu/bench/baseline-<target>.json` records, within 5 %. Built at `-Os` under `NDEBUG`, counted out of QEMU's execution trace, per function. A drop beyond 5 % is printed too: the PR that earns it updates the baseline. |
 | **Codegen checks** | `{m3, m4, m7, m33}` | 4 | The optimiser left the memory-mapped accesses and the stack alignment alone, the barriers the architecture requires are emitted, and the exclusive accesses are visible to the compiler. Built at `-O2` and read out of the disassembly. |
 
@@ -30,10 +30,14 @@ and how to run it locally. This document is about the CI around them.
 
 ### Why these axes
 
-**Two compilers.** gcc and clang disagree about what they accept in
-inline assembly, about naked functions, and about which parts of the
-freestanding standard library exist at all. Each of those has broken a
-build here that the other compiler was happy with.
+**One compiler, GCC 16.** OpSy is written for it, and the C++26 work
+(contracts first) needs it. clang was a second opinion until November
+2026: gcc and clang disagree about what they accept in inline assembly,
+about naked functions, and about which parts of the freestanding
+standard library exist at all, and each of those has broken a build here
+that the other compiler was happy with. It comes back when the LLVM
+Embedded Toolchain for Arm has contracts; `tests/cortex-m-toolchain.cmake`
+still knows `-DOPSY_COMPILER=clang`.
 
 **Four cores.** `m3` has no FPU, `m4` and `m7` have different ones,
 `m33` is ARMv8-M. The PendSV handler compiles a different register save
@@ -60,7 +64,7 @@ name, and an optimised build has inlined those functions into their
 callers. There is no breakpoint to set. The on-target cases have no such
 limit, which is why they are what covers the optimised configuration.
 
-**Both compilers run the code**, not just compile it. Two things make an
+**The link options keep clang's return possible.** Two things make an
 image link with the LLVM Embedded Toolchain for Arm, and both are worth
 knowing before adding to the build:
 
@@ -74,31 +78,24 @@ knowing before adding to the build:
   RTTI, which drags in the unwinder — and the unwinder needs `stderr`,
   which a bare-metal image has not got.
 
-The clang jobs still install the GNU toolchain, because the GDB
-scenarios drive `arm-none-eabi-gdb` and the no-heap check reads the
-image with `arm-none-eabi-nm`. Neither cares which compiler produced the
-image.
-
 ## What is pinned, and why
 
-**GCC ARM toolchain, 14.3.Rel1**, via
-`carlosperate/arm-none-eabi-gcc-action`. Chosen to match what
-STM32CubeIDE 2.2.0 ships, so the compiler that builds the CI is the one
-most users will build with.
+**GCC 16.2.0, release `v16.2.0-1` of
+[Otatiaro/arm-none-eabi-toolchain](https://github.com/Otatiaro/arm-none-eabi-toolchain)**,
+installed by the composite action
+[`.github/actions/arm-none-eabi-toolchain`](../.github/actions/arm-none-eabi-toolchain/action.yml):
+the release tarball, checked against the release's `SHA256SUMS`, its
+`bin` on `PATH`. Arm's own GNU toolchain lags a GCC major by about a
+year, and the C++26 work needs 16 now. The release carries GCC, binutils
+and newlib (standard and nano) and no GDB: the GDB scenarios drive the
+runner's `gdb-multiarch`, which reads the image's architecture itself.
+Moving to a newer release is one change to the action's default
+`version`.
 
-**LLVM Embedded Toolchain for Arm, 19.1.5**, installed by downloading
-the upstream release tarball directly rather than through a third-party
-action. The actions available for this `apt`-install `libtinfo5`, which
-Ubuntu 24.04 no longer ships — every clang job then dies before
-compiling anything — and they lag the upstream releases. Fetching the
-tarball avoids both. The step also symlinks `libtinfo.so.6` to `.so.5`
-if — and only if — `clang --version` fails without it, since some LLVM
-builds still look for the older name.
-
-**g++-14 explicitly, on the host C++26 axis.** The runner's default GNU
+**g++-14 explicitly, for the host tests.** The runner's default GNU
 compiler does not know `c++26` and fails at configure time with "the
-current compiler GNU does not support this". The clang on the runner is
-recent enough as-is.
+current compiler GNU does not support this", and the runner has no GCC 16
+with a 32-bit multilib, so the host half stays on 14 for now.
 
 **32-bit host tests.** `utility/allocator.hpp` requires `sizeof(int) ==
 sizeof(void*)`, true on every Cortex-M target and on no 64-bit host, and
@@ -240,14 +237,14 @@ cmake --build build-codegen --parallel && ctest --test-dir build-codegen --outpu
 
 To run any of the above with clang instead, pass
 `-DOPSY_COMPILER=clang` and put the LLVM Embedded Toolchain for Arm on
-`PATH`. The GNU toolchain still has to be there too, for
-`arm-none-eabi-gdb` and `arm-none-eabi-nm`.
+`PATH`. The GNU toolchain still has to be there too, for `arm-none-eabi-nm`.
 
 Needs `arm-none-eabi-gcc`, `qemu-system-arm`, `ninja`, and — for the GDB
-scenarios — `arm-none-eabi-gdb` and a Python interpreter. Without the
-last two the scenarios are skipped with a message rather than failing,
-and the rest of the QEMU suite still runs; a local run that skips them
-silently is a local run that has not checked them.
+scenarios — `arm-none-eabi-gdb` or `gdb-multiarch`, and a Python
+interpreter. Without the last two the scenarios are skipped with a
+message rather than failing, and the rest of the QEMU suite still runs; a
+local run that skips them silently is a local run that has not checked
+them.
 
 Two differences from the CI worth knowing when a failure will not
 reproduce:

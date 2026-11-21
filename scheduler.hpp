@@ -125,12 +125,13 @@ public:
 	inline_atomic(const inline_atomic&) = delete;
 	inline_atomic& operator=(const inline_atomic&) = delete;
 
-	T load(std::memory_order order) const { return std::atomic_ref<const T>(value_).load(order); }
+	T load(std::memory_order order) const { return std::atomic_ref<T>(value_).load(order); }
 	void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }
 	T exchange(T value, std::memory_order order) { return std::atomic_ref<T>(value_).exchange(value, order); }
 
 private:
-	alignas(std::atomic_ref<T>::required_alignment) T value_;
+	// mutable: a load is a const operation, and libc++ 19 has no atomic_ref<const T>::load.
+	alignas(std::atomic_ref<T>::required_alignment) mutable T value_;
 };
 
 } // namespace detail

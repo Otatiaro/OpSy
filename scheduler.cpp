@@ -300,7 +300,8 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
 	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
-	condition.remove_waiting(task);
+	// The caller took the task off the condition's waiting list already:
+	// notify_one() and notify_all() pop it from the front before coming here.
 	task.waiting_ = nullptr;
 	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
 

@@ -384,17 +384,17 @@ private:
 		return condition.wait_until(lock_, *deadline) == cv_status::no_timeout;
 	}
 
-	/** @brief Wakes whoever waits on @p condition, without the lock when nobody does */
+	/** @brief Wakes whoever waits on @p condition, and does nothing when nobody does */
 	void wake(condition_variable& condition)
 	{
 		// Read without the lock: a side only queues itself while holding it,
 		// and holding it masks every handler that may call OpSy and every
 		// task switch. So either it queued before the count changed, and is
-		// seen here, or it will see the count when it looks.
-		if (condition.waiting_list_.empty())
-			return;
-		std::lock_guard<isr_lock> guard(lock_);
-		condition.notify_one();
+		// seen here, or it will see the count when it looks. notify_one()
+		// takes its own lock, at the same level as lock_, around the one step
+		// that needs it; see counting_semaphore::release().
+		if (!condition.waiting_list_.empty())
+			condition.notify_one();
 	}
 
 	template<typename... Arguments>

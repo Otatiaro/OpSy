@@ -6,40 +6,24 @@
 #include <algorithm>
 #include <ranges>
 
-// Per-function "do not optimize this body" attribute. The exception
-// handlers below are also @c naked (no compiler-emitted prologue or
-// epilogue) so that the inline asm has full control of the stack and
-// the register set; layering an O0 attribute on top is belt-and-suspenders
-// against any later edit accidentally letting the compiler reorder or
-// fold the asm.
-//
-// GCC and Clang spell this differently:
-//   - GCC: __attribute__((optimize("O0")))   (per-function -O0)
-//   - Clang: __attribute__((optnone))        (no per-function optimize attribute)
-#if defined(__clang__)
-#define OPSY_NO_OPT __attribute__((optnone))
-#else
-#define OPSY_NO_OPT __attribute__((optimize("O0")))
-#endif
-
 namespace opsy
 {
 
-__attribute__((section(".bss.opsy.scheduler.isstarted"))) detail::inline_atomic<bool> scheduler::is_started_{false};
-__attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point scheduler::ticks_ = opsy::startup;
-__attribute__((section(".bss.opsy.scheduler.alltasks"))) embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
-__attribute__((section(".bss.opsy.scheduler.timeouts"))) embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
-__attribute__((section(".bss.opsy.scheduler.ready"))) embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
-__attribute__((section(".bss.opsy.scheduler.lockedmutexes"))) embedded_list<mutex, mutex> scheduler::locked_mutexes_;
-__attribute__((section(".bss.opsy.scheduler.idling"))) detail::inline_atomic<bool> scheduler::idling_{false};
-__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) detail::inline_atomic<bool> scheduler::may_need_switch_{false};
-__attribute__((section(".bss.opsy.scheduler.idle"))) std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
-__attribute__((section(".bss.opsy.scheduler.previoustask"))) std::atomic<task_control_block*> scheduler::previous_task_{nullptr};
-__attribute__((section(".bss.opsy.scheduler.currenttask"))) std::atomic<task_control_block*> scheduler::current_task_{nullptr};
-__attribute__((section(".bss.opsy.scheduler.nexttask"))) std::atomic<task_control_block*> scheduler::next_task_{nullptr};
-__attribute__((section(".bss.opsy.scheduler.criticalsection"))) detail::inline_atomic<bool> scheduler::critical_section_{false};
+detail::inline_atomic<bool> scheduler::is_started_{false};
+opsy::time_point scheduler::ticks_ = opsy::startup;
+embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
+embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
+embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
+embedded_list<mutex, mutex> scheduler::locked_mutexes_;
+detail::inline_atomic<bool> scheduler::idling_{false};
+detail::inline_atomic<bool> scheduler::may_need_switch_{false};
+std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
+std::atomic<task_control_block*> scheduler::previous_task_{nullptr};
+std::atomic<task_control_block*> scheduler::current_task_{nullptr};
+std::atomic<task_control_block*> scheduler::next_task_{nullptr};
+detail::inline_atomic<bool> scheduler::critical_section_{false};
 
-[[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start_impl(idle_task_control_block& idle)
+[[noreturn]] void scheduler::start_impl(idle_task_control_block& idle)
 {
 	{
 		[[maybe_unused]] const auto running = cortex_m::type();
@@ -142,7 +126,7 @@ inline void scheduler::systick_handler()
 		hooks::exit_systick(false);
 }
 
-bool __attribute__((section(".text.opsy.doswitch"))) scheduler::do_switch()
+bool scheduler::do_switch()
 {
 	assert(is_started_.load(std::memory_order_relaxed));
 	auto* current = current_task_.load(std::memory_order_relaxed);
@@ -250,7 +234,7 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
  *        backtrace shows a call returning rather than a function at +0, and
  *        the address is taken from the label rather than computed.
  */
-[[gnu::used]] static void __attribute__((naked, section(".text.opsy.idlereturned"))) idle_return_site()
+[[gnu::used]] static void __attribute__((naked)) idle_return_site()
 {
 	asm volatile(
 			"nop\n\t"
@@ -273,7 +257,7 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
  *        obtained. Inserting first and sorting it out afterwards is what put a
  *        task in two lists at once in earlier versions of this scheduler.
  */
-void __attribute__((section(".text.opsy.resumewaiter"))) scheduler::resume_waiter(task_control_block& task)
+void scheduler::resume_waiter(task_control_block& task)
 {
 	if (auto* const* held = std::get_if<mutex*>(&task.released_lock_))
 	{
@@ -295,7 +279,7 @@ void __attribute__((section(".text.opsy.resumewaiter"))) scheduler::resume_waite
 	hooks::task_ready(task);
 }
 
-void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variable& condition)
+void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variable& condition)
 {
 	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
@@ -311,7 +295,7 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake(task_control_
 	resume_waiter(task); // may block on the mutex instead of becoming runnable
 }
 
-void __attribute__((section(".text.opsy.wakeone"))) scheduler::wake_one(condition_variable& condition)
+void scheduler::wake_one(condition_variable& condition)
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // SysTick included: a deadline may not expire between the pop and the wake
 
@@ -326,7 +310,7 @@ void __attribute__((section(".text.opsy.wakeone"))) scheduler::wake_one(conditio
 	cortex_m::restore_basepri(previous);
 }
 
-void __attribute__((section(".text.opsy.wakeall"))) scheduler::wake_all(condition_variable& condition)
+void scheduler::wake_all(condition_variable& condition)
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // see wake_one
 
@@ -344,7 +328,7 @@ void __attribute__((section(".text.opsy.wakeall"))) scheduler::wake_all(conditio
 	cortex_m::restore_basepri(previous);
 }
 
-void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mutex& m, task_control_block& task)
+void scheduler::take_mutex(mutex& m, task_control_block& task)
 {
 	assert(m.owner_ == nullptr);
 	m.owner_ = &task;
@@ -352,7 +336,7 @@ void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mute
 	hooks::mutex_taken(m, task);
 }
 
-void __attribute__((section(".text.opsy.releasemutex"))) scheduler::release_mutex(mutex& m, task_control_block& owner)
+void scheduler::release_mutex(mutex& m, task_control_block& owner)
 {
 	assert(m.owner_ == &owner);
 
@@ -367,7 +351,7 @@ void __attribute__((section(".text.opsy.releasemutex"))) scheduler::release_mute
 	recompute_priority(owner);
 }
 
-bool __attribute__((section(".text.opsy.handover"))) scheduler::hand_over(mutex& m)
+bool scheduler::hand_over(mutex& m)
 {
 	assert(m.owner_ == nullptr);
 
@@ -384,7 +368,7 @@ bool __attribute__((section(".text.opsy.handover"))) scheduler::hand_over(mutex&
 	return true;
 }
 
-void __attribute__((section(".text.opsy.blockon"))) scheduler::block_on(mutex& m, task_control_block& task)
+void scheduler::block_on(mutex& m, task_control_block& task)
 {
 	assert(m.owner_ != nullptr);
 	assert(m.owner_ != &task);
@@ -398,7 +382,7 @@ void __attribute__((section(".text.opsy.blockon"))) scheduler::block_on(mutex& m
 	inherit_priority(*m.owner_, task.priority_);
 }
 
-task_control_block* __attribute__((section(".text.opsy.highestwaiter"))) scheduler::highest_waiter(const mutex& m)
+task_control_block* scheduler::highest_waiter(const mutex& m)
 {
 	// Walked rather than looked up: the waiters of a mutex are derived from
 	// task::blocked_on_, which is the only place the relation is stored. A
@@ -410,7 +394,7 @@ task_control_block* __attribute__((section(".text.opsy.highestwaiter"))) schedul
 	return best == std::ranges::end(waiters) ? nullptr : &*best;
 }
 
-void __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompute_priority(task_control_block& task)
+void scheduler::recompute_priority(task_control_block& task)
 {
 	auto effective = task.base_priority_;
 
@@ -424,7 +408,7 @@ void __attribute__((section(".text.opsy.recomputepriority"))) scheduler::recompu
 	task.priority_ = effective;
 }
 
-void __attribute__((section(".text.opsy.requeue"))) scheduler::requeue(task_control_block& task)
+void scheduler::requeue(task_control_block& task)
 {
 	// Both lists are ordered by priority, and both are read from the front:
 	// do_switch elects the front of ready_, notify_one wakes the front of a
@@ -442,7 +426,7 @@ void __attribute__((section(".text.opsy.requeue"))) scheduler::requeue(task_cont
 	}
 }
 
-void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_priority(task_control_block& owner, task_priority priority)
+void scheduler::inherit_priority(task_control_block& owner, task_priority priority)
 {
 	// Follows the chain: the owner may itself be blocked on a mutex held by
 	// someone else, who must be raised too, or the task at the end of the
@@ -464,7 +448,7 @@ void __attribute__((section(".text.opsy.inheritpriority"))) scheduler::inherit_p
 	}
 }
 
-bool __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release_all_mutexes(task_control_block& task)
+bool scheduler::release_all_mutexes(task_control_block& task)
 {
 	bool woke = false;
 
@@ -491,7 +475,7 @@ bool __attribute__((section(".text.opsy.releaseallmutexes"))) scheduler::release
 	return woke;
 }
 
-void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_priority(task_control_block& task, task_priority new_priority)
+void scheduler::update_priority(task_control_block& task, task_priority new_priority)
 {
 	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
 
@@ -533,7 +517,7 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 	cortex_m::restore_basepri(previous);
 }
 
-uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pend_sv_handler(uint32_t* psp)
+uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 {
 	hooks::enter_pend_sv();
 	cortex_m::clear_pend_sv();
@@ -592,7 +576,7 @@ uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pe
 	return result;
 }
 
-void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_call_handler(stack_frame* frame,
+void scheduler::service_call_handler(stack_frame* frame,
 		service_call_number parameter, [[maybe_unused]] bool is_thread, uint32_t exc_return)
 {
 	hooks::enter_service_call();
@@ -1003,7 +987,7 @@ void task_control_block::task_starter(task_control_block* thisPtr)
 
 extern "C"
 {
-void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
+void SysTick_Handler()
 {
 	opsy::scheduler::systick_handler();
 }
@@ -1017,7 +1001,7 @@ void __attribute__((section(".text.opsy.isr.systick"))) SysTick_Handler()
  *         a hardware FPU (@c __ARM_FP) so cores without an FPU (Cortex-M3) pay zero clock
  *         cycle for the absent feature.
  */
-OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV_Handler()
+void __attribute__((naked)) PendSV_Handler()
 {
 	// Note on %c[mask]: the `=expr` form of `ldr` (literal-pool load) wants
 	// a bare expression, not an immediate. With the plain `%[mask]` token,
@@ -1058,7 +1042,7 @@ OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV
 			: "r0", "r1", "r2", "r3");
 }
 
-OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.svc"))) SVC_Handler()
+void __attribute__((naked)) SVC_Handler()
 {
 	asm volatile(
 			"tst LR, %[psp_flag] \n\t"

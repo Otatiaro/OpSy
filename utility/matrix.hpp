@@ -337,7 +337,7 @@ public:
 	 *        — a follow-up iteration can plug in cofactor expansion or LU
 	 *        decomposition if the need arises.
 	 */
-	[[gnu::always_inline]] constexpr T determinant() const requires (Rows == Cols)
+	constexpr T determinant() const requires (Rows == Cols)
 	{
 		static_assert(Rows < 5, "determinant only implemented for 1x1 through 4x4 matrices");
 
@@ -403,7 +403,7 @@ public:
 	 *        check @ref determinant first (closed-form sizes) or guard
 	 *        the input some other way.
 	 */
-	[[nodiscard]] [[gnu::always_inline]] constexpr matrix inverse() const requires (Rows == Cols)
+	[[nodiscard]] constexpr matrix inverse() const requires (Rows == Cols)
 	{
 		if constexpr (Rows == 1)
 		{
@@ -679,17 +679,9 @@ constexpr matrix<R, C, T> operator*(const T& factor, const matrix<R, C, T>& m)
 
 /**
  * @brief Matrix-matrix multiplication: @c <R, K> * @c <K, C> -> @c <R, C> .
- *
- * @remark Marked @c [[gnu::always_inline]] so it stays inlined at @c -Og .
- *         For the small dimensions this header targets (typically up to
- *         4x4), the inner loop is well above the conservative @c -Og
- *         "small function" threshold but still trivial to inline; without
- *         the hint, hot loops would pay a real call per multiplication.
- *         At @c -O2 the attribute is a no-op (the function would be
- *         inlined anyway).
  */
 template<std::size_t R, std::size_t K, std::size_t C, typename T>
-[[gnu::always_inline]] constexpr matrix<R, C, T> operator*(const matrix<R, K, T>& a, const matrix<K, C, T>& b)
+constexpr matrix<R, C, T> operator*(const matrix<R, K, T>& a, const matrix<K, C, T>& b)
 {
 	matrix<R, C, T> result;
 	for (std::size_t i = 0; i < R; ++i)
@@ -710,7 +702,7 @@ template<std::size_t R, std::size_t K, std::size_t C, typename T>
  *        transformed column vector @c M * v .
  */
 template<std::size_t R, std::size_t C, typename T>
-[[gnu::always_inline]] constexpr vector<R, T> operator*(const matrix<R, C, T>& m, const vector<C, T>& v)
+constexpr vector<R, T> operator*(const matrix<R, C, T>& m, const vector<C, T>& v)
 {
 	vector<R, T> result;
 	for (std::size_t i = 0; i < R; ++i)

@@ -33,11 +33,10 @@ set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/warnings.cmake)
 
-# OpSy targets C++23, and is kept building under C++26 as that lands: the CI
-# builds both so a construct C++26 changes or removes is caught here rather
-# than by a user on a newer toolchain. Override with -DOPSY_CXX_STANDARD=26.
+# OpSy is written in C++26. -DOPSY_CXX_STANDARD=23 builds it under the previous
+# standard for an experiment; nothing promises that it still does.
 if(NOT DEFINED OPSY_CXX_STANDARD)
-    set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
+    set(OPSY_CXX_STANDARD 26 CACHE STRING "C++ standard to build with")
 endif()
 
 # The same sources once per configuration a project ships with: debug and

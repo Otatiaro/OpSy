@@ -1,13 +1,13 @@
 # OpSy
 
 OpSy is a small, header-mostly real-time operating system (RTOS) for ARMv7-M
-and ARMv8-M Cortex-M microcontrollers. It is written in modern C++ (C++23)
+and ARMv8-M Cortex-M microcontrollers. It is written in modern C++ (C++26)
 and built around the standard library threading primitives (`std::mutex`,
 `std::condition_variable`, `std::lock_guard`, `std::chrono`) so the API feels
 familiar to anyone who has written multi-threaded C++ on a hosted platform.
 
 OpSy does no heap allocation, throws no exceptions, and has no dependency
-beyond a C++23-capable `arm-none-eabi-g++`.
+beyond a C++26-capable `arm-none-eabi-g++`.
 
 Beyond the scheduler, it ships a set of standalone [`utility/`](utility)
 primitives (fixed-size vector / matrix / quaternion, biquad filters, a
@@ -53,7 +53,7 @@ that is here.
 
 ## Requirements
 
-- C++23 compiler. CI builds every target with **GCC 16.2.0**, release
+- C++26 compiler. CI builds every target with **GCC 16.2.0**, release
   `v16.2.0-1` of
   [Otatiaro/arm-none-eabi-toolchain](https://github.com/Otatiaro/arm-none-eabi-toolchain)
   (GCC, binutils, newlib; Linux and Windows x86_64), which is what OpSy is
@@ -62,11 +62,8 @@ that is here.
   Toolchain for Arm) comes back to the CI when it has contracts.
 
   Older toolchains are not tested and are unlikely to work — the headers use
-  C++23 throughout. If you need to build with the GCC 11 or 12 that older
-  CubeIDE releases shipped, expect to have to check it yourself.
-
-  The suites also build under C++26 in CI, so the code stays ready for it, but
-  C++23 is what OpSy targets.
+  C++26 throughout. If you need to build with the GCC 14 or 15 that CubeIDE
+  ships, expect to have to check it yourself.
 
   GCC 16's libstdc++ checks its own preconditions in unoptimised builds
   (`_GLIBCXX_ASSERTIONS`, on by default at `-O0`). A failed check calls a
@@ -762,7 +759,7 @@ Flybarless flight controller (hundreds of thousands of flights logged
 without a scheduler-level incident). The second iteration was rewritten
 for the EzManta project, which needed more concurrent activities and a
 richer synchronization model. The current iteration drops C++14 baggage
-in favour of C++23 features (`constexpr` everywhere, `std::optional`,
+in favour of modern C++ (`constexpr` everywhere, `std::optional`,
 `std::chrono`, `[[nodiscard]]`, ...) and a cleaner header layout — the
 core primitives (`task`, `mutex`, `isr_lock`, `condition_variable`,
 `critical_section`) are header-only; only the scheduler itself needs a

@@ -9,7 +9,7 @@ triggered on pushes to `master` and on pull requests targeting it. It is
 not triggered on pushes to other branches, so **work on a branch is not
 checked until you open the pull request**.
 
-38 jobs, all running in parallel on `ubuntu-latest`. A full run takes
+33 jobs, all running in parallel on `ubuntu-latest`. A full run takes
 about a minute and a half. `fail-fast` is off everywhere: one broken
 axis does not cancel the others, so a single run tells you whether a
 failure is specific to one target, or general.
@@ -18,8 +18,8 @@ failure is specific to one target, or general.
 
 | Job group | Axes | Count | What a green run means |
 |---|---|---|---|
-| **Build** | `{m3, m4, m7, m33}` × `{c++23, c++26}` | 8 | The whole public API and every `utility/` and `algorithms/` header compiles, on all four cores, both standards, under the strict warning set with `-Werror`, at `-O0`, `-Os` and `-O2` and at both of the latter under `NDEBUG` -- five libraries per job. Every public header is shown to stand alone. Nothing is linked or run. |
-| **Host tests** | `{c++23, c++26}` | 2 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
+| **Build** | `{m3, m4, m7, m33}` | 4 | The whole public API and every `utility/` and `algorithms/` header compiles, on all four cores, under the strict warning set with `-Werror`, at `-O0`, `-Os` and `-O2` and at both of the latter under `NDEBUG` -- five libraries per job. Every public header is shown to stand alone. Nothing is linked or run. |
+| **Host tests** | — | 1 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
 | **QEMU and GDB tests** | `{m3, m4, m7, m33}` | 4 | The scheduler behaves on an emulated Cortex-M: 125 on-target cases, run at the nominal speed and on a core sixteen times slower, 8 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
 | **QEMU tests, optimised** | `{m3, m4, m7, m33}` × `{-Os, -Os + NDEBUG, -O2 + NDEBUG, -O3 + LTO}` | 16 | The same on-target cases at both speeds and the no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units, and in the release configurations a project ships. |
 | **Bench** | `{m3, m4, m7, m33}` | 4 | The paths that cost -- a wake-up from an interrupt handler through a semaphore, a condition variable or a queue, a task switch, a mutex free and contended, a sleep ended by the tick, an `isr_lock` round trip, a release that wakes a lower task without switching, alone and past eight ready tasks -- execute no more instructions than `tests/qemu/bench/baseline-<target>.json` records, within 5 %. Built at `-Os` under `NDEBUG`, counted out of QEMU's execution trace, per function. A drop beyond 5 % is printed too: the PR that earns it updates the baseline. |
@@ -43,10 +43,6 @@ still knows `-DOPSY_COMPILER=clang`.
 `m33` is ARMv8-M. The PendSV handler compiles a different register save
 for each, and the QEMU boards differ (`mps2-an385`, `-an386`, `-an500`,
 `-an505`).
-
-**Two standards.** OpSy targets C++23. C++26 is built alongside so that
-a construct the newer standard changes or removes is caught here rather
-than by a user on a newer toolchain.
 
 **Four optimised configurations.** A whole class of defect exists only
 once the optimiser is turned on: a memory-mapped register read without
@@ -92,10 +88,10 @@ runner's `gdb-multiarch`, which reads the image's architecture itself.
 Moving to a newer release is one change to the action's default
 `version`.
 
-**g++-14 explicitly, for the host tests.** The runner's default GNU
-compiler does not know `c++26` and fails at configure time with "the
-current compiler GNU does not support this", and the runner has no GCC 16
-with a 32-bit multilib, so the host half stays on 14 for now.
+**g++-16 explicitly, for the host tests.** The same major as the target
+compiler, so a header that uses the C++26 library builds on the host
+too. It is Ubuntu 26.04's `g++-16` package, a GCC 16 snapshot with its
+32-bit multilib, not the runner's default GCC 15.
 
 **32-bit host tests.** `utility/allocator.hpp` requires `sizeof(int) ==
 sizeof(void*)`, true on every Cortex-M target and on no 64-bit host, and

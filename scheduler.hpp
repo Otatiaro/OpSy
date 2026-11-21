@@ -55,6 +55,7 @@
 #include "opsy_assert.hpp"
 #include <atomic>
 #include <concepts>
+#include <type_traits>
 
 #include "config.hpp"
 #include "task.hpp"
@@ -101,6 +102,42 @@ concept vector_table = requires(const Table table)
 	{ table.template with<Table::exception_type::pendsv, ::PendSV_Handler>() } -> std::same_as<Table>;
 	{ table.template with<Table::exception_type::systick, ::SysTick_Handler>() } -> std::same_as<Table>;
 };
+
+namespace detail
+{
+
+/**
+ * @brief The three operations of @c std::atomic<T> the scheduler uses, always generated in place
+ * @remark The scheduler's flags are read on every task switch and wake-up,
+ *         from a dozen places. At @c -Os GCC takes an inline function that
+ *         many callers share out of line to save the bytes, and
+ *         @c std::atomic<bool>::load became a call: six instructions and a
+ *         branch pair for a byte read. Wrapping it changes nothing, the
+ *         attribute does not reach through to the call inside; the compiler
+ *         builtins @c std::atomic is made of do, and generate the same
+ *         @c ldrb , @c strb and @c ldrex/strex . Same single-byte flag a
+ *         debugger watches by address.
+ */
+template<typename T>
+class inline_atomic
+{
+	static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= sizeof(uint32_t), "a word or less, which the core loads and stores in one access");
+
+public:
+	constexpr inline_atomic(T value) : value_(value) {}
+
+	inline_atomic(const inline_atomic&) = delete;
+	inline_atomic& operator=(const inline_atomic&) = delete;
+
+	[[gnu::always_inline]] T load(std::memory_order order) const { return __atomic_load_n(&value_, static_cast<int>(order)); }
+	[[gnu::always_inline]] void store(T value, std::memory_order order) { __atomic_store_n(&value_, value, static_cast<int>(order)); }
+	[[gnu::always_inline]] T exchange(T value, std::memory_order order) { return __atomic_exchange_n(&value_, value, static_cast<int>(order)); }
+
+private:
+	T value_;
+};
+
+} // namespace detail
 
 /**
  * @brief The @c scheduler is the OpSy manager, it handles @c task switch, timeouts, etc.
@@ -337,7 +374,7 @@ private:
 	// need — is preventing the compiler from caching them in registers across
 	// SVC / PendSV / function calls. Stronger orders would just add DMBs that
 	// are unnecessary on a uniprocessor.
-	static std::atomic<bool> is_started_;
+	static detail::inline_atomic<bool> is_started_;
 	static time_point ticks_;
 	static embedded_list<task_control_block, task_lists::handle> all_tasks_;
 	static embedded_list<task_control_block, task_lists::timeout> timeouts_;
@@ -349,9 +386,9 @@ private:
 	// need to walk what a task holds. Membership here is exactly
 	// `owner_ != nullptr`.
 	static embedded_list<mutex, mutex> locked_mutexes_;
-	static std::atomic<bool> idling_;
-	static std::atomic<bool> may_need_switch_;
-	static std::atomic<bool> critical_section_;
+	static detail::inline_atomic<bool> idling_;
+	static detail::inline_atomic<bool> may_need_switch_;
+	static detail::inline_atomic<bool> critical_section_;
 
 	static std::atomic<idle_task_control_block*> idle_;
 	static std::atomic<task_control_block*> previous_task_;

@@ -25,19 +25,19 @@
 namespace opsy
 {
 
-__attribute__((section(".bss.opsy.scheduler.isstarted"))) std::atomic<bool> scheduler::is_started_{false};
+__attribute__((section(".bss.opsy.scheduler.isstarted"))) detail::inline_atomic<bool> scheduler::is_started_{false};
 __attribute__((section(".bss.opsy.scheduler.ticks"))) opsy::time_point scheduler::ticks_ = opsy::startup;
 __attribute__((section(".bss.opsy.scheduler.alltasks"))) embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
 __attribute__((section(".bss.opsy.scheduler.timeouts"))) embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
 __attribute__((section(".bss.opsy.scheduler.ready"))) embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
 __attribute__((section(".bss.opsy.scheduler.lockedmutexes"))) embedded_list<mutex, mutex> scheduler::locked_mutexes_;
-__attribute__((section(".bss.opsy.scheduler.idling"))) std::atomic<bool> scheduler::idling_{false};
-__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) std::atomic<bool> scheduler::may_need_switch_{false};
+__attribute__((section(".bss.opsy.scheduler.idling"))) detail::inline_atomic<bool> scheduler::idling_{false};
+__attribute__((section(".bss.opsy.scheduler.mayneedswitch"))) detail::inline_atomic<bool> scheduler::may_need_switch_{false};
 __attribute__((section(".bss.opsy.scheduler.idle"))) std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
 __attribute__((section(".bss.opsy.scheduler.previoustask"))) std::atomic<task_control_block*> scheduler::previous_task_{nullptr};
 __attribute__((section(".bss.opsy.scheduler.currenttask"))) std::atomic<task_control_block*> scheduler::current_task_{nullptr};
 __attribute__((section(".bss.opsy.scheduler.nexttask"))) std::atomic<task_control_block*> scheduler::next_task_{nullptr};
-__attribute__((section(".bss.opsy.scheduler.criticalsection"))) std::atomic<bool> scheduler::critical_section_{false};
+__attribute__((section(".bss.opsy.scheduler.criticalsection"))) detail::inline_atomic<bool> scheduler::critical_section_{false};
 
 [[noreturn]] void __attribute__((section(".text.opsy.start"))) scheduler::start_impl(idle_task_control_block& idle)
 {

@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <concepts>
+#include <utility>
 
 namespace {
 
@@ -296,10 +297,60 @@ static_assert(g_fake_vectors.handler(14) == &PendSV_Handler);
 static_assert(g_fake_vectors.handler(15) == &SysTick_Handler);
 static_assert(g_fake_vectors.handler(2) == nullptr && g_fake_vectors.handler(3) == nullptr);
 
-// A device interrupt goes through hooks::decorate_isr; whatever the hooks make
+// A device interrupt goes through hook::decorate_isr; whatever the hooks make
 // of it is what the table holds.
-static_assert(g_fake_vectors.handler(16) == opsy::hooks::decorate_isr<fake_uart_isr>());
-static_assert(opsy::hooked_isr::wrap<fake_uart_isr> == opsy::hooks::decorate_isr<fake_uart_isr>());
+static_assert(g_fake_vectors.handler(16) == opsy::hook::decorate_isr<fake_uart_isr>());
+static_assert(opsy::hooked_isr::wrap<fake_uart_isr> == opsy::hook::decorate_isr<fake_uart_isr>());
+
+// hook forwards to the hooks type it is given. One that defines nothing
+// leaves the handler alone; one that decorates is what the table gets.
+void other_isr() {}
+
+struct no_hooks
+{};
+
+struct decorating_hooks
+{
+	template<void (*)()>
+	static constexpr auto decorate_isr() { return &other_isr; }
+};
+
+static_assert(opsy::hook::decorate_isr<fake_uart_isr, no_hooks>() == &fake_uart_isr);
+static_assert(opsy::hook::decorate_isr<fake_uart_isr, decorating_hooks>() == &other_isr);
+
+// A hook with two forms takes the fuller one when the hooks define it, the
+// shorter one otherwise, and nothing when they define neither. Seen through
+// what the relay returns: these hooks return a tag where OpSy's return
+// nothing, which is what the relay hands back.
+struct full_form {};
+struct short_form {};
+
+struct short_form_hooks
+{
+	static short_form task_ready(opsy::task_control_block&);
+	static short_form task_sleep(opsy::task_control_block&);
+};
+
+struct both_forms_hooks
+{
+	static full_form task_ready(opsy::task_control_block&, opsy::wake_reason);
+	static short_form task_ready(opsy::task_control_block&);
+	static full_form task_sleep(opsy::task_control_block&, opsy::time_point);
+	static short_form task_sleep(opsy::task_control_block&);
+};
+
+template<class Hooks>
+using task_ready_result = decltype(opsy::hook::task_ready<Hooks>(std::declval<opsy::task_control_block&>(), opsy::wake_reason::notified));
+
+template<class Hooks>
+using task_sleep_result = decltype(opsy::hook::task_sleep<Hooks>(std::declval<opsy::task_control_block&>(), opsy::time_point{}));
+
+static_assert(std::same_as<task_ready_result<both_forms_hooks>, full_form>);
+static_assert(std::same_as<task_ready_result<short_form_hooks>, short_form>);
+static_assert(std::same_as<task_ready_result<no_hooks>, void>);
+static_assert(std::same_as<task_sleep_result<both_forms_hooks>, full_form>);
+static_assert(std::same_as<task_sleep_result<short_form_hooks>, short_form>);
+static_assert(std::same_as<task_sleep_result<no_hooks>, void>);
 
 // A table that cannot name one of the three exceptions is not one OpSy can
 // start on, and says so before a line of it is built.

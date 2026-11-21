@@ -3,10 +3,10 @@
  * @file    opsy_hooks.hpp
  * @brief   Example hooks: the longest run of each OpSy handler, in cycles.
  *
- *          hooks.hpp includes this file in place of its own class when it is
- *          on the include path. It then has to define every hook OpSy calls,
- *          which is most of the file; the measuring is the few lines that
- *          read the DWT cycle counter. The README shows those.
+ *          hooks.hpp includes this file when it is on the include path, and
+ *          calls the hooks it defines; the ones it does not define are not
+ *          called. The measuring is the few lines that read the DWT cycle
+ *          counter. The README shows them.
  *
  *          Kept in opsy::latency, as the longest seen so far:
  *          - the service call handler, enter_service_call to exit_service_call;
@@ -32,17 +32,9 @@
 #include <callback.hpp>
 #include <config.hpp>
 #include <cortex_m.hpp>
-#include <isr_priority.hpp>
 
 namespace opsy
 {
-
-// Declared, not included: the headers that define these include hooks.hpp,
-// and they appear in signatures only.
-class task_control_block;
-class idle_task_control_block;
-class condition_variable;
-class mutex;
 
 /** @brief The longest run of each handler since the scheduler started, in core cycles */
 struct latency
@@ -92,32 +84,6 @@ public:
 			latency::record(latency::isr, entered);
 		};
 	}
-
-	// The hooks this example does not use. Every one OpSy calls has to exist.
-	static constexpr void task_added(task_control_block&) {}
-	static constexpr void task_terminated(task_control_block&) {}
-	static constexpr void task_sleep(task_control_block&) {}
-	static constexpr void task_stopped(task_control_block&) {}
-	static constexpr void task_wait(task_control_block&, condition_variable&) {}
-	static constexpr void task_wait_timeout(task_control_block&, condition_variable&, time_point) {}
-	static constexpr void task_ready(task_control_block&) {}
-	static constexpr void task_name_changed(task_control_block&) {}
-	static constexpr void task_priority_changed(task_control_block&) {}
-	static constexpr void enter_critical_section() {}
-	static constexpr void exit_critical_section() {}
-	static constexpr void mutex_taken(mutex&, task_control_block&) {}
-	static constexpr void mutex_released(mutex&, task_control_block&) {}
-	static constexpr void mutex_blocked(mutex&, task_control_block&) {}
-	static constexpr void mutex_stored_for_task(task_control_block&) {}
-	static constexpr void mutex_restored_for_task(task_control_block&) {}
-	static constexpr void enter_full_lock() {}
-	static constexpr void exit_full_lock() {}
-	static constexpr void enter_priority_lock(isr_priority) {}
-	static constexpr void exit_priority_lock() {}
-	static constexpr void condition_variable_start_waiting(condition_variable&, task_control_block&) {}
-	static constexpr void condition_variable_start_waiting(condition_variable&, task_control_block&, duration) {}
-	static constexpr void condition_variable_notify_one(condition_variable&) {}
-	static constexpr void condition_variable_notify_all(condition_variable&) {}
 
 private:
 	static inline uint32_t service_call_entered_ = 0;

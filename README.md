@@ -100,7 +100,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
 | `callback.hpp` | `callback<Signature, StorageSize>`, with the interface of `std::move_only_function` -- `const`, `&`, `&&` and `noexcept` in the signature say how the target is called -- holding its target inline: no heap, no exceptions. Built from a function or a stateless target (a lambda without capture, `std::cw<&f>`), it is a constant expression: `constinit` dispatch slots, calls inside a constant evaluation. Used by `task::start`. |
 | `embedded_list.hpp` | Intrusive doubly-linked list used internally for the ready / waiting / timeout queues. |
-| `hooks.hpp` | Default (empty) hook callbacks. Override by providing `<opsy_hooks.hpp>` somewhere on the include path. Also `hooked_isr`, the decoration that passes a generated table's interrupt handlers through `hooks::decorate_isr`. |
+| `hooks.hpp` | `hook`, the list of the points OpSy reports; each one calls the function of the same name in `opsy::hooks` when an `<opsy_hooks.hpp>` on the include path defines it, and is empty otherwise. Also `hooked_isr`, the decoration that passes a generated table's interrupt handlers through `hook::decorate_isr`. |
 | `config.hpp` | Default configuration. Override by providing `<opsy_config.hpp>` somewhere on the include path. |
 
 Two directories sit alongside the scheduler and are independent of it —
@@ -374,7 +374,7 @@ in `scheduler.cpp`; the vector table has to hold them.
 With a table built at compile time -- the `vectors.hpp`
 [SvdGenerator](https://github.com/Otatiaro/SvdGenerator) generates for a
 device, from v1.0.0 -- `opsy::scheduler::isrs` places the three, and `opsy::hooked_isr`
-passes every device interrupt handler through `hooks::decorate_isr`, so a
+passes every device interrupt handler through `hook::decorate_isr`, so a
 tracer wired there sees them all:
 
 ```cpp
@@ -412,7 +412,7 @@ device at hand.
 - `utility/interrupt_vector.hpp`: use the generated `vectors.hpp`, as
   above. `.with(opsy::scheduler::isrs)` replaces installing OpSy's three
   handlers by hand, and `opsy::hooked_isr` replaces the decoration through
-  `hooks::decorate_isr`.
+  `hook::decorate_isr`.
 - `utility/memory.hpp` (`opsy::utility::memory`, `clear_set`, `atomic`,
   `padding`): use SvdGenerator's `Support/mmio.hpp`, namespace `mmio`,
   which the generated peripheral headers are written on.
@@ -548,16 +548,25 @@ Typical reasons to provide an `<opsy_config.hpp>`:
 
 Typical reasons to provide an `<opsy_hooks.hpp>`:
 
-- Wire `hooks::task_started` / `task_stopped` / `enter_pend_sv` / etc.
-  to a tracing tool such as SEGGER SystemView.
+- Wire `task_started` / `task_stopped` / `enter_pend_sv` / etc. to a
+  tracing tool such as SEGGER SystemView.
 - Add custom asserts or logging on context switches.
 - Measure where the cycles go, as below.
 
-`hooks.hpp` includes `<opsy_hooks.hpp>` in place of its own class, outside
-any namespace: the file defines `opsy::hooks` with every hook OpSy calls,
-used or empty, and `decorate_isr`, which the vector table applies to every
-device handler through `opsy::hooked_isr`. [`hooks.hpp`](hooks.hpp) is
-the list.
+`hooks.hpp` includes `<opsy_hooks.hpp>` outside any namespace, and the file
+defines `opsy::hooks` with the hooks it listens to -- the others are not
+called, and cost nothing. [`opsy::hook`](hooks.hpp) is the list of what
+it may define, each with its signature: a task made ready and why
+(`task_ready(task, reason)`, with a `wake_reason` of `notified`,
+`timed_out`, `sleep_elapsed` or `mutex_granted`), a task put to sleep and
+until when, a mutex taken, handed over or blocked on, the entry and exit
+of each of OpSy's handlers, the idle task's wait (`idle_wait`, a `WFI` by
+default, which a tracer reading memory through the debug port replaces
+with a `NOP`), and `decorate_isr`, which the vector table applies to every
+device handler through `opsy::hooked_isr`. Where a hook notes a shorter
+form, `task_ready(task)` for one, that form is accepted too. A name that
+matches nothing in the list is a function OpSy never calls: a hook that
+stays silent is checked against the list first.
 
 ### Measuring OpSy's handlers
 
@@ -569,8 +578,7 @@ the choice of the next task; the register restore after it is assembly,
 and not seen) and of any decorated interrupt handler, from the DWT cycle
 counter, which `starting` turns on. It is
 [`tests/examples/opsy_hooks.hpp`](tests/examples/opsy_hooks.hpp), which
-the sanity build compiles OpSy against, without the empty hooks it also
-has to define:
+the sanity build compiles OpSy against:
 
 ```cpp
 /** @brief The longest run of each handler since the scheduler started, in core cycles */
@@ -617,8 +625,6 @@ public:
             latency::record(latency::isr, entered);
         };
     }
-
-    // ... every other hook OpSy calls, empty ...
 
 private:
     static inline uint32_t service_call_entered_ = 0;

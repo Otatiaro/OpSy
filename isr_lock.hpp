@@ -213,7 +213,7 @@ inline void isr_lock::lock()
 		{
 			assert(!cortex_m::is_primask());
 
-			hooks::enter_full_lock();
+			hook::enter_full_lock();
 			cortex_m::disable_interrupts();
 		}
 		else
@@ -225,7 +225,7 @@ inline void isr_lock::lock()
 				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
 				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
-			hooks::enter_priority_lock(*priority_);
+			hook::enter_priority_lock(*priority_);
 			previous_lock_ = cortex_m::exchange_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
 			assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
@@ -259,7 +259,7 @@ inline void isr_lock::unlock()
 		{
 			assert(cortex_m::is_primask());
 			cortex_m::enable_interrupts();
-			hooks::exit_full_lock();
+			hook::exit_full_lock();
 		}
 		else
 		{
@@ -269,7 +269,7 @@ inline void isr_lock::unlock()
 #else
 			cortex_m::exchange_basepri(previous_lock_);
 #endif
-			hooks::exit_priority_lock();
+			hook::exit_priority_lock();
 			leave_critical_section();
 		}
 	}

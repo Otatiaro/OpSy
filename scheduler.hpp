@@ -376,7 +376,7 @@ public:
 		if (state_.critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return false;
 
-		hooks::enter_critical_section();
+		hook::enter_critical_section();
 		return true;
 	}
 
@@ -388,7 +388,7 @@ public:
 	{
 		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 		state_.critical_section_.store(false, std::memory_order_relaxed);
-		hooks::exit_critical_section();
+		hook::exit_critical_section();
 		if (state_.may_need_switch_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
@@ -446,7 +446,7 @@ private:
 
 	static void add_task(task_control_block& task)
 	{
-		hooks::task_added(task);
+		hook::task_added(task);
 
 		{
 			// Called straight from task context by task_control_block::start_impl,
@@ -538,8 +538,9 @@ private:
 	/**
 	 * @brief Puts a task woken from a condition variable back where it belongs,
 	 *        re-acquiring the mutex it waited with, or blocking on it
+	 * @param reason What woke it, for the hook
 	 */
-	static void resume_waiter(task_control_block& task);
+	static void resume_waiter(task_control_block& task, wake_reason reason);
 
 	/**
 	 * @brief Wakes the first task waiting on @p condition , if any, and asks
@@ -623,7 +624,7 @@ private:
 
 	static void update_name(task_control_block& task)
 	{
-		hooks::task_name_changed(task);
+		hook::task_name_changed(task);
 	}
 };
 

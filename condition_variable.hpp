@@ -269,7 +269,7 @@ inline void condition_variable::notify_one()
 
 	std::lock_guard<isr_lock> _(notify_lock_);
 
-	hooks::condition_variable_notify_one(*this);
+	hook::condition_variable_notify_one(*this);
 	scheduler::wake_one(*this);
 }
 
@@ -284,7 +284,7 @@ inline void condition_variable::notify_all()
 
 	std::lock_guard<isr_lock> _(notify_lock_);
 
-	hooks::condition_variable_notify_all(*this);
+	hook::condition_variable_notify_all(*this);
 	scheduler::wake_all(*this);
 }
 

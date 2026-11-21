@@ -173,7 +173,7 @@ inline void mutex::lock()
 	if (owner_ == nullptr)
 	{
 		scheduler::take_mutex(*this, *self);
-		cortex_m::set_basepri(previous);
+		cortex_m::restore_basepri(previous);
 		return;
 	}
 
@@ -184,8 +184,10 @@ inline void mutex::lock()
 	scheduler::clear_current_task();
 	scheduler::do_switch();
 
-	cortex_m::set_basepri(previous);          // PendSV runs here, and this task
-	                                          // resumes below owning the mutex
+	cortex_m::set_basepri(previous);          // with its barrier: PendSV runs here, and
+	                                          // this task resumes below owning the mutex;
+	                                          // not one instruction of the caller's may
+	                                          // run before the switch
 	assert(owner_ == scheduler::current_task());
 }
 
@@ -207,7 +209,7 @@ inline bool mutex::try_lock()
 	if (taken)
 		scheduler::take_mutex(*this, *self);
 
-	cortex_m::set_basepri(previous);
+	cortex_m::restore_basepri(previous);
 	return taken;
 }
 
@@ -225,7 +227,7 @@ inline void mutex::unlock()
 	scheduler::release_mutex(*this, *scheduler::current_task());
 	scheduler::do_switch();                   // a woken waiter may outrank us
 
-	cortex_m::set_basepri(previous);
+	cortex_m::restore_basepri(previous);
 }
 
 }

@@ -107,6 +107,11 @@ their turn.
 - `next_task_` — chosen by `do_switch()`, consumed by `PendSV`.
 - `previous_task_` — the one whose context `PendSV` must save.
 
+They are members of `scheduler::state_`, with `idle_` and the four flags of
+the switch (`is_started_`, `idling_`, `may_need_switch_`,
+`critical_section_`): one object, so `PendSV` and `do_switch()` load one
+base address and work from offsets.
+
 `do_switch()` is the one function that picks a task. It pops the head of
 `ready_`, puts the outgoing task back in, and pends `PendSV`. It refuses
 to do anything while a critical section is held, recording

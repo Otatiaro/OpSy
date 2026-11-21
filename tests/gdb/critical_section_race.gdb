@@ -76,7 +76,9 @@ up
 set $caller = $pc
 frame 0
 
-set $flag_addr = (unsigned long)&'opsy::scheduler::critical_section_'
+# The scheduler keeps what a switch touches in one object, scheduler::state_;
+# the offsets below follow its layout, listed in scheduler.hpp next to it.
+set $flag_addr = ((unsigned long)&'opsy::scheduler::state_' + 19)
 
 if *(unsigned char *)$flag_addr != 0
   printf "INFO the section was already held on entry, nothing to race against\n"
@@ -105,7 +107,7 @@ continue
 # without it a wrong assumption about the calling convention would quietly
 # read a byte of whatever r0 happened to hold, and report a pass either way.
 set $result_addr = $r0
-set $ram_low = ((unsigned long)&'opsy::scheduler::critical_section_') & 0xfff00000
+set $ram_low = (((unsigned long)&'opsy::scheduler::state_' + 19)) & 0xfff00000
 set $addressable = ($result_addr >= $ram_low) && ($result_addr < $ram_low + 0x00100000)
 
 if $addressable == 0

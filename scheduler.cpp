@@ -392,12 +392,6 @@ const task_control_block* scheduler::highest_waiter(const mutex& m)
 
 void scheduler::recompute_priority(task_control_block& task)
 {
-	// A donation raises priority_ the moment the donor blocks, so a task
-	// running at its base priority owes nothing, and the mutexes it holds need
-	// no visit.
-	if (task.priority_ == task.base_priority_)
-		return;
-
 	auto effective = task.base_priority_;
 
 	// Still-held mutexes may have waiters of their own, so releasing one does

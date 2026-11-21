@@ -107,6 +107,7 @@ struct callback_signature;
 	struct callback_signature<R(A...) CV REF noexcept(Noexcept)>                           \
 	{                                                                                      \
 		using operations = callback_operations<R, A...>;                                   \
+		using function_pointer = R (*)(A...) noexcept(Noexcept);                           \
                                                                                            \
 		template<typename F>                                                               \
 		using invoked = F CV INV;                                                          \
@@ -117,10 +118,19 @@ struct callback_signature;
 			: std::is_invocable_r_v<R, invoked<F>, A...>;                                  \
                                                                                            \
 		template<typename F>                                                               \
-		static R invoke(void* storage, A&&... arguments) noexcept(Noexcept)                \
+		static constexpr R invoke(void* storage, A&&... arguments) noexcept(Noexcept)      \
 		{                                                                                  \
 			return std::invoke_r<R>(                                                       \
 				static_cast<invoked<F>>(*std::launder(static_cast<F*>(storage))),          \
+				std::forward<A>(arguments)...);                                            \
+		}                                                                                  \
+                                                                                           \
+		/* Calls a stateless target, built on the spot rather than stored. */              \
+		template<typename F>                                                               \
+		static constexpr R invoke_stateless(void*, A&&... arguments) noexcept(Noexcept)    \
+		{                                                                                  \
+			F target{};                                                                    \
+			return std::invoke_r<R>(static_cast<invoked<F>>(target),                       \
 				std::forward<A>(arguments)...);                                            \
 		}                                                                                  \
 	};
@@ -133,6 +143,9 @@ OPSY_CALLBACK_SIGNATURE(const, &, &)
 OPSY_CALLBACK_SIGNATURE(const, &&, &&)
 
 #undef OPSY_CALLBACK_SIGNATURE
+
+template<typename F, typename Signature>
+struct callback_operations_for;
 
 /**
  * @brief The operator() a signature gives a @c callback , with the signature's
@@ -147,12 +160,22 @@ struct callback_call;
 	{                                                                                      \
 		/** @pre The callback holds a target: calling an empty one is a precondition      \
 		 *       violation, as for @c std::move_only_function , asserted. */               \
-		R operator()(A... arguments) CV REF noexcept(Noexcept)                             \
+		constexpr R operator()(A... arguments) CV REF noexcept(Noexcept)                   \
 		{                                                                                  \
+			using signature = R(A...) CV REF noexcept(Noexcept);                           \
+			using pointer = typename callback_signature<signature>::function_pointer;      \
 			auto& self = static_cast<Derived CV &>(*this);                                 \
 			assert(self.operations_ != nullptr);                                           \
-			return self.operations_->invoke(                                               \
-				const_cast<void*>(static_cast<CV void*>(self.storage_)),                   \
+			/* A constant expression reads a function pointer target through the           \
+			   union member that holds it: the only way to read it as itself. */           \
+			CV void* storage = self.storage_.bytes;                                        \
+			if consteval                                                                   \
+			{                                                                              \
+				using held = callback_operations_for<pointer, signature>;                  \
+				if (self.operations_ == &held::table)                                      \
+					storage = &self.storage_.function;                                     \
+			}                                                                              \
+			return self.operations_->invoke(const_cast<void*>(storage),                    \
 				std::forward<A>(arguments)...);                                            \
 		}                                                                                  \
 	};
@@ -200,6 +223,21 @@ struct callback_operations_for
 		std::is_trivially_destructible_v<F> ? nullptr : &destroy };
 };
 
+/** @brief Relocates a stateless target: there is nothing to move */
+constexpr void relocate_nothing(void*, void*) noexcept {}
+
+/**
+ * @brief The operations for a stateless target (a lambda without capture, a
+ *        @c std::constant_wrapper ), which is built at each call instead of
+ *        being stored
+ */
+template<typename F, typename Signature>
+struct callback_stateless_operations_for
+{
+	static constexpr typename callback_signature<Signature>::operations table{
+		&callback_signature<Signature>::template invoke_stateless<F>, &relocate_nothing, nullptr };
+};
+
 template<typename T>
 inline constexpr bool is_in_place_type = false;
 
@@ -218,6 +256,17 @@ inline constexpr bool is_in_place_type<std::in_place_type_t<T>> = true;
  *        The target lives in the callback's own storage, constructed there by
  *        placement new: one that does not fit, or needs more alignment than a
  *        pointer, is a compile-time error, never a heap allocation.
+ *
+ *        Built from a function or a stateless target, a callback is a constant
+ *        expression, and can be called inside one:
+ *        @code
+ *        constinit callback<void()> on_receive = &handler; // no dynamic initialisation
+ *        @endcode
+ *
+ * @remark Calling a function pointer target loads the pointer, then calls
+ *         through it. A stateless target is called directly: for a slot on a
+ *         hot path, write @c std::cw<&handler> or @c [] { handler(); } rather
+ *         than @c &handler . Each such target has its own operations table.
  */
 template<typename Signature, std::size_t StorageSize>
 class callback : public detail::callback_call<callback<Signature, StorageSize>, Signature>
@@ -228,6 +277,7 @@ class callback : public detail::callback_call<callback<Signature, StorageSize>, 
 
 	using traits = detail::callback_signature<Signature>;
 	using operations = typename traits::operations;
+	using function_pointer = typename traits::function_pointer;
 
 	template<typename F>
 	static constexpr bool accepts = traits::template invocable<F>;
@@ -252,12 +302,33 @@ public:
 		      && (!detail::is_in_place_type<std::remove_cvref_t<F>>)
 		      && std::is_constructible_v<std::decay_t<F>, F>
 		      && accepts<std::decay_t<F>>
-	callback(F&& function)
+	constexpr callback(F&& function)
 	{
 		using given = std::remove_cvref_t<F>;
 		if constexpr (std::is_pointer_v<given> || std::is_member_pointer_v<given>)
 			if (function == nullptr)
 				return;
+		// A constant expression cannot placement-new into the byte storage. At
+		// compile time a stateless target is therefore not stored at all (its
+		// operations build it at each call), and a function pointer goes into
+		// the union's function pointer member: what makes
+		// "constinit callback<void()> slot = &handler;" possible.
+		if consteval
+		{
+			using target = std::decay_t<F>;
+			if constexpr (std::is_empty_v<target> && std::is_trivially_default_constructible_v<target>
+				&& std::is_trivially_destructible_v<target>)
+			{
+				operations_ = &detail::callback_stateless_operations_for<target, Signature>::table;
+				return;
+			}
+			else if constexpr (std::is_convertible_v<F, function_pointer>)
+			{
+				storage_.function = function;
+				operations_ = &detail::callback_operations_for<function_pointer, Signature>::table;
+				return;
+			}
+		}
 		emplace<std::decay_t<F>>(std::forward<F>(function));
 	}
 
@@ -350,12 +421,12 @@ private:
 	template<typename T, typename... Arguments>
 	void emplace(Arguments&&... arguments)
 	{
-		static_assert(sizeof(T) <= sizeof(storage_), "Cannot store the invokable in the callback");
+		static_assert(sizeof(T) <= sizeof(storage_.bytes), "Cannot store the invokable in the callback");
 		static_assert(alignof(T) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
 		static_assert(std::is_nothrow_move_constructible_v<T> && std::is_nothrow_destructible_v<T>,
 			"The invokable is moved and destroyed by a callback's noexcept move and destructor");
 
-		::new (static_cast<void*>(storage_)) T(std::forward<Arguments>(arguments)...);
+		::new (static_cast<void*>(storage_.bytes)) T(std::forward<Arguments>(arguments)...);
 		operations_ = &detail::callback_operations_for<T, Signature>::table;
 	}
 
@@ -365,7 +436,7 @@ private:
 		if (from.operations_ == nullptr)
 			return;
 
-		from.operations_->relocate(from.storage_, storage_);
+		from.operations_->relocate(from.storage_.bytes, storage_.bytes);
 		operations_ = from.operations_;
 		from.operations_ = nullptr;
 	}
@@ -373,11 +444,16 @@ private:
 	constexpr void reset() noexcept
 	{
 		if (operations_ != nullptr && operations_->destroy != nullptr)
-			operations_->destroy(storage_);
+			operations_->destroy(storage_.bytes);
 		operations_ = nullptr;
 	}
 
 	const operations* operations_ = nullptr;
-	alignas(void*) std::byte storage_[StorageSize * sizeof(void*)]{};
+	union storage
+	{
+		alignas(void*) std::byte bytes[StorageSize * sizeof(void*)];
+		function_pointer function; ///< only ever written at compile time, see the constructor
+	};
+	storage storage_{};
 };
 }

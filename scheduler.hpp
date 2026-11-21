@@ -248,7 +248,7 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(is_started_.load(std::memory_order_relaxed));
+		assert(state_.is_started_.load(std::memory_order_relaxed));
 		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
@@ -259,7 +259,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(is_started_.load(std::memory_order_relaxed)
+		assert(state_.is_started_.load(std::memory_order_relaxed)
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 
 		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
@@ -289,7 +289,7 @@ public:
 	 */
 	[[nodiscard]] static inline task_control_block* current_task()
 	{
-		return current_task_.load(std::memory_order_relaxed);
+		return state_.current_task_.load(std::memory_order_relaxed);
 	}
 
 	/**
@@ -300,7 +300,7 @@ public:
 	 */
 	[[nodiscard]] static inline task_control_block* next_task()
 	{
-		return next_task_.load(std::memory_order_relaxed);
+		return state_.next_task_.load(std::memory_order_relaxed);
 	}
 
 	/**
@@ -347,7 +347,7 @@ public:
 		// land between the two and switch to a task that takes the section for
 		// itself, after which both tasks believe they hold it and the first
 		// release clears the flag for both.
-		if (critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
+		if (state_.critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return opsy::critical_section(false);
 
 		hooks::enter_critical_section();
@@ -373,7 +373,6 @@ private:
 	// need — is preventing the compiler from caching them in registers across
 	// SVC / PendSV / function calls. Stronger orders would just add DMBs that
 	// are unnecessary on a uniprocessor.
-	static detail::inline_atomic<bool> is_started_;
 	static time_point ticks_;
 	static embedded_list<task_control_block, task_lists::handle> all_tasks_;
 	static embedded_list<task_control_block, task_lists::timeout> timeouts_;
@@ -385,14 +384,26 @@ private:
 	// need to walk what a task holds. Membership here is exactly
 	// `owner_ != nullptr`.
 	static embedded_list<mutex, mutex> locked_mutexes_;
-	static detail::inline_atomic<bool> idling_;
-	static detail::inline_atomic<bool> may_need_switch_;
-	static detail::inline_atomic<bool> critical_section_;
-
-	static std::atomic<idle_task_control_block*> idle_;
-	static std::atomic<task_control_block*> previous_task_;
-	static std::atomic<task_control_block*> current_task_;
-	static std::atomic<task_control_block*> next_task_;
+	/**
+	 * @brief What a switch reads and writes, one object so that PendSV and
+	 *        do_switch address all of it from one base register
+	 * @remark Layout the GDB scenarios read by address (tests/gdb):
+	 *         previous_task_ +0, current_task_ +4, next_task_ +8, idle_ +12,
+	 *         is_started_ +16, idling_ +17, may_need_switch_ +18,
+	 *         critical_section_ +19.
+	 */
+	struct state
+	{
+		std::atomic<task_control_block*> previous_task_{nullptr};
+		std::atomic<task_control_block*> current_task_{nullptr};
+		std::atomic<task_control_block*> next_task_{nullptr};
+		std::atomic<idle_task_control_block*> idle_{nullptr};
+		detail::inline_atomic<bool> is_started_{false};
+		detail::inline_atomic<bool> idling_{false};
+		detail::inline_atomic<bool> may_need_switch_{false};
+		detail::inline_atomic<bool> critical_section_{false};
+	};
+	static state state_;
 
 	static void add_task(task_control_block& task)
 	{
@@ -411,7 +422,7 @@ private:
 			cortex_m::restore_basepri(previous);
 		}
 
-		if(is_started_.load(std::memory_order_relaxed))
+		if(state_.is_started_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
 
@@ -420,7 +431,7 @@ private:
 	static void trigger_soft_switch()
 	{
 		auto previous = cortex_m::set_basepri(service_call_priority);
-		may_need_switch_.store(false, std::memory_order_relaxed);
+		state_.may_need_switch_.store(false, std::memory_order_relaxed);
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
 		cortex_m::restore_basepri(previous); // PendSV, if pended, is taken within a few instructions
@@ -429,8 +440,8 @@ private:
 	static __attribute__((always_inline)) void trigger_hard_switch()
 	{
 		// "memory" clobber: the SVC enters the scheduler which may modify the
-		// task's frame on the PSP and any global it touches (current_task_,
-		// next_task_, ready_, ...). Without this clobber the compiler would be
+		// task's frame on the PSP and any global it touches (state_.current_task_,
+		// state_.next_task_, ready_, ...). Without this clobber the compiler would be
 		// free to keep stale globals/locals in registers across the call —
 		// invisible at -Og but a real bug at -O2/-O3/LTO.
 		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::context_switch) : "memory");
@@ -465,10 +476,10 @@ private:
 	 */
 	static void block_on(mutex& m, task_control_block& task);
 
-	/** @brief Clears @c current_task_ so @c do_switch leaves the caller out of @c ready_ */
+	/** @brief Clears @c state_.current_task_ so @c do_switch leaves the caller out of @c ready_ */
 	static inline void clear_current_task()
 	{
-		current_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 	}
 
 	/**
@@ -574,10 +585,10 @@ private:
 
 	static void critical_section_end()
 	{
-		assert(critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
-		critical_section_.store(false, std::memory_order_relaxed);
+		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+		state_.critical_section_.store(false, std::memory_order_relaxed);
 		hooks::exit_critical_section();
-		if (may_need_switch_.load(std::memory_order_relaxed))
+		if (state_.may_need_switch_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
 };

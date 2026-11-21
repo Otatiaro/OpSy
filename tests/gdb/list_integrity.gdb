@@ -185,7 +185,9 @@ end
 
 set $ready_addr = (unsigned long)&'opsy::scheduler::ready_'
 set $all_addr = (unsigned long)&'opsy::scheduler::all_tasks_'
-set $current_addr = (unsigned long)&'opsy::scheduler::current_task_'
+# The scheduler keeps what a switch touches in one object, scheduler::state_;
+# the offsets below follow its layout, listed in scheduler.hpp next to it.
+set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 4
 
 # Run until the image has started the scheduler, so the lists observed below
 # are those of a running system rather than of the startup code.

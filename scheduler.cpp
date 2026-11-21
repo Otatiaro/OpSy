@@ -9,19 +9,12 @@
 namespace opsy
 {
 
-detail::inline_atomic<bool> scheduler::is_started_{false};
+scheduler::state scheduler::state_{};
 opsy::time_point scheduler::ticks_ = opsy::startup;
 embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
 embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
 embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
 embedded_list<mutex, mutex> scheduler::locked_mutexes_;
-detail::inline_atomic<bool> scheduler::idling_{false};
-detail::inline_atomic<bool> scheduler::may_need_switch_{false};
-std::atomic<idle_task_control_block*> scheduler::idle_{nullptr};
-std::atomic<task_control_block*> scheduler::previous_task_{nullptr};
-std::atomic<task_control_block*> scheduler::current_task_{nullptr};
-std::atomic<task_control_block*> scheduler::next_task_{nullptr};
-detail::inline_atomic<bool> scheduler::critical_section_{false};
 
 [[noreturn]] void scheduler::start_impl(idle_task_control_block& idle)
 {
@@ -32,13 +25,13 @@ detail::inline_atomic<bool> scheduler::critical_section_{false};
 			|| running == cortex_m::core_type::m7
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
-	assert(!is_started_.load(std::memory_order_relaxed));
+	assert(!state_.is_started_.load(std::memory_order_relaxed));
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
 
 	auto core_clock_value = core_clock();
-	idle_.store(&idle, std::memory_order_relaxed);
+	state_.idle_.store(&idle, std::memory_order_relaxed);
 
 	cortex_m::preempt_bits(preemption_bits);
 	cortex_m::set_priority(cortex_m::system_irq::service_call, service_call_priority); // service call is at system preemption and highest sub priority
@@ -79,7 +72,7 @@ detail::inline_atomic<bool> scheduler::critical_section_{false};
 	cortex_m::set_control(cortex_m::control_thread_psp_privileged);
 	cortex_m::set_msp(cortex_m::msp_at_reset());
 
-	is_started_.store(true, std::memory_order_relaxed);
+	state_.is_started_.store(true, std::memory_order_relaxed);
 	if(!do_switch())
 		opsy::trap();
 
@@ -128,14 +121,14 @@ inline void scheduler::systick_handler()
 
 bool scheduler::do_switch()
 {
-	assert(is_started_.load(std::memory_order_relaxed));
-	auto* current = current_task_.load(std::memory_order_relaxed);
-	auto* next    = next_task_.load(std::memory_order_relaxed);
-	assert((current != nullptr) || (critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
+	assert(state_.is_started_.load(std::memory_order_relaxed));
+	auto* current = state_.current_task_.load(std::memory_order_relaxed);
+	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
+	assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
 
-	if(critical_section_.load(std::memory_order_relaxed))
+	if(state_.critical_section_.load(std::memory_order_relaxed))
 	{
-		may_need_switch_.store(true, std::memory_order_relaxed);
+		state_.may_need_switch_.store(true, std::memory_order_relaxed);
 		return false;
 	}
 
@@ -144,14 +137,14 @@ bool scheduler::do_switch()
 		assert(current != next);
 
 		ready_.insert_when(task_control_block::priority_is_lower, *next);
-		next_task_.store(nullptr, std::memory_order_relaxed);
+		state_.next_task_.store(nullptr, std::memory_order_relaxed);
 		next = nullptr;
 	}
 
 	if (current != nullptr)
 	{
 		ready_.insert_when(task_control_block::priority_is_lower, *current);
-		current_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 	}
 
 	if (ready_.empty())
@@ -166,13 +159,13 @@ bool scheduler::do_switch()
 
 		if (&front == current)
 		{
-			current_task_.store(&front, std::memory_order_relaxed);
-			next_task_.store(nullptr, std::memory_order_relaxed);
+			state_.current_task_.store(&front, std::memory_order_relaxed);
+			state_.next_task_.store(nullptr, std::memory_order_relaxed);
 			return false;
 		}
 		else
 		{
-			next_task_.store(&front, std::memory_order_relaxed);
+			state_.next_task_.store(&front, std::memory_order_relaxed);
 			cortex_m::trigger_pend_sv();
 			return true;
 		}
@@ -490,8 +483,8 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 
 	if(task.is_started()) // check task is started
 	{
-		if(&task == current_task_.load(std::memory_order_relaxed)
-			|| &task == next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
+		if(&task == state_.current_task_.load(std::memory_order_relaxed)
+			|| &task == state_.next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
 			do_switch(); // ask for a switch, this will compare priority again with other ready tasks
 		else if(task.waiting_ != nullptr) // task is waiting a condition variable
 			requeue(task);
@@ -504,7 +497,7 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 		else if(task.is_ready())
 		{
 			// is_ready() rather than a hand-rolled condition: it is the one
-			// predicate that knows every state a task can be in, next_task_
+			// predicate that knows every state a task can be in, state_.next_task_
 			// and blocked_on_ included.
 			ready_.erase(task); // remove the task from ready list
 			ready_.insert_when(task_control_block::priority_is_lower, task); // then re insert it, this will update its order
@@ -522,10 +515,15 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	hooks::enter_pend_sv();
 	cortex_m::clear_pend_sv();
 
+	// Two words for the assembly half, in R0 and R1: the process stack pointer
+	// to resume and the BASEPRI to run under. A 64-bit integer is what the
+	// AAPCS returns in a register pair; a struct of two words comes back
+	// through memory.
 	uint64_t result = 0;
-	auto* previous = previous_task_.load(std::memory_order_relaxed);
-	auto* next     = next_task_.load(std::memory_order_relaxed);
-	auto* idle     = idle_.load(std::memory_order_relaxed);
+	[[maybe_unused]] uint32_t* stack_base;
+	auto* previous = state_.previous_task_.load(std::memory_order_relaxed);
+	auto* next     = state_.next_task_.load(std::memory_order_relaxed);
+	auto* idle     = state_.idle_.load(std::memory_order_relaxed);
 
 	if (previous != nullptr)
 	{
@@ -535,24 +533,26 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		hooks::task_stopped(*previous);
 	}
 
-	if (idling_.load(std::memory_order_relaxed))
+	if (state_.idling_.load(std::memory_order_relaxed))
 		idle->stack_pointer_ = psp;
 
 	if (next == nullptr)
 	{
-		idling_.store(true, std::memory_order_relaxed);
-		previous_task_.store(nullptr, std::memory_order_relaxed);
-		result = reinterpret_cast<uint64_t>(idle->stack_pointer_);
+		state_.idling_.store(true, std::memory_order_relaxed);
+		state_.previous_task_.store(nullptr, std::memory_order_relaxed);
+		result = reinterpret_cast<uintptr_t>(idle->stack_pointer_);
+		stack_base = idle->stack_base_;
 		hooks::enter_idle();
 	}
 	else
 	{
-		idling_.store(false, std::memory_order_relaxed);
-		previous_task_.store(next, std::memory_order_relaxed);
-		current_task_.store(next, std::memory_order_relaxed);
-		result = reinterpret_cast<uint64_t>(next->stack_pointer_);
+		state_.idling_.store(false, std::memory_order_relaxed);
+		state_.previous_task_.store(next, std::memory_order_relaxed);
+		state_.current_task_.store(next, std::memory_order_relaxed);
+		result = reinterpret_cast<uintptr_t>(next->stack_pointer_);
+		stack_base = next->stack_base_;
 		next->last_started_ = ticks_;
-		next_task_.store(nullptr, std::memory_order_relaxed);
+		state_.next_task_.store(nullptr, std::memory_order_relaxed);
 
 		// Only an isr_lock is re-acquired here: it is a BASEPRI level, which
 		// belongs to the context being restored. A mutex is taken back when
@@ -561,7 +561,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		if (auto* const* held = std::get_if<isr_lock*>(&next->released_lock_))
 		{
 			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv(critical_section(true))) << 32;
-			critical_section_.store(true, std::memory_order_relaxed);
+			state_.critical_section_.store(true, std::memory_order_relaxed);
 			next->released_lock_ = std::monostate{};
 			hooks::mutex_restored_for_task(*next);
 		}
@@ -571,7 +571,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	}
 
 	if constexpr (cortex_m::has_stack_limit_regs)
-		cortex_m::set_psplim(idling_.load(std::memory_order_relaxed) ? idle->stack_base_ : next->stack_base_);
+		cortex_m::set_psplim(stack_base);
 
 	return result;
 }
@@ -643,11 +643,11 @@ void scheduler::service_call_handler(stack_frame* frame,
 		// left the condition variable's list before this touches ready_.
 		ready_.erase(task);
 
-		if (&task == current_task_.load(std::memory_order_relaxed))
+		if (&task == state_.current_task_.load(std::memory_order_relaxed))
 		{
-			assert(!critical_section_.load(std::memory_order_relaxed));
-			previous_task_.store(nullptr, std::memory_order_relaxed);
-			current_task_.store(nullptr, std::memory_order_relaxed);
+			assert(!state_.critical_section_.load(std::memory_order_relaxed));
+			state_.previous_task_.store(nullptr, std::memory_order_relaxed);
+			state_.current_task_.store(nullptr, std::memory_order_relaxed);
 			task_switch = do_switch();
 		}
 		// A waiter handed a mutex may outrank whoever called kill(), and a
@@ -665,8 +665,8 @@ void scheduler::service_call_handler(stack_frame* frame,
 	case service_call_number::sleep:
 	{
 		assert(is_thread); // should not be called from non thread mode
-		assert(!critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
-		auto* current = current_task_.load(std::memory_order_relaxed);
+		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		auto* current = state_.current_task_.load(std::memory_order_relaxed);
 		assert(current != nullptr); // cannot be called if there is no current task running
 
 		const int64_t raw = static_cast<int64_t>(frame->r0) | (static_cast<int64_t>(frame->r1) << 32);
@@ -675,7 +675,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		current->wait_until_ = ticks_ + delta;
 		timeouts_.insert_when(wakeup_after, *current);
 		hooks::task_sleep(*current);
-		current_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
 		break;
 	}
@@ -683,7 +683,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 	case service_call_number::context_switch:
 	{
 		assert(is_thread); // should not be called from non thread mode
-		assert(!critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
 		task_switch = do_switch();
 		break;
 	}
@@ -692,7 +692,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 	{
 		assert(is_thread); // should not be called from non thread mode
 		assert(frame->r0 != 0); // cannot be called with undefined condition variable
-		auto* current = current_task_.load(std::memory_order_relaxed);
+		auto* current = state_.current_task_.load(std::memory_order_relaxed);
 		assert(current != nullptr); // cannot be called if there is no current task running
 
 		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
@@ -720,10 +720,10 @@ void scheduler::service_call_handler(stack_frame* frame,
 
 		if (auto* const* isr = std::get_if<isr_lock*>(&released))
 		{
-			assert(critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+			assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 			(*isr)->release_from_service_call();
 			(*isr)->critical_section_.disable();
-			critical_section_.store(false, std::memory_order_relaxed);
+			state_.critical_section_.store(false, std::memory_order_relaxed);
 			hooks::mutex_stored_for_task(*current);
 		}
 		else if (auto* const* held = std::get_if<mutex*>(&released))
@@ -756,7 +756,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 			current->stack_pointer_ = sp;
 		}
 
-		current_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
 		break;
 	}
@@ -818,7 +818,7 @@ std::size_t idle_task_control_block::stack_high_water() const
  */
 bool task_control_block::is_ready() const
 {
-	// next_task_ matters as much as current_task_: a task do_switch() has
+	// state_.next_task_ matters as much as state_.current_task_: a task do_switch() has
 	// elected is popped out of ready_ and sits in no list at all until PendSV
 	// runs. Treating it as ready makes ready_.erase() a silent no-op and the
 	// following insert link it a second time.

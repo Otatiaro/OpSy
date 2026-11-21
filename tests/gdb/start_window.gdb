@@ -47,7 +47,9 @@ while $steps < 5000
   stepi
   set $steps = $steps + 1
 
-  set $started = *(unsigned char *)&'opsy::scheduler::is_started_'
+  # The scheduler keeps what a switch touches in one object, scheduler::state_;
+  # the offsets below follow its layout, listed in scheduler.hpp next to it.
+  set $started = *(unsigned char *)((unsigned long)&'opsy::scheduler::state_' + 16)
   set $pend_sv_pending = (*(unsigned int *)0xE000ED04 >> 28) & 1
   set $svc_priority = *(unsigned char *)0xE000ED1F
 

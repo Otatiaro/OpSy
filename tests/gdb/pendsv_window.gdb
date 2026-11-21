@@ -70,8 +70,10 @@ break opsy_test_main
 continue
 delete
 
-set $current_addr = (unsigned long)&'opsy::scheduler::current_task_'
-set $next_addr = (unsigned long)&'opsy::scheduler::next_task_'
+# The scheduler keeps what a switch touches in one object, scheduler::state_;
+# the offsets below follow its layout, listed in scheduler.hpp next to it.
+set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 4
+set $next_addr = (unsigned long)&'opsy::scheduler::state_' + 8
 
 set $switches = 0
 set $to_idle = 0

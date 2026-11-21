@@ -195,7 +195,10 @@ declared with attribute error: this routine's frame does not fit the
 routine_storage it was given: raise its Size
 ```
 
-Both GCC and clang, from `-O1` up. Without `-O` the allocation is a real
+Both GCC and clang, from `-O1` up, and `-Og` too: the allocation is
+forced inline, so the size is a constant there at every optimisation
+level.
+Without `-O` the allocation is a real
 call and the size is not a constant there, so the check cannot be made:
 the build succeeds, the routine is not created, `operator bool` is false
 and a debug build asserts. Same mistake, caught one step later.

@@ -522,7 +522,12 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	hooks::enter_pend_sv();
 	cortex_m::clear_pend_sv();
 
+	// Two words for the assembly half, in R0 and R1: the process stack pointer
+	// to resume and the BASEPRI to run under. A 64-bit integer is what the
+	// AAPCS returns in a register pair; a struct of two words comes back
+	// through memory.
 	uint64_t result = 0;
+	[[maybe_unused]] uint32_t* stack_base;
 	auto* previous = previous_task_.load(std::memory_order_relaxed);
 	auto* next     = next_task_.load(std::memory_order_relaxed);
 	auto* idle     = idle_.load(std::memory_order_relaxed);
@@ -542,7 +547,8 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	{
 		idling_.store(true, std::memory_order_relaxed);
 		previous_task_.store(nullptr, std::memory_order_relaxed);
-		result = reinterpret_cast<uint64_t>(idle->stack_pointer_);
+		result = reinterpret_cast<uintptr_t>(idle->stack_pointer_);
+		stack_base = idle->stack_base_;
 		hooks::enter_idle();
 	}
 	else
@@ -550,7 +556,8 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		idling_.store(false, std::memory_order_relaxed);
 		previous_task_.store(next, std::memory_order_relaxed);
 		current_task_.store(next, std::memory_order_relaxed);
-		result = reinterpret_cast<uint64_t>(next->stack_pointer_);
+		result = reinterpret_cast<uintptr_t>(next->stack_pointer_);
+		stack_base = next->stack_base_;
 		next->last_started_ = ticks_;
 		next_task_.store(nullptr, std::memory_order_relaxed);
 
@@ -571,7 +578,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	}
 
 	if constexpr (cortex_m::has_stack_limit_regs)
-		cortex_m::set_psplim(idling_.load(std::memory_order_relaxed) ? idle->stack_base_ : next->stack_base_);
+		cortex_m::set_psplim(stack_base);
 
 	return result;
 }

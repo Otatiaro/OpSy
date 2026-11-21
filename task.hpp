@@ -445,17 +445,24 @@ public:
 	 *         scheduled behind the middle-priority task it was raised to
 	 *         overtake, which is the inversion inheritance is there to close.
 	 *
-	 * @remark Ties go to whoever last started running longer ago, so tasks of
-	 *         equal priority take turns rather than one always winning.
+	 * @remark Equal priorities are not ordered: a task is inserted behind
+	 *         those it ties with, so tasks of equal priority take turns in
+	 *         the order they became ready, the one preempted or woken last
+	 *         going last.
+	 * @remark A type rather than a function, and two byte compares: that is
+	 *         what the compiler generates in the walk of @c insert_when in
+	 *         every translation unit alike. Passed as a function reference
+	 *         and breaking ties on a 64-bit time stamp, it was a call in some
+	 *         units and not in others, and the linker, which keeps one copy
+	 *         of the template, gave the image whichever it met first.
 	 */
-	static constexpr bool priority_is_lower(const task_control_block& left, const task_control_block& right)
+	struct priority_is_lower
 	{
-		if (left.priority_ > right.priority_)
-			return false;
-		if (left.priority_ < right.priority_)
-			return true;
-		return left.last_started_ < right.last_started_;
-	}
+		constexpr bool operator()(const task_control_block& left, const task_control_block& right) const
+		{
+			return left.priority_ < right.priority_;
+		}
+	};
 
 protected:
 
@@ -493,7 +500,6 @@ private:
 	// higher-priority one waits behind it.
 	task_priority base_priority_ {};              // set to task_priority::lowest by start_impl
 	task_priority priority_ {};                   // effective; base_priority_ unless inherited
-	time_point last_started_ = startup;           // startup == time_point{0}, BSS-friendly
 	std::optional<time_point> wait_until_;
 	const char* name_ = nullptr;
 	callback<void(void)> entry_;

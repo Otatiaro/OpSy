@@ -418,7 +418,7 @@ private:
 			// why the caller cannot simply hold the lock across the whole thing).
 			const auto previous = cortex_m::set_basepri(service_call_priority);
 			all_tasks_.push_front(task);
-			ready_.insert_when(task_control_block::priority_is_lower, task);
+			ready_.insert_when(task_control_block::priority_is_lower{}, task);
 			cortex_m::restore_basepri(previous);
 		}
 
@@ -447,11 +447,15 @@ private:
 		asm volatile("svc %[immediate]" : : [immediate] "I" (service_call_number::context_switch) : "memory");
 	}
 
-	static constexpr bool wakeup_after(const task_control_block& left, const task_control_block& right)
+	/** @brief Orders the timeout list; a type for the reason @c task_control_block::priority_is_lower is one */
+	struct wakeup_after
 	{
-		assert(left.wait_until_.has_value() && right.wait_until_.has_value());
-		return left.wait_until_.value_or(startup) < right.wait_until_.value_or(startup);
-	}
+		constexpr bool operator()(const task_control_block& left, const task_control_block& right) const
+		{
+			assert(left.wait_until_.has_value() && right.wait_until_.has_value());
+			return left.wait_until_.value_or(startup) < right.wait_until_.value_or(startup);
+		}
+	};
 
 	static bool do_switch();
 

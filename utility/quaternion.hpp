@@ -112,7 +112,7 @@ public:
 	 *         position, a velocity, ...) and treating it as a rotation is
 	 *         an opt-in, not a free conversion.
 	 */
-	explicit quaternion(const vector<3, T>& rotation_vector)
+	constexpr explicit quaternion(const vector<3, T>& rotation_vector)
 	{
 		const auto angle = rotation_vector.length();
 		if (std::fpclassify(angle) == FP_ZERO)
@@ -147,7 +147,7 @@ public:
 	 *
 	 * @pre   @p from and @p to must be unit-length.
 	 */
-	quaternion(const vector<3, T>& from, const vector<3, T>& to)
+	constexpr quaternion(const vector<3, T>& from, const vector<3, T>& to)
 	{
 		const T r = dot_product(from, to) + T{1};
 		if (r < static_cast<T>(1e-6))  // antiparallel: pick any axis perpendicular to from
@@ -192,7 +192,7 @@ public:
 	// caller is better off composing two @ref from_axis_angle products.
 
 	/** Roll (rotation around the X axis), in radians. */
-	T roll() const
+	constexpr T roll() const
 	{
 		return std::atan2(T{2} * (w()*x() + y()*z()), T{1} - T{2} * (x()*x() + y()*y()));
 	}
@@ -203,7 +203,7 @@ public:
 	 * when the input quaternion is slightly non-unit and @c sin_p falls
 	 * just outside @c [-1, 1] .
 	 */
-	T pitch() const
+	constexpr T pitch() const
 	{
 		const T sin_p = T{2} * (w()*y() - z()*x());
 		if (sin_p >= T{ 1}) return  std::numbers::pi_v<T> / T{2};
@@ -212,7 +212,7 @@ public:
 	}
 
 	/** Yaw (rotation around the Z axis), in radians. */
-	T yaw() const
+	constexpr T yaw() const
 	{
 		return std::atan2(T{2} * (w()*z() + x()*y()), T{1} - T{2} * (y()*y() + z()*z()));
 	}
@@ -308,7 +308,7 @@ constexpr T dot_product(const quaternion<T>& q1, const quaternion<T>& q2)
  * @pre   @p axis must be unit-length.
  */
 template<typename T>
-quaternion<T> from_axis_angle(const vector<3, T>& axis, T angle)
+constexpr quaternion<T> from_axis_angle(const vector<3, T>& axis, T angle)
 {
 	const auto half = angle / T{2};
 	const auto s = std::sin(half);
@@ -356,7 +356,7 @@ constexpr vector<3, T> operator*(const quaternion<T>& q, const vector<3, T>& v)
  * @param t Interpolation factor in @c [0, 1] .
  */
 template<typename T>
-quaternion<T> slerp(const quaternion<T>& q1, const quaternion<T>& q2, T t)
+constexpr quaternion<T> slerp(const quaternion<T>& q1, const quaternion<T>& q2, T t)
 {
 	auto cos_theta = dot_product(q1, q2);
 	auto q2_adj = q2;

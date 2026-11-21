@@ -136,7 +136,7 @@ public:
 	 * @brief Increment the @c embedded_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type& operator++()
+	constexpr self_type& operator++()
 	{
 		ptr_ = next();
 		return *this;
@@ -146,7 +146,7 @@ public:
 	 * @brief Post-increment the @c embedded_iterator
 	 * @return The value before the increment
 	 */
-	inline self_type operator++(int)
+	constexpr self_type operator++(int)
 	{
 		const self_type before = *this;
 		ptr_ = next();
@@ -157,7 +157,7 @@ public:
 	 * @brief Decrement the @c embedded_iterator (move backward)
 	 * @return The new value
 	 */
-	inline self_type& operator--()
+	constexpr self_type& operator--()
 	{
 		ptr_ = previous();
 		return *this;
@@ -167,7 +167,7 @@ public:
 	 * @brief Post-decrement the @c embedded_iterator
 	 * @return The value before the decrement
 	 */
-	inline self_type operator--(int)
+	constexpr self_type operator--(int)
 	{
 		const self_type before = *this;
 		ptr_ = previous();
@@ -214,43 +214,43 @@ public:
 
 private:
 
-	inline void reset() const
+	constexpr void reset() const
 	{
 		assert(ptr_ != nullptr);
 		ptr_->Interface::previous_ = ptr_->Interface::next_ = nullptr;
 	}
 
-	inline void next(pointer ptr)
+	constexpr void next(pointer ptr)
 	{
 		assert(ptr_ != nullptr);
 		ptr_->Interface::next_ = ptr;
 	}
 
-	inline void previous(pointer ptr)
+	constexpr void previous(pointer ptr)
 	{
 		assert(ptr_ != nullptr);
 		ptr_->Interface::previous_ = ptr;
 	}
 
-	inline pointer next() const
+	constexpr pointer next() const
 	{
 		assert(ptr_ != nullptr);
 		return ptr_->Interface::next_;
 	}
 
-	inline pointer previous() const
+	constexpr pointer previous() const
 	{
 		assert(ptr_ != nullptr);
 		return ptr_->Interface::previous_;
 	}
 
-	bool is_free() const
+	constexpr bool is_free() const
 	{
 		assert(ptr_ != nullptr);
 		return previous() == nullptr && next() == nullptr;
 	}
 
-	Item* ptr()
+	constexpr Item* ptr()
 	{
 		return ptr_;
 	}
@@ -317,7 +317,7 @@ public:
 	 * @brief Increment the @c embedded_const_iterator (move forward)
 	 * @return The new value
 	 */
-	inline self_type& operator++()
+	constexpr self_type& operator++()
 	{
 		assert(ptr_ != nullptr);
 		ptr_ = ptr_->Interface::next_;
@@ -328,7 +328,7 @@ public:
 	 * @brief Post-increment the @c embedded_const_iterator
 	 * @return The value before the increment
 	 */
-	inline self_type operator++(int)
+	constexpr self_type operator++(int)
 	{
 		assert(ptr_ != nullptr);
 		const self_type before = *this;
@@ -340,7 +340,7 @@ public:
 	 * @brief Decrement the @c embedded_const_iterator (move backward)
 	 * @return The new value
 	 */
-	inline self_type& operator--()
+	constexpr self_type& operator--()
 	{
 		assert(ptr_ != nullptr);
 		ptr_ = ptr_->Interface::previous_;
@@ -351,7 +351,7 @@ public:
 	 * @brief Post-decrement the @c embedded_const_iterator
 	 * @return The value before the decrement
 	 */
-	inline self_type operator--(int)
+	constexpr self_type operator--(int)
 	{
 		assert(ptr_ != nullptr);
 		const self_type before = *this;
@@ -463,7 +463,7 @@ public:
 	 * @brief Move construct a @c embedded_list from another
 	 * @param other The other @c embedded_list to move data from
 	 */
-	embedded_list(embedded_list&& other) :
+	constexpr embedded_list(embedded_list&& other) :
 			first_(other.first_), size_(other.size_)
 	{
 		other.first_ = nullptr;
@@ -500,7 +500,7 @@ public:
 	/**
 	 * @brief Clears this @c embedded_list (remove all @c Item)
 	 */
-	void clear()
+	constexpr void clear()
 	{
 		auto i = begin();
 
@@ -607,7 +607,7 @@ public:
 	 * @brief Add an @c Item to the beginning of the @c embedded_list
 	 * @param item The @c Item to add to the beginning of the @c embedded_list
 	 */
-	void push_front(Item& item)
+	constexpr void push_front(Item& item)
 	{
 		assert(iterator(&item).is_free());
 
@@ -623,7 +623,7 @@ public:
 	/**
 	 * @brief Removes the first @c Item from the @c embedded_list
 	 */
-	void pop_front()
+	constexpr void pop_front()
 	{
 		assert(!empty());
 		assert(iterator(first_).previous() == nullptr);
@@ -643,7 +643,7 @@ public:
 	 * @brief Gets the first @c Item in the @c embedded_list
 	 * @return The first @c Item in the @c embedded_list
 	 */
-	Item& front()
+	constexpr Item& front()
 	{
 		assert(!empty());
 		return *first_;
@@ -653,7 +653,7 @@ public:
 	 * @brief Gets the first @c Item in the @c embedded_list
 	 * @return The first @c Item in the @c embedded_list
 	 */
-	const Item& front() const
+	constexpr const Item& front() const
 	{
 		assert(!empty());
 		return *first_;
@@ -664,7 +664,7 @@ public:
 	 * @param item The @c Item to remove from the @c embedded_list
 	 * @return An @c embedded_iterator pointing to the @c Item that was just after the removed @c Item
 	 */
-	iterator erase(Item& item)
+	constexpr iterator erase(Item& item)
 	{
 		auto i = iterator(&item);
 
@@ -727,7 +727,7 @@ public:
 	 *          assumption can be carried over. @c std::forward_list uses the
 	 *          same @c insert_after convention.
 	 */
-	iterator insert_after(iterator previous, Item& item)
+	constexpr iterator insert_after(iterator previous, Item& item)
 	{
 		assert(iterator(&item).is_free());
 
@@ -760,7 +760,7 @@ public:
 	 * @return An @c embedded_iterator pointing to the @c Item inserted
 	 */
 	template<std::invocable<const_reference, const_reference> Comparator>
-	iterator insert_when(Comparator&& predicate, Item& item)
+	constexpr iterator insert_when(Comparator&& predicate, Item& item)
 	{
 		if (empty() || predicate(item, *first_))
 		{

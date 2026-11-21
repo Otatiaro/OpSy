@@ -9,12 +9,12 @@
 namespace opsy
 {
 
-scheduler::state scheduler::state_{};
-opsy::time_point scheduler::ticks_ = opsy::startup;
-embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
-embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
-embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
-embedded_list<mutex, mutex> scheduler::locked_mutexes_;
+constinit scheduler::state scheduler::state_{};
+constinit opsy::time_point scheduler::ticks_ = opsy::startup;
+constinit embedded_list<task_control_block, task_lists::handle> scheduler::all_tasks_;
+constinit embedded_list<task_control_block, task_lists::timeout> scheduler::timeouts_;
+constinit embedded_list<task_control_block, task_lists::waiting> scheduler::ready_;
+constinit embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 
 [[noreturn]] void scheduler::start_impl(idle_task_control_block& idle)
 {

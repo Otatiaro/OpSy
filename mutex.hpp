@@ -84,7 +84,7 @@ public:
 	 *          to storage that is going away, and any task waiting on it
 	 *          blocked for good. Asserted in debug; free in release.
 	 */
-	~mutex()
+	constexpr ~mutex()
 	{
 		assert(owner_ == nullptr);
 	}
@@ -131,7 +131,7 @@ public:
 	 *          presence of preemption. To take the mutex, use @ref try_lock ,
 	 *          which decides and acts atomically.
 	 */
-	[[nodiscard]] bool is_locked() const
+	[[nodiscard]] constexpr bool is_locked() const
 	{
 		return owner_ != nullptr;
 	}

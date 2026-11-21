@@ -67,6 +67,13 @@ that is here.
 
   The suites also build under C++26 in CI, so the code stays ready for it, but
   C++23 is what OpSy targets.
+
+  GCC 16's libstdc++ checks its own preconditions in unoptimised builds
+  (`_GLIBCXX_ASSERTIONS`, on by default at `-O0`). A failed check calls a
+  handler in the library that is built with exceptions, so a debug image gets
+  the C++ unwinder and `fprintf` linked in with it, and a linker script that
+  discards `.ARM.exidx` fails on `__exidx_start`. Define
+  `_GLIBCXX_NO_ASSERTIONS` to turn the checks off, as the QEMU images do.
 - A linker script that places `.text`, `.bss`, `.data` etc. as usual on
   Cortex-M, plus `_estack`, `_sstack`, `_sidata`, `_sdata`, `_edata`,
   `_sbss`, `_ebss` symbols if you reuse the example startup code.

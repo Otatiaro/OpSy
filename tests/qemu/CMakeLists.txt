@@ -104,6 +104,14 @@ function(opsy_qemu_image target)
         -ffunction-sections -fdata-sections
     )
 
+    # GCC 16's libstdc++ checks its own preconditions in unoptimised builds
+    # (_GLIBCXX_ASSERTIONS). A failed check calls a handler in the library
+    # that is built with exceptions, so linking it drags the unwinder into an
+    # image that has discarded its tables, and the link fails on __exidx_start.
+    # The documented switch turns the checks off: the images keep OpSy's own
+    # assertions, and the slow-core run stays within its budget at -O0.
+    target_compile_definitions(${target} PRIVATE _GLIBCXX_NO_ASSERTIONS)
+
     opsy_strict_warnings(${target})
 
     target_link_options(${target} PRIVATE

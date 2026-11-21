@@ -203,12 +203,12 @@ Each job is a `cmake` configure, a build, and for three of them a
 # Build job (compile-only, no executable produced)
 cmake -S tests -B build -G Ninja \
       -DCMAKE_TOOLCHAIN_FILE=$PWD/tests/cortex-m-toolchain.cmake \
-      -DOPSY_COMPILER=gcc -DOPSY_TARGET=m4 -DOPSY_CXX_STANDARD=23
+      -DOPSY_COMPILER=gcc -DOPSY_TARGET=m4
 cmake --build build --parallel
 
 # Host tests
 cmake -S tests/host -B build-host -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-      -DCMAKE_CXX_COMPILER=g++-14 -DOPSY_CXX_STANDARD=23
+      -DCMAKE_CXX_COMPILER=g++-16
 cmake --build build-host --parallel && ctest --test-dir build-host --output-on-failure
 
 # QEMU and GDB tests
@@ -231,9 +231,11 @@ cmake -S tests/codegen -B build-codegen -G Ninja \
 cmake --build build-codegen --parallel && ctest --test-dir build-codegen --output-on-failure
 ```
 
-To run any of the above with clang instead, pass
-`-DOPSY_COMPILER=clang` and put the LLVM Embedded Toolchain for Arm on
-`PATH`. The GNU toolchain still has to be there too, for `arm-none-eabi-nm`.
+These are the CI's own settings: C++26, GCC 16. `-DOPSY_CXX_STANDARD=23`
+still exists for an experiment, and nothing promises it builds. Neither
+does `-DOPSY_COMPILER=clang` for now (see *Why these axes*): once it
+does, put the LLVM Embedded Toolchain for Arm on `PATH`, with the GNU
+toolchain still there for `arm-none-eabi-nm`.
 
 Needs `arm-none-eabi-gcc`, `qemu-system-arm`, `ninja`, and — for the GDB
 scenarios — `arm-none-eabi-gdb` or `gdb-multiarch`, and a Python

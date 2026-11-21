@@ -57,7 +57,9 @@ namespace opsy::utility
  *         call, its size argument is not a constant there, and the comparison
  *         cannot be folded away -- the build would fail whatever the size. An
  *         unoptimised build gets the runtime assert instead, which catches
- *         the same mistake one step later.
+ *         the same mistake one step later. The allocation is forced inline,
+ *         so every optimisation level folds it, @c -Og included: left to
+ *         itself, @c -Og keeps it a call and would fail every build.
  */
 [[gnu::error("this routine's frame does not fit the routine_storage it was given: raise its Size")]]
 void the_routine_frame_does_not_fit_its_storage();
@@ -144,7 +146,7 @@ public:
 		 *         a system that has neither.
 		 */
 		template<std::size_t Size, typename... Arguments>
-		static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&...) noexcept
+		[[gnu::always_inline]] static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&...) noexcept
 		{
 			constexpr std::size_t reserved = routine_storage<Size>::reserved;
 			constexpr std::size_t available = Size - reserved;

@@ -515,7 +515,7 @@ constexpr auto rotate(const vector<2, T>& v, T angle) -> vector<2, T>
 	auto sin = std::sin(angle);
 	auto cos = std::cos(angle);
 
-	return vector<2>{v.x() * cos - v.y() * sin, v.y() * cos + v.x() * sin};
+	return vector<2, T>{v.x() * cos - v.y() * sin, v.y() * cos + v.x() * sin};
 }
 
 /**

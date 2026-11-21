@@ -183,7 +183,15 @@ static_assert(ez.z() == 1.0f);
 
 	opsy::utility::vector<2> v2d{1.0f, 0.0f};
 	(void) opsy::utility::rotate(v2d, 1.0f);
+
+	// rotate keeps the element type: a double vector stays double.
+	opsy::utility::vector<2, double> v2d_double{1.0, 0.0};
+	[[maybe_unused]] const opsy::utility::vector<2, double> rotated_double = opsy::utility::rotate(v2d_double, 1.0);
 }
+
+// A quarter turn takes x onto y.
+constexpr auto v2_rotated = opsy::utility::rotate(opsy::utility::vector<2>{1.0f, 0.0f}, quarter_turn);
+static_assert(near(v2_rotated.x(), 0.0f) && near(v2_rotated.y(), 1.0f));
 
 // ================================ matrix ===============================
 // Default ctor is the zero matrix.

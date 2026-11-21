@@ -486,7 +486,10 @@ public:
 
 	/**
 	 * @brief Checks if this @c embedded_list is empty
-	 * @return
+	 * @return @c true if the list holds no @c Item
+	 * @remark Asserts the head and the count agree, so it is for a caller that
+	 *         excludes every writer. A reader racing a writer -- a hint read
+	 *         without the lock -- compares @ref size to zero instead: one word.
 	 */
 	[[nodiscard]] constexpr inline bool empty() const
 	{

@@ -70,8 +70,8 @@ public:
 
 	}
 
-	critical_section& operator=(const critical_section&) = delete;
-	critical_section(const critical_section&) = delete;
+	critical_section& operator=(const critical_section&) = delete("a critical_section is the handle of one entry, which only the scheduler hands out: move it");
+	critical_section(const critical_section&) = delete("a critical_section is the handle of one entry, which only the scheduler hands out: move it");
 
 	/**
 	 * @brief Assigns a @c critical_section by moving data from another @c critical_section

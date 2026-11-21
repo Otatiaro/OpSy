@@ -89,13 +89,10 @@ public:
 		assert(owner_ == nullptr);
 	}
 
-	// Neither copyable nor movable, exactly like std::mutex. Moving a held
-	// mutex would leave the scheduler's list of locked mutexes and the owner's
-	// view of it pointing at the old address.
-	mutex(const mutex&) = delete;
-	mutex& operator=(const mutex&) = delete;
-	mutex(mutex&&) = delete;
-	mutex& operator=(mutex&&) = delete;
+	mutex(const mutex&) = delete("a mutex is held by address in the scheduler's lists and by its owner: it stays where it is, like std::mutex");
+	mutex& operator=(const mutex&) = delete("a mutex is held by address in the scheduler's lists and by its owner: it stays where it is, like std::mutex");
+	mutex(mutex&&) = delete("a mutex is held by address in the scheduler's lists and by its owner: it stays where it is, like std::mutex");
+	mutex& operator=(mutex&&) = delete("a mutex is held by address in the scheduler's lists and by its owner: it stays where it is, like std::mutex");
 
 	/**
 	 * @brief Acquires the mutex, blocking until it is free

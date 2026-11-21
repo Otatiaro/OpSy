@@ -110,7 +110,7 @@ private:
 	}
 
 	const uint32_t address_;
-	memory_register& operator=(const memory_register& other) = delete;
+	memory_register& operator=(const memory_register& other) = delete("a memory_register names a hardware address: assign to ref() to write the register");
 
 };
 

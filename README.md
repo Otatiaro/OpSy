@@ -573,17 +573,16 @@ has to define:
 /** @brief The longest run of each handler since the scheduler started, in core cycles */
 struct latency
 {
-    static inline uint32_t service_call = 0; ///< SVC_Handler, as a whole
-    static inline uint32_t systick      = 0; ///< SysTick_Handler, as a whole
-    static inline uint32_t pend_sv      = 0; ///< PendSV_Handler, up to the choice of the next task
-    static inline uint32_t isr          = 0; ///< the longest decorated interrupt handler
+    static inline std::atomic<uint32_t> service_call = 0; ///< SVC_Handler, as a whole
+    static inline std::atomic<uint32_t> systick      = 0; ///< SysTick_Handler, as a whole
+    static inline std::atomic<uint32_t> pend_sv      = 0; ///< PendSV_Handler, up to the choice of the next task
+    static inline std::atomic<uint32_t> isr          = 0; ///< the longest decorated interrupt handler
 
-    /** @brief Raises longest to the cycles elapsed since entered when they are more */
-    static void record(uint32_t& longest, uint32_t entered)
+    /** @brief Raises longest to the cycles elapsed since entered when they are more: one atomic
+     *         step, as decorated handlers of different priorities all record into isr */
+    static void record(std::atomic<uint32_t>& longest, uint32_t entered)
     {
-        const uint32_t elapsed = cortex_m::cycle_count() - entered;
-        if (elapsed > longest)
-            longest = elapsed;
+        longest.fetch_max(cortex_m::cycle_count() - entered, std::memory_order_relaxed);
     }
 };
 

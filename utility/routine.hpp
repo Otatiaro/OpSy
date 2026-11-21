@@ -238,8 +238,8 @@ public:
 			handle_.destroy();
 	}
 
-	routine(const routine&) = delete;
-	routine& operator=(const routine&) = delete;
+	routine(const routine&) = delete("a routine owns the coroutine frame its handle points at: it stays where it is");
+	routine& operator=(const routine&) = delete("a routine owns the coroutine frame its handle points at: it stays where it is");
 
 	constexpr routine(routine&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
 

@@ -114,8 +114,8 @@ public:
 
 	constexpr queue() = default;
 
-	queue(const queue&) = delete;
-	queue& operator=(const queue&) = delete;
+	queue(const queue&) = delete("a queue is waited on by address: it stays where it is");
+	queue& operator=(const queue&) = delete("a queue is waited on by address: it stays where it is");
 
 	~queue()
 	{
@@ -278,7 +278,7 @@ public:
 	void close() noexcept
 	{
 		closed_.store(true, std::memory_order_relaxed);
-		std::lock_guard<isr_lock> guard(lock_);
+		std::lock_guard<isr_lock> _(lock_);
 		not_empty_.notify_all();
 		not_full_.notify_all();
 	}
@@ -350,7 +350,7 @@ private:
 		if (size_.load(std::memory_order_acquire) < Capacity)
 			return true;
 
-		std::lock_guard<isr_lock> guard(lock_);
+		std::lock_guard<isr_lock> _(lock_);
 		while (size_.load(std::memory_order_acquire) == Capacity && !closed_.load(std::memory_order_relaxed))
 			if (!wait(not_full_, deadline))
 				break;
@@ -366,7 +366,7 @@ private:
 		if (size_.load(std::memory_order_acquire) > 0)
 			return true;
 
-		std::lock_guard<isr_lock> guard(lock_);
+		std::lock_guard<isr_lock> _(lock_);
 		while (size_.load(std::memory_order_acquire) == 0 && !closed_.load(std::memory_order_relaxed))
 			if (!wait(not_empty_, deadline))
 				break;

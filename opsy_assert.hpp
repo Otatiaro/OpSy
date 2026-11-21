@@ -62,5 +62,7 @@ namespace opsy
 #ifdef NDEBUG
 #define assert(expr) (static_cast<void>(0))
 #else
-#define assert(expr) (__builtin_expect(!(expr), 0) ? ::opsy::trap() : static_cast<void>(0))
+// opsy::trap is [[noreturn]], which already tells the compiler the failing
+// branch is cold: it is laid out off the hot path without a hint.
+#define assert(expr) ((expr) ? static_cast<void>(0) : ::opsy::trap())
 #endif

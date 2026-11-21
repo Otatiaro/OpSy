@@ -25,16 +25,17 @@ namespace {
 using namespace std::chrono_literals;
 
 // One instance of every primitive — exercises all default constructors
-// and the priority-aware overloads.
-opsy::task<512>          g_task;
-opsy::idle_task<256>     g_idle;
-opsy::isr_lock           g_isr_lock;
-opsy::isr_lock           g_isr_lock_with_priority{ opsy::isr_priority{ 0x80 } };
+// and the priority-aware overloads. All constinit: an application declares
+// them at namespace scope and they must be ready before any constructor runs.
+constinit opsy::task<512>          g_task;
+constinit opsy::idle_task<256>     g_idle;
+constinit opsy::isr_lock           g_isr_lock;
+constinit opsy::isr_lock           g_isr_lock_with_priority{ opsy::isr_priority{ 0x80 } };
 // Two of them: the standard multi-mutex algorithms below need more than one.
-opsy::mutex              g_mutex;
-opsy::mutex              g_second_mutex;
-opsy::condition_variable g_cv;
-opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
+constinit opsy::mutex              g_mutex;
+constinit opsy::mutex              g_second_mutex;
+constinit opsy::condition_variable g_cv;
+constinit opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 } };
 
 [[gnu::used]] void use_task()
 {

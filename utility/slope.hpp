@@ -156,7 +156,7 @@ private:
 	 * @param offset The offset from the current index
 	 * @return The n-th value in the array (backward relative to current index)
 	 */
-	const T& backward(std::size_t offset) const
+	constexpr const T& backward(std::size_t offset) const
 	{
 		return values_[offset > index_ ? index_ + N - offset : index_ - offset];
 	}
@@ -166,7 +166,7 @@ private:
 	 * @param offset The offset from the current index
 	 * @return The n-th value in the array (forward relative to current index)
 	 */
-	const T& forward(std::size_t offset) const
+	constexpr const T& forward(std::size_t offset) const
 	{
 		const auto tmp = index_ + offset + 1;
 		return values_[tmp < N ? tmp : tmp - N];

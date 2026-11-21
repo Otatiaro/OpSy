@@ -737,7 +737,7 @@ public:
  *         supplied by @c scheduler::start (default @c default_idle_loop).
  */
 template<std::size_t StackSize = 64>
-inline idle_task<StackSize> default_idle{};
+constinit inline idle_task<StackSize> default_idle{};
 
 inline void task_control_block::request_stop()
 {

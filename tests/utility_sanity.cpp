@@ -27,6 +27,13 @@
 
 namespace {
 
+// Tolerance comparison for the compile-time checks that go through
+// transcendental functions: GCC folds them, but not always to the last bit.
+constexpr bool near(float a, float b, float tolerance = 1e-5f)
+{
+	return a - b < tolerance && b - a < tolerance;
+}
+
 // ────────────────────────── trivially copyable ────────────────────────────
 // vector / matrix / quaternion must be trivially copyable so callers can
 // memcpy them into non-volatile storage (EEPROM-backed structs, flash
@@ -96,6 +103,16 @@ static_assert(opsy::utility::allocator<10, true>{}.run_check());
 		g_slope.feed(static_cast<float>(i));
 	(void) g_slope.value();
 }
+
+// A ramp of one unit per sample at 1 kHz reads 1000 units per second.
+constexpr float ramp_slope()
+{
+	opsy::utility::slope<8> s{1000.0f};
+	for (auto i = 0; i < 8; ++i)
+		s.feed(static_cast<float>(i));
+	return s.value();
+}
+static_assert(near(ramp_slope(), 1000.0f, 1e-2f));
 
 // =============================== vector ================================
 // In-class static_asserts: N != 0, N != 1, plus per-method I < N etc.

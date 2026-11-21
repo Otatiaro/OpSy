@@ -392,8 +392,10 @@ private:
 		// task switch. So either it queued before the count changed, and is
 		// seen here, or it will see the count when it looks. notify_one()
 		// takes its own lock, at the same level as lock_, around the one step
-		// that needs it; see counting_semaphore::release().
-		if (!condition.waiting_list_.empty())
+		// that needs it, and size() is read rather than empty() because the
+		// tick may be half-way through removing a waiter; see
+		// counting_semaphore::release().
+		if (condition.waiting_list_.size() != 0)
 			condition.notify_one();
 	}
 

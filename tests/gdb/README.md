@@ -49,6 +49,7 @@ ctest --test-dir build-qemu -R tick_wrap --output-on-failure
 | `pendsv_window.gdb` | The task elected for a switch is accounted for at every point: no task is claimed to be running when `PendSV` is entered, and the handler installs the elected task and closes the election window. A task lost in that window would simply never run again, silently. |
 | `start_window.gdb` | The scheduler counts as started only once nothing that may call into OpSy can interleave with its first switch. From then on starting a task asks for a context switch, which before the process stack is set up would save a context through a PSP pointing at nothing. Single-steps `start_impl` and checks at every instruction that the flag is clear, or the handlers allowed to call OpSy are masked. |
 | `list_integrity.gdb` | The scheduler's task lists, a mutex's waiters included, stay coherent tick after tick: counts match the chains, back-links agree with forward links, no chain is a cycle, and the running task is not also queued as waiting. Intrusive lists do not fail loudly when mis-stitched, so this looks for the damage directly. |
+| `release_hint_race.gdb` | A semaphore release reads the waiting list without the lock, as a hint; the tick can remove a timed-out waiter in the middle of that read. Stops the release on its read of the list's head and lands the tick there: the hint has to be one word, read whole, or an asserting build dies on two words that disagree. |
 
 ## How a scenario reports
 
@@ -77,6 +78,7 @@ defect in the source, rebuilding and confirming the scenario turns red:
 | `critical_section_race.gdb` | the atomic claim replaced by a load followed by a store | yes |
 | `take_mutex_masking.gdb` | `mutex::lock` no longer raises `BASEPRI` | yes |
 | `list_integrity.gdb` | `pop_front` leaves a back-link pointing at a removed element | yes |
+| `release_hint_race.gdb` | `counting_semaphore::release` reads `empty()`, two words, without the lock (the code before the fix) | yes |
 | `pendsv_window.gdb` | `PendSV` does not clear `next_task_` | yes |
 | `start_window.gdb` | `start_impl` sets `is_started_` on entry, unmasked (the code before this check) | yes |
 | `pendsv_window.gdb` | `PendSV` installs a task other than the elected one | yes |

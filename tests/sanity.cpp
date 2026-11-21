@@ -104,6 +104,7 @@ static_assert(lockable<opsy::mutex>, "opsy::mutex must work with the multi-mutex
 {
 	g_cv.notify_one();
 	g_cv.notify_all();
+	g_cv_with_priority.notify_one();
 	g_cv.wait();
 	g_cv.wait(g_isr_lock);
 	(void) g_cv.wait_for(10ms);

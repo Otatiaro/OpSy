@@ -290,43 +290,45 @@ OPSY_TEST(a_member_pointer_is_held_when_non_null_and_empty_when_null)
 // A function or a stateless target makes a constant expression: the function
 // is held in the storage's function pointer member, the stateless target is
 // not held at all. Both must then behave as any other target: called, moved
-// out of, replaced.
+// out of, replaced. Each test has its own slots: tests do not run in the order
+// they are written.
 
 int twice(int x) { return 2 * x; }
 
-constinit opsy::callback<int()> g_by_address = &counted;
-constinit opsy::callback<int(int) const> g_by_name = twice;
-constinit opsy::callback<int()> g_stateless = [] { return 42; };
-#if defined(__cpp_lib_constant_wrapper)
-constinit opsy::callback<int(int) const> g_wrapped = std::cw<&twice>;
-#endif
-
 OPSY_TEST(a_target_set_at_compile_time_is_called)
 {
+	static constinit opsy::callback<int()> by_address = &counted;
+	static constinit opsy::callback<int(int) const> by_name = twice;
+	static constinit opsy::callback<int()> stateless = [] { return 42; };
+
 	g_free_function_calls = 0;
-	CHECK(g_by_address() == 1);
-	CHECK(g_by_name(21) == 42);
-	CHECK(g_stateless() == 42);
+	CHECK(by_address() == 1);
+	CHECK(by_name(21) == 42);
+	CHECK(stateless() == 42);
 #if defined(__cpp_lib_constant_wrapper)
-	CHECK(g_wrapped(4) == 8);
+	static constinit opsy::callback<int(int) const> wrapped = std::cw<&twice>;
+	CHECK(wrapped(4) == 8);
 #endif
 }
 
 OPSY_TEST(a_target_set_at_compile_time_moves_and_is_replaced)
 {
-	opsy::callback<int()> function = std::move(g_by_address);
-	CHECK(!g_by_address);
+	static constinit opsy::callback<int()> by_address = &counted;
+	static constinit opsy::callback<int()> stateless = [] { return 42; };
+
+	opsy::callback<int()> function = std::move(by_address);
+	CHECK(!by_address);
 	g_free_function_calls = 0;
 	CHECK(function() == 1);
 
-	opsy::callback<int()> stateless = std::move(g_stateless);
-	CHECK(!g_stateless);
-	CHECK(stateless() == 42);
+	opsy::callback<int()> moved = std::move(stateless);
+	CHECK(!stateless);
+	CHECK(moved() == 42);
 
-	g_stateless = [n = 7] { return n; };
-	CHECK(g_stateless() == 7);
-	stateless = &counted;
-	CHECK(stateless() == 2);
+	stateless = [n = 7] { return n; };
+	CHECK(stateless() == 7);
+	moved = &counted;
+	CHECK(moved() == 2);
 }
 
 OPSY_TEST(swap_exchanges_the_targets)

@@ -126,12 +126,6 @@ private:
 
 	}
 
-	constexpr void disable()
-	{
-		assert(valid_);
-		valid_ = false;
-	}
-
 	bool valid_;
 
 };

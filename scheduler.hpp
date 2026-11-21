@@ -150,6 +150,7 @@ class scheduler
 	friend void sleep_for(duration t);
 	friend class task_control_block;
 	friend class critical_section;
+	friend class isr_lock;
 	friend class condition_variable;
 
 public:
@@ -341,6 +342,17 @@ public:
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
+		return opsy::critical_section(critical_section_begin());
+	}
+
+	/**
+	 * @brief Opens the critical section, unless it is open already
+	 * @return @c true if this call opened it, and its caller has to close it with @ref critical_section_end
+	 * @remark The pair behind @ref try_critical_section , for a holder that keeps
+	 *         the state itself: @c isr_lock . Prefer the object.
+	 */
+	[[nodiscard]] static inline bool critical_section_begin()
+	{
 		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
 
 		// A single read-modify-write, not a load followed by a store: SysTick can
@@ -348,10 +360,23 @@ public:
 		// itself, after which both tasks believe they hold it and the first
 		// release clears the flag for both.
 		if (state_.critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
-			return opsy::critical_section(false);
+			return false;
 
 		hooks::enter_critical_section();
-		return opsy::critical_section(true);
+		return true;
+	}
+
+	/**
+	 * @brief Closes the critical section @ref critical_section_begin opened
+	 * @remark Switches to the task that became ready meanwhile, if any.
+	 */
+	static void critical_section_end()
+	{
+		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+		state_.critical_section_.store(false, std::memory_order_relaxed);
+		hooks::exit_critical_section();
+		if (state_.may_need_switch_.load(std::memory_order_relaxed))
+			trigger_soft_switch();
 	}
 
 private:
@@ -416,10 +441,10 @@ private:
 			// closing the links into a cycle. The mask is released before
 			// trigger_soft_switch, which asserts BASEPRI is clear (and is therefore
 			// why the caller cannot simply hold the lock across the whole thing).
-			const auto previous = cortex_m::set_basepri(service_call_priority);
+			const auto previous = cortex_m::exchange_basepri(service_call_priority);
 			all_tasks_.push_front(task);
 			ready_.insert_when(task_control_block::priority_is_lower{}, task);
-			cortex_m::restore_basepri(previous);
+			cortex_m::exchange_basepri(previous);
 		}
 
 		if(state_.is_started_.load(std::memory_order_relaxed))
@@ -430,11 +455,11 @@ private:
 
 	static void trigger_soft_switch()
 	{
-		auto previous = cortex_m::set_basepri(service_call_priority);
+		auto previous = cortex_m::exchange_basepri(service_call_priority);
 		state_.may_need_switch_.store(false, std::memory_order_relaxed);
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
-		cortex_m::restore_basepri(previous); // PendSV, if pended, is taken within a few instructions
+		cortex_m::exchange_basepri(previous); // PendSV, if pended, is taken within a few instructions
 	}
 
 	static __attribute__((always_inline)) void trigger_hard_switch()
@@ -585,15 +610,6 @@ private:
 	static void update_name(task_control_block& task)
 	{
 		hooks::task_name_changed(task);
-	}
-
-	static void critical_section_end()
-	{
-		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
-		state_.critical_section_.store(false, std::memory_order_relaxed);
-		hooks::exit_critical_section();
-		if (state_.may_need_switch_.load(std::memory_order_relaxed))
-			trigger_soft_switch();
 	}
 };
 

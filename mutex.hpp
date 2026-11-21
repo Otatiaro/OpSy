@@ -169,7 +169,7 @@ inline void mutex::lock()
 	assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
 	assert(scheduler::is_os_callable());
 
-	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
 
 	auto* self = scheduler::current_task();
 	assert(self != nullptr);
@@ -178,7 +178,7 @@ inline void mutex::lock()
 	if (owner_ == nullptr)
 	{
 		scheduler::take_mutex(*this, *self);
-		cortex_m::restore_basepri(previous);
+		cortex_m::exchange_basepri(previous);
 		return;
 	}
 
@@ -204,7 +204,7 @@ inline bool mutex::try_lock()
 	assert(cortex_m::ipsr() == 0);
 	assert(scheduler::is_os_callable());
 
-	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
 
 	auto* self = scheduler::current_task();
 	assert(self != nullptr);
@@ -214,7 +214,7 @@ inline bool mutex::try_lock()
 	if (taken)
 		scheduler::take_mutex(*this, *self);
 
-	cortex_m::restore_basepri(previous);
+	cortex_m::exchange_basepri(previous);
 	return taken;
 }
 
@@ -226,13 +226,13 @@ inline void mutex::unlock()
 	assert(cortex_m::ipsr() == 0);
 	assert(scheduler::is_os_callable());
 
-	const auto previous = cortex_m::set_basepri(scheduler::service_call_priority);
+	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
 	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
 
 	scheduler::release_mutex(*this, *scheduler::current_task());
 	scheduler::do_switch();                   // a woken waiter may outrank us
 
-	cortex_m::restore_basepri(previous);
+	cortex_m::exchange_basepri(previous);
 }
 
 }

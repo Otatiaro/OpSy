@@ -65,7 +65,7 @@ embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 	// mode runs on the process stack and the first do_switch has edited ready_,
 	// so the flag is set here, with every handler that may call into OpSy held
 	// off until the switch is pended.
-	[[maybe_unused]] const auto unmasked = cortex_m::set_basepri(service_call_priority);
+	[[maybe_unused]] const auto unmasked = cortex_m::exchange_basepri(service_call_priority);
 	assert(unmasked.value() == 0); // started from plain thread mode, nothing masked
 
 	cortex_m::set_psp(cortex_m::msp());
@@ -296,7 +296,7 @@ void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variab
 
 void scheduler::wake_one(condition_variable& condition)
 {
-	auto previous = cortex_m::set_basepri(service_call_priority); // SysTick included: a deadline may not expire between the pop and the wake
+	auto previous = cortex_m::exchange_basepri(service_call_priority); // SysTick included: a deadline may not expire between the pop and the wake
 
 	if (!condition.waiting_list_.empty())
 	{
@@ -306,12 +306,12 @@ void scheduler::wake_one(condition_variable& condition)
 		do_switch(); // ask for a switch if needed (released a task with higher priority)
 	}
 
-	cortex_m::restore_basepri(previous);
+	cortex_m::exchange_basepri(previous);
 }
 
 void scheduler::wake_all(condition_variable& condition)
 {
-	auto previous = cortex_m::set_basepri(service_call_priority); // see wake_one
+	auto previous = cortex_m::exchange_basepri(service_call_priority); // see wake_one
 
 	if (!condition.waiting_list_.empty())
 	{
@@ -324,7 +324,7 @@ void scheduler::wake_all(condition_variable& condition)
 		do_switch(); // once: the highest of everything made ready wins
 	}
 
-	cortex_m::restore_basepri(previous);
+	cortex_m::exchange_basepri(previous);
 }
 
 void scheduler::take_mutex(mutex& m, task_control_block& task)
@@ -392,6 +392,12 @@ const task_control_block* scheduler::highest_waiter(const mutex& m)
 
 void scheduler::recompute_priority(task_control_block& task)
 {
+	// A donation raises priority_ the moment the donor blocks, so a task
+	// running at its base priority owes nothing, and the mutexes it holds need
+	// no visit.
+	if (task.priority_ == task.base_priority_)
+		return;
+
 	auto effective = task.base_priority_;
 
 	// Still-held mutexes may have waiters of their own, so releasing one does
@@ -479,7 +485,7 @@ bool scheduler::release_all_mutexes(task_control_block& task)
 
 void scheduler::update_priority(task_control_block& task, task_priority new_priority)
 {
-	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
+	auto previous = cortex_m::exchange_basepri(service_call_priority); // get a lock up to service call
 
 	task.base_priority_ = new_priority;
 
@@ -518,7 +524,7 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	}
 
 	hooks::task_priority_changed(task);
-	cortex_m::restore_basepri(previous);
+	cortex_m::exchange_basepri(previous);
 }
 
 uint64_t scheduler::pend_sv_handler(uint32_t* psp)
@@ -570,7 +576,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		// re-acquiring one can block, which PendSV cannot do.
 		if (auto* const* held = std::get_if<isr_lock*>(&next->released_lock_))
 		{
-			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv(critical_section(true))) << 32;
+			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv()) << 32;
 			state_.critical_section_.store(true, std::memory_order_relaxed);
 			next->released_lock_ = std::monostate{};
 			hooks::mutex_restored_for_task(*next);
@@ -733,7 +739,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		{
 			assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 			(*isr)->release_from_service_call();
-			(*isr)->critical_section_.disable();
+			(*isr)->critical_section_ = false;
 			state_.critical_section_.store(false, std::memory_order_relaxed);
 			hooks::mutex_stored_for_task(*current);
 		}

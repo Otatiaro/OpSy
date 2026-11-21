@@ -60,6 +60,14 @@ if(DEFINED OPSY_OPTIMISATION)
     add_compile_options(${OPSY_OPTIMISATION})
 endif()
 
+# Debug information in every image. It changes nothing in the code. The GDB
+# scenarios stop inside OpSy and walk up to the caller, and with the
+# compiler's frame descriptions in the image the debugger does that from
+# them; without, it reads the prologue by hand, which not every debugger
+# does alike -- gdb-multiarch 17 could not, from a stop in the scheduler on
+# a Cortex-M3, where arm-none-eabi-gdb 14 could.
+add_compile_options(-g)
+
 add_executable(opsy_qemu_tests
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
@@ -103,6 +111,14 @@ function(opsy_qemu_image target)
         -fno-exceptions -fno-rtti
         -ffunction-sections -fdata-sections
     )
+
+    # GCC 16's libstdc++ checks its own preconditions in unoptimised builds
+    # (_GLIBCXX_ASSERTIONS). A failed check calls a handler in the library
+    # that is built with exceptions, so linking it drags the unwinder into an
+    # image that has discarded its tables, and the link fails on __exidx_start.
+    # The documented switch turns the checks off: the images keep OpSy's own
+    # assertions, and the slow-core run stays within its budget at -O0.
+    target_compile_definitions(${target} PRIVATE _GLIBCXX_NO_ASSERTIONS)
 
     opsy_strict_warnings(${target})
 

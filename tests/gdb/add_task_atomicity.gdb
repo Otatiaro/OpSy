@@ -28,8 +28,8 @@
 #
 # all_tasks_ and ready_ are embedded_list objects, laid out as { Item* first_;
 # uint32_t size_; } -- so the element count sits 4 bytes into each. They are
-# read through casts because the scheduler's static members carry no type
-# information in the image.
+# read through casts at those offsets, not by type: a scenario states the
+# layout it relies on, and reads the memory the way the code does.
 #
 # The measure used below is the change in each count since add_task was
 # entered, not the counts themselves: the two lists are not the same length in

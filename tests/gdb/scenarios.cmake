@@ -16,7 +16,7 @@
 # scenarios are skipped with a message rather than failing configuration: they
 # are an addition to the suite, not a prerequisite for building it.
 
-find_program(OPSY_ARM_GDB arm-none-eabi-gdb)
+find_program(OPSY_ARM_GDB NAMES arm-none-eabi-gdb gdb-multiarch)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
 if(NOT OPSY_ARM_GDB OR NOT Python3_Interpreter_FOUND)

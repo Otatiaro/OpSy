@@ -84,9 +84,10 @@ directory you invoked it from.
 
 `OPSY_TARGET` selects the Cortex-M variant (`m3`, `m4`, `m7`, `m33`);
 the matching `-mcpu` / `-mfpu` / `-mfloat-abi` flags are added by
-`CMakeLists.txt`. `OPSY_COMPILER` selects the toolchain family (`gcc`
-or `clang`); both expect the corresponding `arm-none-eabi-gcc` or
-`clang` (with LLVM Embedded Toolchain for Arm) to be on `PATH`.
+`CMakeLists.txt`. `OPSY_COMPILER` selects the toolchain family (`gcc`,
+what the CI runs, or `clang`); both expect the corresponding
+`arm-none-eabi-gcc` or `clang` (with LLVM Embedded Toolchain for Arm) to
+be on `PATH`.
 
 ## Host tests
 
@@ -265,9 +266,9 @@ Secure ZBT SRAM at `0x10000000`.
 ## CI
 
 Every push and pull request to `master` runs all four suites on
-`ubuntu-latest`: the `{gcc, clang} × {m3, m4, m7, m33} × {23, 26}` cross
-matrix, the host tests under `gcc` and `clang` in both standards, and
-the QEMU and codegen checks on all four targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
+`ubuntu-latest`, with GCC 16: the `{m3, m4, m7, m33} × {23, 26}` cross
+matrix, the host tests in both standards, and the QEMU and codegen checks
+on all four targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
 the workflow is the canonical spec, and local builds should match its
 configure lines.
 

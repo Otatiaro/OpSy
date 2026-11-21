@@ -33,8 +33,8 @@
 # The semaphore is release's this, in r0 on entry. Its waiting list sits at
 # the offsets semaphore.hpp's layout gives: the count, the semaphore's own
 # lock, then the condition variable, which holds its notification lock and
-# then the list, head word then count word. The test image carries no type
-# information for them, so they are read through casts.
+# then the list, head word then count word. They are read through casts at
+# those offsets, not by type: the scenario states the layout it relies on.
 #
 # rwatch stops the CPU after a read of the head. Where that read happens is
 # what tells the two versions apart, and BASEPRI says it: a read without the

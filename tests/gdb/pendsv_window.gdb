@@ -32,9 +32,9 @@
 #
 # WHAT YOU NEED TO KNOW TO READ IT
 #
-# current_task_ and next_task_ are single pointers in the image's data. They
-# are read through casts because the scheduler's static members carry no type
-# information there.
+# current_task_ and next_task_ are single pointers in the image's data, read
+# through casts at their addresses, not by type, like every scheduler static
+# here.
 #
 # The handler is followed with a watchpoint rather than by single-stepping:
 # stepping a few hundred instructions per switch over the remote protocol is

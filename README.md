@@ -53,12 +53,13 @@ that is here.
 
 ## Requirements
 
-- C++23 compiler. OpSy tracks the toolchain STM32CubeIDE ships, so that a
-  project built in the IDE needs nothing extra: **GNU Tools for STM32 based on
-  GCC 14.3.1**, the default since STM32CubeIDE 2.1.0 (sources at
-  [STMicroelectronics/gnu-tools-for-stm32](https://github.com/STMicroelectronics/gnu-tools-for-stm32),
-  branch `14.3.rel1`). CI builds every target with `arm-none-eabi-g++ 14.3.Rel1`
-  and with clang (LLVM Embedded Toolchain for Arm 19.1.5).
+- C++23 compiler. CI builds every target with **GCC 16.2.0**, release
+  `v16.2.0-1` of
+  [Otatiaro/arm-none-eabi-toolchain](https://github.com/Otatiaro/arm-none-eabi-toolchain)
+  (GCC, binutils, newlib; Linux and Windows x86_64), which is what OpSy is
+  written for. GCC 14.3 (GNU Tools for STM32, the STM32CubeIDE default) built
+  it until November 2026 and is not tested any more; clang (LLVM Embedded
+  Toolchain for Arm) comes back to the CI when it has contracts.
 
   Older toolchains are not tested and are unlikely to work — the headers use
   C++23 throughout. If you need to build with the GCC 11 or 12 that older
@@ -66,6 +67,13 @@ that is here.
 
   The suites also build under C++26 in CI, so the code stays ready for it, but
   C++23 is what OpSy targets.
+
+  GCC 16's libstdc++ checks its own preconditions in unoptimised builds
+  (`_GLIBCXX_ASSERTIONS`, on by default at `-O0`). A failed check calls a
+  handler in the library that is built with exceptions, so a debug image gets
+  the C++ unwinder and `fprintf` linked in with it, and a linker script that
+  discards `.ARM.exidx` fails on `__exidx_start`. Define
+  `_GLIBCXX_NO_ASSERTIONS` to turn the checks off, as the QEMU images do.
 - A linker script that places `.text`, `.bss`, `.data` etc. as usual on
   Cortex-M, plus `_estack`, `_sstack`, `_sidata`, `_sdata`, `_edata`,
   `_sbss`, `_ebss` symbols if you reuse the example startup code.

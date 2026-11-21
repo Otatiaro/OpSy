@@ -123,9 +123,11 @@ Two traps worth knowing about, both of which cost time here:
   registers.** `set $r2 = 0` writes register r2 and corrupts the
   program; so do `$sp`, `$lr`, `$pc`, `$s0`. Name variables after what
   they hold and the collision does not arise.
-- **The scheduler's static members carry no type information** in the
-  image, so they are read through explicit casts —
-  `*(unsigned long *)&'opsy::scheduler::current_task_'`. Anything read
-  by walking pointers out of them should be range-checked before being
-  followed: GDB stops the whole scenario with an error when it is asked
-  to read an address that is not memory.
+- **The scenarios read the scheduler's statics through explicit casts at
+  fixed offsets**, not by type —
+  `*(unsigned long *)&'opsy::scheduler::current_task_'`, the size of a
+  list 4 bytes past its head. A scenario states the layout it relies on,
+  so a change to a struct in the scheduler is a change to make here too.
+  Anything read by walking pointers out of them should be range-checked
+  before being followed: GDB stops the whole scenario with an error when
+  it is asked to read an address that is not memory.

@@ -182,6 +182,33 @@ needed a running scheduler to reproduce: `wait_until` with an elapsed
 deadline, `sleep_until` with one, a terminated task left linked into
 `ready_`, and a stale `waiting_` pointer after a wait timed out.
 
+[`bench/bench.cpp`](qemu/bench/bench.cpp) is a fourth image,
+`opsy_qemu_bench`: the paths through OpSy that cost, each between two
+marker functions, `bench::begin<S>()` and `bench::end<S>()`. A task woken
+from an interrupt handler through a semaphore, a condition variable and a
+queue; a task-to-task switch; a mutex with and without contention; a sleep
+ended by the tick; an `isr_lock` round trip. Two instruments read the same
+image. Under QEMU, which does not model cycles,
+[`bench/profile.py`](qemu/bench/profile.py) runs it with
+`-d in_asm,exec,nochain`, counts the instructions executed between the
+markers and attributes them to functions: exact, repeatable, and what the
+CI holds against `bench/baseline-<target>.json`. On a board the markers
+read the DWT cycle counter and the image prints cycles, which is where
+exception entry and return, barriers and the memory system show up;
+`-DOPSY_BENCH_BOARD=stm32h563zi` builds it for a NUCLEO-H563ZI, clock
+brought to 250 MHz in the image, and `probe-rs run` flashes it and prints
+its semihosting output. The image's own `opsy_hooks.hpp`, on its include
+path alone, timestamps the points along a wake-up that only OpSy sees.
+
+```sh
+cmake -S tests/qemu -B build-bench -G Ninja \
+      -DCMAKE_TOOLCHAIN_FILE="$PWD/tests/cortex-m-toolchain.cmake" \
+      -DOPSY_COMPILER=gcc -DOPSY_TARGET=m33 "-DOPSY_OPTIMISATION=-Os;-DNDEBUG"
+cmake --build build-bench --target opsy_qemu_bench
+python3 tests/qemu/bench/profile.py --image build-bench/opsy_qemu_bench.elf \
+      --machine mps2-an505 --baseline tests/qemu/bench/baseline-m33.json
+```
+
 Two notes on the plumbing, both learned the hard way:
 
 - On AArch32, plain `SYS_EXIT` takes the reason code *in r1*, not a

@@ -156,6 +156,30 @@ add_executable(opsy_qemu_faults
 
 opsy_qemu_image(opsy_qemu_faults)
 
+# The paths through OpSy that cost, each between two markers: see bench.cpp.
+# A separate image with its own include directory, so that its opsy_hooks.hpp
+# is the one scheduler.cpp sees in this target and in no other. Under QEMU,
+# bench/profile.py counts the instructions between the markers from the
+# execution trace; on a board (-DOPSY_BENCH_BOARD=stm32h563zi) the markers
+# read the cycle counter and the image prints cycles.
+add_executable(opsy_qemu_bench
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/bench/bench.cpp
+)
+
+if(DEFINED OPSY_BENCH_BOARD)
+    set(OPSY_LINKER_SCRIPT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/bench/${OPSY_BENCH_BOARD}.ld)
+    target_compile_definitions(opsy_qemu_bench PRIVATE OPSY_BENCH_BOARD)
+endif()
+
+opsy_qemu_image(opsy_qemu_bench)
+target_include_directories(opsy_qemu_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bench)
+
+if(DEFINED OPSY_BENCH_BOARD)
+    set(OPSY_LINKER_SCRIPT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/${OPSY_LINKER_SCRIPT})
+endif()
+
 # The runner turns QEMU's output into a verdict. QEMU maps every non-zero
 # application exit code onto a process status of 1, and a hung image would
 # otherwise look like a pass, so the script insists on seeing the RESULT line.
@@ -195,11 +219,20 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
 )
 
+add_test(
+    NAME opsy_qemu_bench_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_bench>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
 set_tests_properties(
     opsy_qemu_tests_${OPSY_TARGET}
     opsy_qemu_tests_slow_${OPSY_TARGET}
     opsy_qemu_start_check_${OPSY_TARGET}
     opsy_qemu_faults_${OPSY_TARGET}
+    opsy_qemu_bench_${OPSY_TARGET}
     PROPERTIES TIMEOUT 120)
 
 # OpSy never allocates, so an image built on it should contain no allocator.

@@ -170,9 +170,17 @@ neither do `mutex::lock` / `unlock`. They all follow the same shape:
 ```
 const auto previous = cortex_m::set_basepri(service_call_priority);
 ... mutate the lists ...
-do_switch();                     // pends PendSV
-cortex_m::set_basepri(previous); // PendSV runs here
+do_switch();                         // pends PendSV
+cortex_m::restore_basepri(previous); // PendSV is taken within a few instructions
 ```
+
+`set_basepri` raises the mask and ends on an `isb`; `restore_basepri`
+lowers it without one. The ARMv7-M ARM (B5.2.3) only guarantees a lowered
+mask to be visible after an `isb`, an exception entry or an exception
+return, and nothing in that shape waits for the switch. Where the next
+instruction must see the pending interrupt served, the mask is lowered
+with `set_basepri`: `mutex::lock` blocking on a held mutex, which resumes
+owning it, and `now()`, which a task may spin on.
 
 **A service call is needed for exactly one reason: the operation has to
 touch the calling task's `stack_frame`.** In practice that means

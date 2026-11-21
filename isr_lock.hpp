@@ -256,10 +256,10 @@ inline void isr_lock::unlock()
 		else
 		{
 #ifndef NDEBUG
-			auto was = cortex_m::set_basepri(previous_lock_);
+			auto was = cortex_m::restore_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
-			cortex_m::set_basepri(previous_lock_);
+			cortex_m::restore_basepri(previous_lock_);
 #endif
 			hooks::exit_priority_lock();
 			auto tmp = std::move(critical_section_);
@@ -320,10 +320,10 @@ inline void isr_lock::release_from_service_call()
 		else
 		{
 #ifndef NDEBUG
-			auto was = cortex_m::set_basepri(previous_lock_);
+			auto was = cortex_m::restore_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
-			cortex_m::set_basepri(previous_lock_);
+			cortex_m::restore_basepri(previous_lock_);
 #endif
 		}
 	}

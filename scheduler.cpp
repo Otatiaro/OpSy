@@ -323,7 +323,7 @@ void __attribute__((section(".text.opsy.wakeone"))) scheduler::wake_one(conditio
 		do_switch(); // ask for a switch if needed (released a task with higher priority)
 	}
 
-	cortex_m::set_basepri(previous);
+	cortex_m::restore_basepri(previous);
 }
 
 void __attribute__((section(".text.opsy.wakeall"))) scheduler::wake_all(condition_variable& condition)
@@ -341,7 +341,7 @@ void __attribute__((section(".text.opsy.wakeall"))) scheduler::wake_all(conditio
 		do_switch(); // once: the highest of everything made ready wins
 	}
 
-	cortex_m::set_basepri(previous);
+	cortex_m::restore_basepri(previous);
 }
 
 void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mutex& m, task_control_block& task)
@@ -530,7 +530,7 @@ void __attribute__((section(".text.opsy.updatepriority"))) scheduler::update_pri
 	}
 
 	hooks::task_priority_changed(task);
-	cortex_m::set_basepri(previous);
+	cortex_m::restore_basepri(previous);
 }
 
 uint64_t __attribute__((section(".text.opsy.isr.pendsv_handler"))) scheduler::pend_sv_handler(uint32_t* psp)
@@ -1049,8 +1049,7 @@ OPSY_NO_OPT void __attribute__((naked, section(".text.opsy.isr.pendsv"))) PendSV
 			"vldmiaeq R0!, {S16-S31} \n\t"
 #endif
 			"msr PSP, R0 \n\t"
-			"msr BASEPRI, R1 \n\t"
-			"isb \n\t"
+			"msr BASEPRI, R1 \n\t" // the exception return is the barrier for this one
 			"bx LR"
 			:
 			: [handler] "g" (opsy::scheduler::pend_sv_handler),

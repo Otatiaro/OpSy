@@ -274,7 +274,9 @@ public:
 		// caller to be running no higher than systick_priority. set_basepri
 		// carries a "memory" clobber, which also stops the compiler from caching
 		// ticks_ in a register across the read — the reason a spin such as
-		// while (now() < deadline) {} could never terminate at -O2.
+		// while (now() < deadline) {} could never terminate at -O2. The same
+		// spin is why the mask is lowered with the barrier: the architecture
+		// guarantees a tick in only after one, and this must count it.
 		const auto previous = cortex_m::set_basepri(systick_priority);
 		const auto value = ticks_;
 		cortex_m::set_basepri(previous);
@@ -406,7 +408,7 @@ private:
 			const auto previous = cortex_m::set_basepri(service_call_priority);
 			all_tasks_.push_front(task);
 			ready_.insert_when(task_control_block::priority_is_lower, task);
-			cortex_m::set_basepri(previous);
+			cortex_m::restore_basepri(previous);
 		}
 
 		if(is_started_.load(std::memory_order_relaxed))
@@ -421,7 +423,7 @@ private:
 		may_need_switch_.store(false, std::memory_order_relaxed);
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
-		cortex_m::set_basepri(previous); // and restore the basepri to its previous value
+		cortex_m::restore_basepri(previous); // PendSV, if pended, is taken within a few instructions
 	}
 
 	static __attribute__((always_inline)) void trigger_hard_switch()

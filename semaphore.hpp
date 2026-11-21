@@ -67,7 +67,12 @@ namespace opsy
  *        is visible after acquiring.
  *
  * @tparam LeastMaxValue The largest count it has to hold. Releasing past it
- *         is a precondition violation, asserted.
+ *         is a precondition violation, asserted. A @c binary_semaphore an
+ *         interrupt handler releases is the usual case: the handler may run
+ *         again before the task has taken the first release, and the second
+ *         one is past the maximum. The handler coalesces them -- a flag it
+ *         sets and the task clears, or a count of its own -- rather than
+ *         releasing for every event.
  *
  * @warning As for every OpSy primitive, an interrupt handler has to run strictly
  *          below OpSy's preemption level to use it.

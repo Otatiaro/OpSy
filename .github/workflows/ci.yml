@@ -17,16 +17,12 @@ env:
 # what the C++26 work needs. clang comes back when it has contracts.
 jobs:
   build:
-    name: Build (cortex-${{ matrix.target }} / c++${{ matrix.standard }})
+    name: Build (cortex-${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target: [m3, m4, m7, m33]
-        # C++26 is built alongside C++23 deliberately: OpSy targets 23, and
-        # building 26 as it lands catches anything the newer standard changes
-        # or removes before a user on a newer toolchain hits it.
-        standard: [23, 26]
     steps:
       - uses: actions/checkout@v5
 
@@ -43,7 +39,6 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
           -DOPSY_COMPILER=gcc
           -DOPSY_TARGET=${{ matrix.target }}
-          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -55,12 +50,8 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   host-tests:
-    name: Host tests (c++${{ matrix.standard }})
+    name: Host tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        standard: [23, 26]
     steps:
       - uses: actions/checkout@v5
 
@@ -68,22 +59,20 @@ jobs:
       # sizeof(int) == sizeof(void*), which holds on every Cortex-M target and
       # on no 64-bit host, and a 32-bit build keeps the pointer arithmetic
       # under test the same width as on target.
-      # g++-14 explicitly: the runner's default GNU compiler does not know
-      # c++26, so the c++26 axis failed at configure time with "the current
-      # compiler GNU does not support this". The runner has no GCC 16 with a
-      # 32-bit multilib, so the host half stays on 14 for now.
-      - name: Install Ninja, 32-bit support and GCC 14
+      # g++-16 explicitly: the same major as the target compiler, so a header
+      # that uses the C++26 library builds here too. It is Ubuntu 26.04's
+      # package, a GCC 16 snapshot, not the runner's default GCC 15.
+      - name: Install Ninja, 32-bit support and GCC 16
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build gcc-multilib g++-multilib g++-14 gcc-14 g++-14-multilib gcc-14-multilib
+          sudo apt-get install -y ninja-build g++-16 g++-16-multilib
 
       - name: Configure
         run: >
           cmake -S tests/host -B build-host
           -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_COMPILER=g++-14
-          -DOPSY_CXX_STANDARD=${{ matrix.standard }}
+          -DCMAKE_CXX_COMPILER=g++-16
 
       - name: Build
         run: cmake --build build-host --parallel

@@ -266,9 +266,8 @@ Secure ZBT SRAM at `0x10000000`.
 ## CI
 
 Every push and pull request to `master` runs all four suites on
-`ubuntu-latest`, with GCC 16: the `{m3, m4, m7, m33} × {23, 26}` cross
-matrix, the host tests in both standards, and the QEMU and codegen checks
-on all four targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
+`ubuntu-latest`, with GCC 16: the build on `{m3, m4, m7, m33}`, the
+host tests, and the QEMU and codegen checks on all four targets. See [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) —
 the workflow is the canonical spec, and local builds should match its
 configure lines.
 

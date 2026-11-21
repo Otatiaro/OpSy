@@ -35,8 +35,10 @@ endif()
 
 set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
+# OpSy is written in C++26. -DOPSY_CXX_STANDARD=23 builds it under the previous
+# standard for an experiment; nothing promises that it still does.
 if(NOT DEFINED OPSY_CXX_STANDARD)
-    set(OPSY_CXX_STANDARD 23 CACHE STRING "C++ standard to build with: 23 or 26")
+    set(OPSY_CXX_STANDARD 26 CACHE STRING "C++ standard to build with")
 endif()
 
 # scheduler.cpp comes along for SVC_Handler, whose prologue is one of the

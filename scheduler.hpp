@@ -122,8 +122,8 @@ class inline_atomic
 public:
 	constexpr inline_atomic(T value) : value_(value) {}
 
-	inline_atomic(const inline_atomic&) = delete;
-	inline_atomic& operator=(const inline_atomic&) = delete;
+	inline_atomic(const inline_atomic&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
+	inline_atomic& operator=(const inline_atomic&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
 
 	T load(std::memory_order order) const { return std::atomic_ref<T>(value_).load(order); }
 	void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }

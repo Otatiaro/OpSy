@@ -269,8 +269,8 @@ public:
 		emplace<T>(std::forward<Arguments>(arguments)...);
 	}
 
-	callback(const callback&) = delete;
-	callback& operator=(const callback&) = delete;
+	callback(const callback&) = delete("a callback owns what it holds and is move-only: move it");
+	callback& operator=(const callback&) = delete("a callback owns what it holds and is move-only: move it");
 
 	/**
 	 * @brief Takes the target of @p from, which is left empty

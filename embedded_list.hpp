@@ -451,8 +451,8 @@ public:
 	 */
 	using size_type = uint32_t;
 
-	embedded_list(const embedded_list&) = delete;
-	embedded_list& operator=(const embedded_list&) = delete;
+	embedded_list(const embedded_list&) = delete("an embedded_list is linked into its items by address: it stays where it is");
+	embedded_list& operator=(const embedded_list&) = delete("an embedded_list is linked into its items by address: it stays where it is");
 
 	/**
 	 * @brief Creates an empty @c embedded_list

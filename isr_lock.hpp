@@ -80,8 +80,8 @@ public:
 	{
 	}
 
-	isr_lock(const isr_lock&) = delete;
-	void operator=(const isr_lock&) = delete;
+	isr_lock(const isr_lock&) = delete("an isr_lock holds the state of the masking it did: it is not a value to copy");
+	void operator=(const isr_lock&) = delete("an isr_lock holds the state of the masking it did: it is not a value to copy");
 
 	/**
 	 * @brief Constructs an @c isr_lock by moving data from another

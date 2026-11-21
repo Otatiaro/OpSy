@@ -102,8 +102,8 @@ public:
 		assert(desired >= 0 && desired <= max());
 	}
 
-	counting_semaphore(const counting_semaphore&) = delete;
-	counting_semaphore& operator=(const counting_semaphore&) = delete;
+	counting_semaphore(const counting_semaphore&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
+	counting_semaphore& operator=(const counting_semaphore&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
 
 	/**
 	 * @brief Adds @p update to the count, waking as many waiters as it lets through
@@ -145,7 +145,7 @@ public:
 
 		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
-		std::lock_guard<isr_lock> guard(lock_);
+		std::lock_guard<isr_lock> _(lock_);
 		while (!try_acquire())
 			available_.wait(lock_);
 	}
@@ -187,7 +187,7 @@ public:
 
 		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
-		std::lock_guard<isr_lock> guard(lock_);
+		std::lock_guard<isr_lock> _(lock_);
 		while (!try_acquire())
 			if (available_.wait_until(lock_, deadline) == cv_status::timeout)
 				return try_acquire(); // released at the last moment still counts

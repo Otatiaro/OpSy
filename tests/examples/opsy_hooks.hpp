@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 #include <callback.hpp>
@@ -46,17 +47,20 @@ class mutex;
 /** @brief The longest run of each handler since the scheduler started, in core cycles */
 struct latency
 {
-	static inline uint32_t service_call = 0; ///< @c SVC_Handler, as a whole
-	static inline uint32_t systick      = 0; ///< @c SysTick_Handler, as a whole
-	static inline uint32_t pend_sv      = 0; ///< @c PendSV_Handler, up to the choice of the next task
-	static inline uint32_t isr          = 0; ///< the longest decorated interrupt handler
+	static inline std::atomic<uint32_t> service_call = 0; ///< @c SVC_Handler, as a whole
+	static inline std::atomic<uint32_t> systick      = 0; ///< @c SysTick_Handler, as a whole
+	static inline std::atomic<uint32_t> pend_sv      = 0; ///< @c PendSV_Handler, up to the choice of the next task
+	static inline std::atomic<uint32_t> isr          = 0; ///< the longest decorated interrupt handler
 
-	/** @brief Raises @p longest to the cycles elapsed since @p entered when they are more */
-	static void record(uint32_t& longest, uint32_t entered)
+	/**
+	 * @brief Raises @p longest to the cycles elapsed since @p entered when they are more
+	 * @remark One atomic step: decorated handlers of different priorities all
+	 *         record into @c isr, and a handler preempted between its compare
+	 *         and its store would otherwise overwrite a larger maximum.
+	 */
+	static void record(std::atomic<uint32_t>& longest, uint32_t entered)
 	{
-		const uint32_t elapsed = cortex_m::cycle_count() - entered;
-		if (elapsed > longest)
-			longest = elapsed;
+		longest.fetch_max(cortex_m::cycle_count() - entered, std::memory_order_relaxed);
 	}
 };
 

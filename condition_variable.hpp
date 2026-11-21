@@ -267,7 +267,7 @@ inline void condition_variable::notify_one()
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	std::lock_guard<isr_lock> guard(notify_lock_);
+	std::lock_guard<isr_lock> _(notify_lock_);
 
 	hooks::condition_variable_notify_one(*this);
 	scheduler::wake_one(*this);
@@ -282,7 +282,7 @@ inline void condition_variable::notify_all()
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	std::lock_guard<isr_lock> guard(notify_lock_);
+	std::lock_guard<isr_lock> _(notify_lock_);
 
 	hooks::condition_variable_notify_all(*this);
 	scheduler::wake_all(*this);

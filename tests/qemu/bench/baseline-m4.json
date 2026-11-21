@@ -1,10 +1,10 @@
 {
-  "switch_ping_pong": 821,
-  "semaphore_from_isr": 442,
-  "condition_variable_from_isr": 460,
-  "queue_from_isr": 456,
-  "mutex_free": 174,
-  "mutex_contended": 529,
-  "sleep_one_tick": 213,
+  "switch_ping_pong": 838,
+  "semaphore_from_isr": 455,
+  "condition_variable_from_isr": 473,
+  "queue_from_isr": 469,
+  "mutex_free": 178,
+  "mutex_contended": 537,
+  "sleep_one_tick": 217,
   "isr_lock_round_trip": 85
 }

@@ -257,28 +257,20 @@ private:
 
 /**
  * @brief Wakes one waiting task, if any
- * @remark Synchronization is performed by locking @c notify_lock_ around the
- *         pop+wakeup pair so notifications cannot race with @c wait.
+ * @remark @c notify_lock_ keeps a notification from racing a @c wait ; the
+ *         scheduler takes the task off the list under its own level, so a
+ *         tick ending the same wait cannot land in between (see
+ *         @c scheduler::wake_one ).
  */
 inline void condition_variable::notify_one()
 {
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	{
-		std::lock_guard<isr_lock> guard(notify_lock_);
+	std::lock_guard<isr_lock> guard(notify_lock_);
 
-		hooks::condition_variable_notify_one(*this);
-
-		if (waiting_list_.empty())
-			return;
-		else
-		{
-			task_control_block& task = waiting_list_.front();
-			waiting_list_.pop_front();
-			scheduler::wake_up(task, *this);
-		}
-	}
+	hooks::condition_variable_notify_one(*this);
+	scheduler::wake_one(*this);
 }
 
 /**
@@ -290,18 +282,10 @@ inline void condition_variable::notify_all()
 	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	{
-		std::lock_guard<isr_lock> guard(notify_lock_);
+	std::lock_guard<isr_lock> guard(notify_lock_);
 
-		hooks::condition_variable_notify_all(*this);
-
-		while (!waiting_list_.empty())
-		{
-			task_control_block& task = waiting_list_.front();
-			waiting_list_.pop_front();
-			scheduler::wake_up(task, *this);
-		}
-	}
+	hooks::condition_variable_notify_all(*this);
+	scheduler::wake_all(*this);
 }
 
 /**

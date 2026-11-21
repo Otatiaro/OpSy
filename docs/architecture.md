@@ -164,7 +164,7 @@ issuing the call rather than passing them through.
 ## Service call, or just masking?
 
 Not every scheduler operation needs an `SVC`. Four of them do not —
-`wake_up`, `update_priority`, `trigger_soft_switch`, `add_task` — and
+`wake_one`, `update_priority`, `trigger_soft_switch`, `add_task` — and
 neither do `mutex::lock` / `unlock`. They all follow the same shape:
 
 ```

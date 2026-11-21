@@ -286,6 +286,51 @@ OPSY_TEST(a_member_pointer_is_held_when_non_null_and_empty_when_null)
 	CHECK(!from_none);
 }
 
+// ────────────── targets set at compile time ────────────────────────────────
+// A function or a stateless target makes a constant expression: the function
+// is held in the storage's function pointer member, the stateless target is
+// not held at all. Both must then behave as any other target: called, moved
+// out of, replaced. Each test has its own slots: tests do not run in the order
+// they are written.
+
+int twice(int x) { return 2 * x; }
+
+OPSY_TEST(a_target_set_at_compile_time_is_called)
+{
+	static constinit opsy::callback<int()> by_address = &counted;
+	static constinit opsy::callback<int(int) const> by_name = twice;
+	static constinit opsy::callback<int()> stateless = [] { return 42; };
+
+	g_free_function_calls = 0;
+	CHECK(by_address() == 1);
+	CHECK(by_name(21) == 42);
+	CHECK(stateless() == 42);
+#if defined(__cpp_lib_constant_wrapper)
+	static constinit opsy::callback<int(int) const> wrapped = std::cw<&twice>;
+	CHECK(wrapped(4) == 8);
+#endif
+}
+
+OPSY_TEST(a_target_set_at_compile_time_moves_and_is_replaced)
+{
+	static constinit opsy::callback<int()> by_address = &counted;
+	static constinit opsy::callback<int()> stateless = [] { return 42; };
+
+	opsy::callback<int()> function = std::move(by_address);
+	CHECK(!by_address);
+	g_free_function_calls = 0;
+	CHECK(function() == 1);
+
+	opsy::callback<int()> moved = std::move(stateless);
+	CHECK(!stateless);
+	CHECK(moved() == 42);
+
+	stateless = [n = 7] { return n; };
+	CHECK(stateless() == 7);
+	moved = &counted;
+	CHECK(moved() == 2);
+}
+
 OPSY_TEST(swap_exchanges_the_targets)
 {
 	opsy::callback<int()> one = [] { return 1; };

@@ -213,11 +213,28 @@ static_assert(decltype(g_queue)::capacity() == 8);
 	(void) p.masked_value<opsy::preemption_bits>();
 }
 
+void fake_handler() {}
+
+// Dispatch slots set at compile time: no dynamic initialisation.
+constinit opsy::callback<void()> g_by_address = &fake_handler;
+constinit opsy::callback<void()> g_by_name = fake_handler;
+constinit opsy::callback<void()> g_stateless = [] { fake_handler(); };
+#if defined(__cpp_lib_constant_wrapper)
+constinit opsy::callback<void()> g_wrapped = std::cw<&fake_handler>;
+#endif
+
 [[gnu::used]] void use_callback()
 {
 	opsy::callback<void(int)> cb{ [](int x){ (void) x; } };
 	cb(42);
 	if (cb) cb(7);
+
+	g_by_address();
+	g_by_name();
+	g_stateless();
+	opsy::callback<void()> moved = static_cast<opsy::callback<void()>&&>(g_stateless);
+	moved();
+	g_stateless = &fake_handler;
 }
 
 // ───────────────────── a vector table built at compile time ─────────────────
@@ -342,8 +359,9 @@ static_assert(!opsy::fault_vector_table<no_usage_fault_table, fake_on_fault>);
 
 // ──────────────────────── compile-time evaluation ──────────────────────────
 // The parts of the kernel that hold no hardware state run in a constant
-// evaluation: the intrusive list the scheduler is built on, an empty
-// callback, isr_lock reassignment, a fresh mutex.
+// evaluation: the intrusive list the scheduler is built on, callbacks (empty,
+// or built from a function or a stateless target), isr_lock reassignment, a
+// fresh mutex.
 
 namespace compile_time
 {
@@ -402,6 +420,26 @@ constexpr bool empty_callback()
 	return !unset && null == nullptr;
 }
 static_assert(empty_callback());
+
+// Callbacks called inside a constant evaluation, as code that takes one is.
+constexpr int twice(int x) { return 2 * x; }
+constexpr int apply_twice(const opsy::callback<int(int) const>& f, int x) { return f(f(x)); }
+
+static_assert(apply_twice([](int y) { return y + 1; }, 5) == 7);
+#if __cpp_constexpr >= 202306L // a cast from void* in a constant expression
+static_assert(apply_twice(&twice, 5) == 20);
+static_assert(apply_twice(twice, 5) == 20);
+#endif
+#if defined(__cpp_lib_constant_wrapper)
+static_assert(apply_twice(std::cw<&twice>, 5) == 20);
+#endif
+
+constexpr int noexcept_call()
+{
+	opsy::callback<int(int) noexcept> f = [](int y) noexcept { return y * 3; };
+	return f(14);
+}
+static_assert(noexcept_call() == 42);
 
 constexpr bool isr_lock_reassignment()
 {

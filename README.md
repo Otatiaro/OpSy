@@ -98,7 +98,7 @@ unit is `scheduler.cpp`, which holds the static state and the two ISRs
 | `critical_section.hpp` | RAII handle for task-only exclusion. |
 | `cortex_m.hpp` | Thin wrappers around the Cortex-M system registers used by the scheduler (`BASEPRI`, `PRIMASK`, `MSP`/`PSP`, NVIC, `VTOR`, ...). Useful from your own code too. |
 | `isr_priority.hpp` | `isr_priority` value type, with split between preemption and sub-priority bits. |
-| `callback.hpp` | `callback<Signature, StorageSize>`, with the interface of `std::move_only_function` -- `const`, `&`, `&&` and `noexcept` in the signature say how the target is called -- holding its target inline: no heap, no exceptions. Used by `task::start`. |
+| `callback.hpp` | `callback<Signature, StorageSize>`, with the interface of `std::move_only_function` -- `const`, `&`, `&&` and `noexcept` in the signature say how the target is called -- holding its target inline: no heap, no exceptions. Built from a function or a stateless target (a lambda without capture, `std::cw<&f>`), it is a constant expression: `constinit` dispatch slots, calls inside a constant evaluation. Used by `task::start`. |
 | `embedded_list.hpp` | Intrusive doubly-linked list used internally for the ready / waiting / timeout queues. |
 | `hooks.hpp` | Default (empty) hook callbacks. Override by providing `<opsy_hooks.hpp>` somewhere on the include path. Also `hooked_isr`, the decoration that passes a generated table's interrupt handlers through `hooks::decorate_isr`. |
 | `config.hpp` | Default configuration. Override by providing `<opsy_config.hpp>` somewhere on the include path. |

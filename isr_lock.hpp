@@ -159,10 +159,11 @@ public:
 private:
 
 	/**
-	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed, the critical section with it
+	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed
+	 * @param section The @c critical_section ownership transferred from the scheduler
 	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
 	 */
-	uint32_t relock_from_pend_sv();
+	uint32_t relock_from_pend_sv(critical_section section);
 
 	/**
 	 * @brief Release the hardware portion of the lock from a service call, leaving @c locked_ untouched
@@ -171,18 +172,9 @@ private:
 	 */
 	void release_from_service_call();
 
-	/**
-	 * @brief Closes the scheduler's critical section if this lock opened it
-	 */
-	void leave_critical_section();
-
 	bool locked_ = false;
 	isr_priority previous_lock_ = isr_priority(0);
-	// Whether lock() opened the scheduler's critical section, which unlock()
-	// then closes. A flag rather than a critical_section object: that object's
-	// destructor makes it return through memory and be moved to be destroyed,
-	// on every lock and unlock.
-	bool critical_section_ = false;
+	critical_section critical_section_;
 	std::optional<isr_priority> priority_;
 };
 
@@ -219,7 +211,7 @@ inline void isr_lock::lock()
 		else
 		{
 			if (cortex_m::ipsr() == 0) // ask for critical section only when in task
-				critical_section_ = scheduler::critical_section_begin();
+				critical_section_ = scheduler::try_critical_section();
 			else
 				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
 				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
@@ -233,7 +225,7 @@ inline void isr_lock::lock()
 	else
 	{
 		assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
-		critical_section_ = scheduler::critical_section_begin();
+		critical_section_ = scheduler::try_critical_section();
 	}
 
 	locked_ = true;
@@ -270,36 +262,28 @@ inline void isr_lock::unlock()
 			cortex_m::exchange_basepri(previous_lock_);
 #endif
 			hooks::exit_priority_lock();
-			leave_critical_section();
+			auto tmp = std::move(critical_section_);
 		}
 	}
 	else
 	{
 		assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
-		leave_critical_section();
-	}
-}
-
-inline void isr_lock::leave_critical_section()
-{
-	if (critical_section_)
-	{
-		critical_section_ = false;
-		scheduler::critical_section_end();
+		auto tmp = std::move(critical_section_);
 	}
 }
 
 /**
  * @brief Re-acquires this mutex from @c PendSV when the owning task is restarted
+ * @param section The @c critical_section ownership transferred from the scheduler
  * @return The preemption priority requested by the mutex
  * @remark Called from @c scheduler::pend_sv_handler when restoring a task that
  *         was put to sleep while holding a mutex (see @c condition_variable::wait
- *         with mutex). The scheduler opens the critical section the task held
- *         and hands it back to the mutex.
+ *         with mutex). The scheduler hands the previously-held @c critical_section
+ *         back to the mutex.
  */
-inline uint32_t isr_lock::relock_from_pend_sv()
+inline uint32_t isr_lock::relock_from_pend_sv(critical_section section)
 {
-	critical_section_ = true; // it is a task, so critical section is mandatory
+	critical_section_ = std::move(section); // it is a task, so critical section is mandatory
 
 	if (priority_.has_value())
 	{

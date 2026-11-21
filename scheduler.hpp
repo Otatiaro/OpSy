@@ -150,7 +150,6 @@ class scheduler
 	friend void sleep_for(duration t);
 	friend class task_control_block;
 	friend class critical_section;
-	friend class isr_lock;
 	friend class condition_variable;
 
 public:
@@ -342,17 +341,6 @@ public:
 	 */
 	[[nodiscard]] static inline opsy::critical_section try_critical_section()
 	{
-		return opsy::critical_section(critical_section_begin());
-	}
-
-	/**
-	 * @brief Opens the critical section, unless it is open already
-	 * @return @c true if this call opened it, and its caller has to close it with @ref critical_section_end
-	 * @remark The pair behind @ref try_critical_section , for a holder that keeps
-	 *         the state itself: @c isr_lock . Prefer the object.
-	 */
-	[[nodiscard]] static inline bool critical_section_begin()
-	{
 		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
 
 		// A single read-modify-write, not a load followed by a store: SysTick can
@@ -360,23 +348,10 @@ public:
 		// itself, after which both tasks believe they hold it and the first
 		// release clears the flag for both.
 		if (state_.critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
-			return false;
+			return opsy::critical_section(false);
 
 		hooks::enter_critical_section();
-		return true;
-	}
-
-	/**
-	 * @brief Closes the critical section @ref critical_section_begin opened
-	 * @remark Switches to the task that became ready meanwhile, if any.
-	 */
-	static void critical_section_end()
-	{
-		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
-		state_.critical_section_.store(false, std::memory_order_relaxed);
-		hooks::exit_critical_section();
-		if (state_.may_need_switch_.load(std::memory_order_relaxed))
-			trigger_soft_switch();
+		return opsy::critical_section(true);
 	}
 
 private:
@@ -610,6 +585,15 @@ private:
 	static void update_name(task_control_block& task)
 	{
 		hooks::task_name_changed(task);
+	}
+
+	static void critical_section_end()
+	{
+		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+		state_.critical_section_.store(false, std::memory_order_relaxed);
+		hooks::exit_critical_section();
+		if (state_.may_need_switch_.load(std::memory_order_relaxed))
+			trigger_soft_switch();
 	}
 };
 

@@ -582,7 +582,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		// re-acquiring one can block, which PendSV cannot do.
 		if (auto* const* held = std::get_if<isr_lock*>(&next->released_lock_))
 		{
-			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv()) << 32;
+			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv(critical_section(true))) << 32;
 			state_.critical_section_.store(true, std::memory_order_relaxed);
 			next->released_lock_ = std::monostate{};
 			hooks::mutex_restored_for_task(*next);
@@ -745,7 +745,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		{
 			assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 			(*isr)->release_from_service_call();
-			(*isr)->critical_section_ = false;
+			(*isr)->critical_section_.disable();
 			state_.critical_section_.store(false, std::memory_order_relaxed);
 			hooks::mutex_stored_for_task(*current);
 		}

@@ -298,7 +298,7 @@ public:
 	}
 
 	/** @brief Empties the callback */
-	callback& operator=(std::nullptr_t) noexcept
+	constexpr callback& operator=(std::nullptr_t) noexcept
 	{
 		reset();
 		return *this;
@@ -317,13 +317,13 @@ public:
 		return *this;
 	}
 
-	~callback()
+	constexpr ~callback()
 	{
 		reset();
 	}
 
 	/** @return @c true if it holds a target */
-	[[nodiscard]] explicit operator bool() const noexcept
+	[[nodiscard]] constexpr explicit operator bool() const noexcept
 	{
 		return operations_ != nullptr;
 	}
@@ -340,7 +340,7 @@ public:
 		left.swap(right);
 	}
 
-	friend bool operator==(const callback& function, std::nullptr_t) noexcept
+	friend constexpr bool operator==(const callback& function, std::nullptr_t) noexcept
 	{
 		return !function;
 	}
@@ -370,7 +370,7 @@ private:
 		from.operations_ = nullptr;
 	}
 
-	void reset() noexcept
+	constexpr void reset() noexcept
 	{
 		if (operations_ != nullptr && operations_->destroy != nullptr)
 			operations_->destroy(storage_);

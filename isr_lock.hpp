@@ -103,7 +103,7 @@ public:
 	 * @return A reference to @c this
 	 * @warning The current @c isr_lock must NOT be locked before being assigned
 	 */
-	isr_lock& operator=(isr_lock&& from)
+	constexpr isr_lock& operator=(isr_lock&& from)
 	{
 		assert(!locked_); // trying to override a locked mutex !
 		locked_ = from.locked_;

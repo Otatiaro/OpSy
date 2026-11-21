@@ -128,7 +128,7 @@ public:
 	 *        pathological inputs (raw int16 counts, runaway sample
 	 *        counts).
 	 */
-	void feed(const utility::vector<3, T>& sample)
+	constexpr void feed(const utility::vector<3, T>& sample)
 	{
 		const T x = sample.x();
 		const T y = sample.y();
@@ -217,7 +217,7 @@ public:
 	 *        rejected fit that got persisted would survive a reboot and
 	 *        silently corrupt every later reading.
 	 */
-	[[nodiscard]] std::optional<magnetometer_calibration<T>> fit() const
+	[[nodiscard]] constexpr std::optional<magnetometer_calibration<T>> fit() const
 	{
 		if (count_ < minimum_samples)
 			return std::nullopt;
@@ -313,7 +313,7 @@ public:
 	 *        Useful when starting a fresh calibration session without
 	 *        re-allocating the object.
 	 */
-	void reset()
+	constexpr void reset()
 	{
 		dtd_   = utility::matrix<9, 9, T>{};
 		sums_  = utility::vector<9, T>{};
@@ -333,7 +333,7 @@ private:
 	 *        rarely — only when accumulators have grown across many
 	 *        orders of magnitude — so the cost is amortised.
 	 */
-	void rescale_if_saturating()
+	constexpr void rescale_if_saturating()
 	{
 		T max_abs = T{0};
 		for (std::size_t i = 0; i < 9; ++i)
@@ -371,7 +371,7 @@ private:
 	 *        9x9 determinant to predict it.
 	 */
 	template<std::size_t N>
-	static bool all_finite(const utility::vector<N, T>& v)
+	static constexpr bool all_finite(const utility::vector<N, T>& v)
 	{
 		for (std::size_t i = 0; i < N; ++i)
 			if (!std::isfinite(v[i]))
@@ -380,7 +380,7 @@ private:
 	}
 
 	template<std::size_t Rows, std::size_t Cols>
-	static bool all_finite(const utility::matrix<Rows, Cols, T>& m)
+	static constexpr bool all_finite(const utility::matrix<Rows, Cols, T>& m)
 	{
 		for (std::size_t i = 0; i < Rows; ++i)
 			for (std::size_t j = 0; j < Cols; ++j)

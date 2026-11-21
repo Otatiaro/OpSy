@@ -34,6 +34,8 @@ constexpr bool near(float a, float b, float tolerance = 1e-5f)
 	return a - b < tolerance && b - a < tolerance;
 }
 
+constexpr float quarter_turn = 1.5707963f;
+
 // ────────────────────────── trivially copyable ────────────────────────────
 // vector / matrix / quaternion must be trivially copyable so callers can
 // memcpy them into non-volatile storage (EEPROM-backed structs, flash
@@ -498,8 +500,8 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	(void) m.row(0);
 	(void) m.col(1);
 
-	// Eigen decomposition — runtime only (uses sqrt / hypot, neither
-	// constexpr in C++23).
+	// Eigen decomposition at run time; the compile-time checks follow this
+	// function.
 	//
 	// 2x2 with eigenvalues 1 and 3, identity-ish path.
 	const matrix<2, 2> m_sym2{
@@ -543,6 +545,22 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	};
 	(void) m_sym5.eigenvalues();
 }
+
+// The eigen decomposition at compile time. It goes through std::sqrt and
+// std::hypot, which GCC folds in a constant expression; libstdc++ does not
+// advertise __cpp_lib_constexpr_cmath yet, so this check is GCC-specific.
+constexpr opsy::utility::matrix<3, 3> m_eigen{
+	2.0f, 1.0f, 0.0f,
+	1.0f, 2.0f, 0.0f,
+	0.0f, 0.0f, 5.0f
+};
+constexpr auto m_eigenvalues = m_eigen.eigenvalues();
+static_assert(near(m_eigenvalues[0], 1.0f, 1e-4f)
+	&& near(m_eigenvalues[1], 3.0f, 1e-4f)
+	&& near(m_eigenvalues[2], 5.0f, 1e-4f));
+constexpr auto m_eigen_decomposition = m_eigen.symmetric_eigen_decomposition();
+static_assert(near(m_eigen_decomposition.values[2], 5.0f, 1e-4f));
+static_assert(near(m_eigen_decomposition.vectors(2, 2) * m_eigen_decomposition.vectors(2, 2), 1.0f, 1e-4f));
 
 // ============================ ellipsoid_fit ==============================
 // Online magnetometer calibration. Compile-only smoke: feed a handful of
@@ -596,10 +614,34 @@ static_assert(m_squared == opsy::utility::matrix<2, 2>{1.0f, 4.0f, 9.0f, 16.0f})
 	static_assert(std::is_trivially_copyable_v<magnetometer_calibration<double>>);
 }
 
+// The whole calibration at compile time: 14 points on a sphere of radius 2
+// centred on (1, -1, 0.5), the six axis directions and the eight cube
+// corners. fit() must find the centre.
+constexpr auto compile_time_calibration = [] {
+	using opsy::utility::vector;
+	opsy::algorithms::ellipsoid_fit<float> fit;
+	const float s = 2.0f / 1.7320508f;
+	const vector<3> centre{1.0f, -1.0f, 0.5f};
+	const vector<3> points[] = {
+		{ 2.0f, 0.0f, 0.0f}, {-2.0f, 0.0f, 0.0f},
+		{ 0.0f, 2.0f, 0.0f}, { 0.0f, -2.0f, 0.0f},
+		{ 0.0f, 0.0f, 2.0f}, { 0.0f, 0.0f, -2.0f},
+		{ s,  s,  s}, { s,  s, -s}, { s, -s,  s}, { s, -s, -s},
+		{-s,  s,  s}, {-s,  s, -s}, {-s, -s,  s}, {-s, -s, -s}};
+	for (const auto& p : points)
+		fit.feed(p + centre);
+	return fit.fit();
+}();
+static_assert(compile_time_calibration.has_value());
+static_assert(near(compile_time_calibration->hard_iron.x(), 1.0f, 1e-3f)
+	&& near(compile_time_calibration->hard_iron.y(), -1.0f, 1e-3f)
+	&& near(compile_time_calibration->hard_iron.z(), 0.5f, 1e-3f));
+
 // ============================== quaternion ==============================
 // hamilton_product, conjugate, inverse and rotate(v3, q) are constexpr
-// (no transcendental). from_axis_angle and slerp call sin/cos/acos so
-// they only get exercised at runtime via [[gnu::used]].
+// (no transcendental). The constructors from a rotation vector and from two
+// vectors, roll / pitch / yaw, from_axis_angle and slerp call sin / cos /
+// atan2 / acos: their compile-time checks rely on GCC folding <cmath>.
 
 constexpr auto q_id = opsy::utility::identity_quaternion<float>();
 static_assert(q_id.x() == 0.0f && q_id.y() == 0.0f && q_id.z() == 0.0f && q_id.w() == 1.0f);
@@ -636,6 +678,25 @@ static_assert(v_unchanged == v_x);
 // operator* equivalents — same numeric result as the named free functions.
 static_assert((q_id * q_arb)   == q_arb);
 static_assert((q_180_z * v_x) == v_rotated);
+
+// A quarter turn about z, built three ways, reads back as yaw = pi/2 and
+// takes x onto y.
+constexpr opsy::utility::quaternion<float> q_from_rotation_vector{opsy::utility::vector<3>{0.0f, 0.0f, quarter_turn}};
+static_assert(near(q_from_rotation_vector.yaw(), quarter_turn)
+	&& near(q_from_rotation_vector.roll(), 0.0f)
+	&& near(q_from_rotation_vector.pitch(), 0.0f));
+static_assert(near((q_from_rotation_vector * v_x).y(), 1.0f));
+constexpr opsy::utility::quaternion<float> q_x_to_y{v_x, opsy::utility::vector<3>{0.0f, 1.0f, 0.0f}};
+static_assert(near(q_x_to_y.yaw(), quarter_turn, 1e-4f));
+constexpr auto q_axis_angle = opsy::utility::from_axis_angle(opsy::utility::vector<3>{0.0f, 0.0f, 1.0f}, quarter_turn);
+static_assert(near(q_axis_angle.yaw(), quarter_turn, 1e-4f));
+
+// Opposite vectors: the half-turn branch.
+constexpr opsy::utility::quaternion<float> q_x_to_minus_x{v_x, opsy::utility::vector<3>{-1.0f, 0.0f, 0.0f}};
+static_assert(near(q_x_to_minus_x.w(), 0.0f));
+
+// Halfway between identity and a quarter turn is an eighth of a turn.
+static_assert(near(opsy::utility::slerp(q_id, q_axis_angle, 0.5f).yaw(), quarter_turn / 2.0f, 1e-4f));
 
 // Element-wise ops on the underlying vector.
 static_assert((q_arb + q_arb).x() == 0.2f);

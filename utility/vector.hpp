@@ -510,7 +510,7 @@ constexpr auto operator*(const T& factor, const vector<N, T>& v)
  * @return The image of v by the rotation of angle radian
  */
 template<typename T>
-auto rotate(const vector<2, T>& v, T angle) -> vector<2, T>
+constexpr auto rotate(const vector<2, T>& v, T angle) -> vector<2, T>
 {
 	auto sin = std::sin(angle);
 	auto cos = std::cos(angle);

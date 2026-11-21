@@ -340,6 +340,87 @@ struct no_usage_fault_table
 
 static_assert(!opsy::fault_vector_table<no_usage_fault_table, fake_on_fault>);
 
+// ──────────────────────── compile-time evaluation ──────────────────────────
+// The parts of the kernel that hold no hardware state run in a constant
+// evaluation: the intrusive list the scheduler is built on, an empty
+// callback, isr_lock reassignment, a fresh mutex.
+
+namespace compile_time
+{
+
+struct item : opsy::embedded_node<item>
+{
+	int priority;
+	constexpr explicit item(int p) : priority(p) {}
+};
+
+constexpr bool by_priority(const item& a, const item& b) { return a.priority < b.priority; }
+
+// Sorted insertion, iteration, erase and pop, as the scheduler uses them.
+constexpr int sorted_insertion()
+{
+	item a{ 3 }, b{ 1 }, c{ 4 }, d{ 2 };
+	opsy::embedded_list<item> list;
+	list.insert_when(by_priority, a);
+	list.insert_when(by_priority, b);
+	list.insert_when(by_priority, c);
+	list.insert_when(by_priority, d);
+	int order = 0;
+	for (const item& i : list)
+		order = order * 10 + i.priority;
+	list.erase(a);
+	list.pop_front();
+	order = order * 100 + static_cast<int>(list.size()) * 10 + list.front().priority;
+	list.clear();
+	return order;
+}
+static_assert(sorted_insertion() == 123422);
+
+// The const iterator and the move constructor.
+constexpr int moved_list()
+{
+	item a{ 3 }, b{ 1 };
+	opsy::embedded_list<item> list;
+	list.push_front(a);
+	list.push_front(b);
+	const auto& view = list;
+	int sum = 0;
+	for (const item& i : view)
+		sum += i.priority;
+	opsy::embedded_list<item> moved{ static_cast<opsy::embedded_list<item>&&>(list) };
+	sum += static_cast<int>(moved.size()) * 100;
+	moved.clear();
+	return sum;
+}
+static_assert(moved_list() == 204);
+
+constexpr bool empty_callback()
+{
+	opsy::callback<void()> unset;
+	opsy::callback<void()> null = nullptr;
+	null = nullptr;
+	return !unset && null == nullptr;
+}
+static_assert(empty_callback());
+
+constexpr bool isr_lock_reassignment()
+{
+	opsy::isr_lock with_priority{ opsy::isr_priority{ 0x80 } };
+	opsy::isr_lock lock;
+	lock = static_cast<opsy::isr_lock&&>(with_priority);
+	return lock.priority().has_value();
+}
+static_assert(isr_lock_reassignment());
+
+constexpr bool fresh_mutex_is_free()
+{
+	const opsy::mutex m;
+	return !m.is_locked();
+}
+static_assert(fresh_mutex_is_free());
+
+} // namespace compile_time
+
 // ─────────────────────────── opsy::fault_status ────────────────────────────
 // The decoder, on values written by hand from the ARMv7-M / ARMv8-M reference
 // manuals: each predicate reads its own bit and no other.

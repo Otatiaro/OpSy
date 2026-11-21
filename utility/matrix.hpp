@@ -649,7 +649,7 @@ public:
 	 *
 	 * @pre   The matrix must be symmetric (asserted in debug).
 	 */
-	[[nodiscard]] vector<Rows, T> eigenvalues() const requires (Rows == Cols && Rows >= 2);
+	[[nodiscard]] constexpr vector<Rows, T> eigenvalues() const requires (Rows == Cols && Rows >= 2);
 
 	/**
 	 * @brief Returns the eigenvalues and eigenvectors of this real
@@ -663,7 +663,7 @@ public:
 	 *
 	 * @pre   The matrix must be symmetric (asserted in debug).
 	 */
-	[[nodiscard]] eigen_decomposition_t symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2);
+	[[nodiscard]] constexpr eigen_decomposition_t symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2);
 
 private:
 
@@ -739,7 +739,7 @@ namespace detail
 {
 
 template<std::size_t N, typename T>
-void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+constexpr void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 {
 	for (std::size_t j = 0; j < N; ++j)
 		d[j] = V(N - 1, j);
@@ -847,7 +847,7 @@ void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 }
 
 template<std::size_t N, typename T>
-void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+constexpr void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 {
 	// Shift e so e[i] holds the off-diagonal between rows i and i+1.
 	for (std::size_t i = 1; i < N; ++i)
@@ -963,7 +963,7 @@ void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 }  // namespace detail
 
 template<std::size_t Rows, std::size_t Cols, typename T>
-vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (Rows == Cols && Rows >= 2)
+constexpr vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (Rows == Cols && Rows >= 2)
 {
 	assert(*this == this->transposed());
 
@@ -976,7 +976,7 @@ vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (Rows == Col
 }
 
 template<std::size_t Rows, std::size_t Cols, typename T>
-typename matrix<Rows, Cols, T>::eigen_decomposition_t
+constexpr typename matrix<Rows, Cols, T>::eigen_decomposition_t
 matrix<Rows, Cols, T>::symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2)
 {
 	assert(*this == this->transposed());

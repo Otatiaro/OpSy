@@ -62,6 +62,8 @@ enum class scenario : uint8_t
 	mutex_contended,             ///< other holds it, driver blocks and inherits, other unlocks
 	sleep_one_tick,              ///< from the SysTick that ends the sleep to sleep_for() returning
 	isr_lock_round_trip,         ///< lock() and unlock() of an isr_lock from a task
+	release_no_switch,           ///< driver releases what a lower task waits on: it becomes ready, nobody switches
+	release_past_eight,          ///< the same, with eight tasks above the woken one already ready: the insertion walks past them
 	count
 };
 
@@ -77,6 +79,8 @@ constexpr const char* name(scenario s)
 	case scenario::mutex_contended:             return "mutex_contended";
 	case scenario::sleep_one_tick:              return "sleep_one_tick";
 	case scenario::isr_lock_round_trip:         return "isr_lock_round_trip";
+	case scenario::release_no_switch:           return "release_no_switch";
+	case scenario::release_past_eight:          return "release_past_eight";
 	default:                                    return "?";
 	}
 }
@@ -147,6 +151,11 @@ opsy::idle_task<256> g_idle;
 opsy::binary_semaphore g_other_go{0};  ///< driver → other: your turn
 opsy::binary_semaphore g_driver_go{0}; ///< other → driver: done
 
+/** @brief Eight tasks with nothing to do but be ready, for the scenario that walks the ready list past them */
+constexpr std::size_t          fillers = 8;
+opsy::task<256>                g_fillers[fillers];
+opsy::counting_semaphore<fillers> g_filler_go{0}; ///< driver → fillers: all of you, be ready
+
 opsy::binary_semaphore   g_semaphore{0};
 opsy::isr_lock           g_lock{opsy::scheduler::os_callable_priority};
 opsy::condition_variable g_condition{opsy::scheduler::os_callable_priority};
@@ -210,6 +219,8 @@ void other()
 		switch (g_pending)
 		{
 		case scenario::switch_ping_pong:
+		case scenario::release_no_switch:
+		case scenario::release_past_eight:
 			g_driver_go.release();
 			break;
 
@@ -305,6 +316,28 @@ void driver()
 			std::lock_guard guard{g_lock};
 		}
 		end<scenario::isr_lock_round_trip>();
+	});
+
+	run<scenario::release_no_switch>([] {
+		begin<scenario::release_no_switch>();
+		g_other_go.release();    // other becomes ready; it is lower, nobody switches
+		end<scenario::release_no_switch>();
+		g_driver_go.acquire();   // let it take its turn
+		opsy::sleep_for(1ms);    // and get back into its acquire: we preempted it inside its release
+	});
+
+	// Above other, below us: the woken other is inserted behind all eight, and
+	// none of them runs before we block.
+	for (auto& filler : g_fillers)
+		filler.priority(opsy::task_priority::normal);
+
+	run<scenario::release_past_eight>([] {
+		g_filler_go.release(fillers); // eight ready tasks, none above us
+		begin<scenario::release_past_eight>();
+		g_other_go.release();         // other goes behind the eight
+		end<scenario::release_past_eight>();
+		g_driver_go.acquire();        // the eight each take a turn and block again, then other
+		opsy::sleep_for(1ms);         // see release_no_switch
 	});
 
 	// The report. Cycles are what a board gives; under QEMU every figure is 0
@@ -452,6 +485,8 @@ int opsy_test_main()
 
 	(void) bench::g_driver.start([] { bench::driver(); }, "driver");
 	(void) bench::g_other.start([] { bench::other(); }, "other");
+	for (auto& filler : bench::g_fillers)
+		(void) filler.start([] { while (true) bench::g_filler_go.acquire(); }, "filler");
 
 	opsy::scheduler::start(bench::g_idle);
 }

@@ -187,7 +187,9 @@ deadline, `sleep_until` with one, a terminated task left linked into
 marker functions, `bench::begin<S>()` and `bench::end<S>()`. A task woken
 from an interrupt handler through a semaphore, a condition variable and a
 queue; a task-to-task switch; a mutex with and without contention; a sleep
-ended by the tick; an `isr_lock` round trip. Two instruments read the same
+ended by the tick; an `isr_lock` round trip; a release that wakes a lower
+task without switching, alone and with eight ready tasks to walk past. Two
+instruments read the same
 image. Under QEMU, which does not model cycles,
 [`bench/profile.py`](qemu/bench/profile.py) runs it with
 one instruction per translation block (`-accel tcg,one-insn-per-tb=on -d exec,nochain`), counts the instructions executed between the

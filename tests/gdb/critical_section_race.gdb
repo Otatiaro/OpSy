@@ -2,9 +2,10 @@
 #
 # WHY THIS EXISTS
 #
-# scheduler::try_critical_section claims a single flag, critical_section_, and
-# returns an object that says whether the claim succeeded; only the successful
-# claimant releases the flag when its object goes out of scope.
+# scheduler::critical_section_begin claims a single flag, critical_section_,
+# and returns whether the claim succeeded; only the successful claimant
+# releases the flag, with critical_section_end, from isr_lock::unlock or from
+# the destructor of the object try_critical_section wraps the claim in.
 #
 # Reading the flag and then writing it would be two separate steps, and the
 # scheduler runs from SysTick, which can land between them. Task A reads 0,
@@ -39,18 +40,13 @@
 # nothing to notice, would overwrite the competing claim, and would report
 # success -- which is the failure this scenario reports.
 #
-# The result is read at the instruction try_critical_section returns to -- an
-# address taken from the caller's stack frame on entry. Reading anywhere
+# The result is read at the instruction critical_section_begin returns to --
+# an address taken from the caller's stack frame on entry. Reading anywhere
 # earlier would report whatever inner call last returned, not the claim.
 #
-# It is read *through* r0 rather than from it. The object returned owns the
-# section and releases it when destroyed, so it has a destructor, and the ARM
-# calling convention returns such a type in memory: the caller passes the
-# address of the storage in r0 and gets that same address back in r0. So r0
-# holds where the result is, and the byte it points at is the result -- true
-# when the claim was granted. Reading r0 itself would read the low bit of an
-# address, which is 0 on any aligned object, and would report a refusal
-# whatever the code did.
+# It is a bool, so the ARM calling convention returns it in r0: 1 when the
+# claim was granted. Anything but 0 or 1 there means the convention was not
+# what this scenario assumes, and the check says so rather than read on.
 #
 # This scenario leaves critical_section_ set with nobody owning it, so it is
 # the last thing it does -- the image is killed rather than resumed.
@@ -67,7 +63,7 @@ break opsy_test_main
 continue
 delete
 
-break opsy::scheduler::try_critical_section
+break opsy::scheduler::critical_section_begin
 continue
 delete
 
@@ -86,7 +82,7 @@ if *(unsigned char *)$flag_addr != 0
   kill
 end
 
-printf "INFO entered try_critical_section with critical_section_ free\n"
+printf "INFO entered critical_section_begin with critical_section_ free\n"
 
 # Stop on the load half of the read-modify-write.
 rwatch *(unsigned char *)$flag_addr
@@ -103,20 +99,17 @@ printf "INFO wrote critical_section_=1, as a competing claimant would\n"
 tbreak *$caller
 continue
 
-# Guard against reading through something that is not the result's address:
-# without it a wrong assumption about the calling convention would quietly
-# read a byte of whatever r0 happened to hold, and report a pass either way.
-set $result_addr = $r0
-set $ram_low = (((unsigned long)&'opsy::scheduler::state_' + 19)) & 0xfff00000
-set $addressable = ($result_addr >= $ram_low) && ($result_addr < $ram_low + 0x00100000)
+# Guard against reading something that is not the result: a wrong assumption
+# about the calling convention would otherwise read whatever r0 happened to
+# hold, and report a pass or a failure either way.
+set $granted = $r0
 
-if $addressable == 0
-  printf "CHECK the result was not returned where the calling convention says (r0=0x%x)\n", $result_addr
+if $granted != 0 && $granted != 1
+  printf "CHECK the result was not returned where the calling convention says (r0=0x%x)\n", $granted
   printf "SCENARIO: FAIL\n"
   kill
 end
 
-set $granted = *(unsigned char *)$result_addr
 printf "CHECK claim granted after a competing write: %d (expected 0)\n", $granted
 printf "CHECK critical_section_ still held by the competitor: %d (expected 1)\n", *(unsigned char *)$flag_addr
 

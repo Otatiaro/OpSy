@@ -940,9 +940,9 @@ public:
 	 * @param priority The new @c isr_priority to set @c BASEPRI register to
 	 * @return The previous value of @c BASEPRI register
 	 * @remark The new mask is in effect when this returns: the @c isb is what
-	 *         makes that so when the mask is lowered. Use it to raise the mask,
-	 *         and to lower it where the next instruction must see a pending
-	 *         interrupt served; @ref restore_basepri lowers it without waiting.
+	 *         makes that so when the mask is lowered. Use it to lower the mask
+	 *         where the next instruction must see a pending interrupt served;
+	 *         everywhere else, @ref exchange_basepri .
 	 */
 	static inline isr_priority set_basepri(isr_priority priority = isr_priority(0)) __attribute__((always_inline))
 	{
@@ -958,20 +958,21 @@ public:
 	}
 
 	/**
-	 * @brief Sets the @c BASEPRI register value back to a previous one, without a barrier
-	 * @param priority The @c isr_priority to set @c BASEPRI register to, as @ref set_basepri returned it
+	 * @brief Sets the @c BASEPRI register value, and gets back its previous value, without a barrier
+	 * @param priority The new @c isr_priority to set @c BASEPRI register to
 	 * @return The value of @c BASEPRI register this replaced
-	 * @remark For lowering the mask. The ARMv7-M ARM, B5.2.3, only guarantees
-	 *         a decrease to be visible to instructions executed after an @c isb ,
-	 *         an exception entry or an exception return; on every Cortex-M the
-	 *         interrupt the lowering lets in is taken within an instruction or
-	 *         two, and nothing here waits for it. CMSIS @c __set_BASEPRI has no
-	 *         barrier either. When the next instruction must see the interrupt
-	 *         served -- the caller suspended itself and resumes owning something,
-	 *         or spins on what the interrupt changes -- lower with
-	 *         @ref set_basepri instead.
+	 * @remark For raising the mask, and for lowering it back. The ARMv7-M ARM,
+	 *         B5.2.3: an increase of the execution priority takes effect on the
+	 *         next instruction; a decrease is only guaranteed visible to
+	 *         instructions executed after an @c isb , an exception entry or an
+	 *         exception return -- on every Cortex-M the interrupt the lowering
+	 *         lets in is taken within an instruction or two, and nothing here
+	 *         waits for it. CMSIS @c __set_BASEPRI has no barrier either. When
+	 *         the next instruction must see the interrupt served -- the caller
+	 *         suspended itself and resumes owning something, or spins on what
+	 *         the interrupt changes -- lower with @ref set_basepri instead.
 	 */
-	static inline isr_priority restore_basepri(isr_priority priority) __attribute__((always_inline))
+	static inline isr_priority exchange_basepri(isr_priority priority) __attribute__((always_inline))
 	{
 		uint32_t result;
 		asm volatile(

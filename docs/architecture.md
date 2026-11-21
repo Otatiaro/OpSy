@@ -126,8 +126,8 @@ to do anything while a critical section is held, recording
         ┌──────────────┐   do_switch picks it   ┌─────▼──────┐
         │   ready_     │───────────────────────►│  running   │
         │ (runnable,   │◄───────────────────────│ current_   │
-        │  by priority)│   preempted, or its    │   task_    │
-        └──────┬───────┘   time slice ends      └─────┬──────┘
+        │  by priority)│   preempted, or an     │   task_    │
+        └──────┬───────┘   equal's turn          └─────┬──────┘
                │                                      │
                │  notify / timeout expiry             │ sleep_for
                │                                      │ cv.wait

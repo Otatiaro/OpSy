@@ -452,13 +452,33 @@ private:
 	static void resume_waiter(task_control_block& task);
 
 	/**
-	 * @brief Wakes @p task , which @p initiator was notified for: clears its
-	 *        wait and timeout, sets its return value, and asks for a switch
-	 *        when it outranks what runs
-	 * @remark The caller has already taken the task off the condition's
-	 *         waiting list; this does not touch that list.
+	 * @brief Wakes the first task waiting on @p condition , if any, and asks
+	 *        for a switch when it outranks what runs
+	 * @remark Choosing the task and taking it off the waiting list happen
+	 *         under OpSy's own level, masked here: the caller holds the
+	 *         condition's lock, which masks the handlers that may call OpSy
+	 *         but not SysTick, where a wait's deadline expires. A tick landing
+	 *         between the two would see a task whose deadline passed and make
+	 *         it ready, then this would make it ready a second time: a node
+	 *         linked into a list twice points at itself, and the next
+	 *         insertion walks it forever. tests/gdb/timeout_notify_race.gdb
+	 *         puts the tick there.
 	 */
-	static void wake_up(task_control_block& task, condition_variable& initiator);
+	static void wake_one(condition_variable& condition);
+
+	/**
+	 * @brief Wakes every task waiting on @p condition , under the same mask as @ref wake_one
+	 */
+	static void wake_all(condition_variable& condition);
+
+	/**
+	 * @brief Ends @p task 's wait on @p condition with @c no_timeout : clears
+	 *        the wait and its deadline, and puts the task back where it
+	 *        belongs
+	 * @remark Under OpSy's own level, the task already off the waiting list.
+	 *         Does not ask for the switch: the callers do, once.
+	 */
+	static void wake(task_control_block& task, condition_variable& condition);
 
 	/**
 	 * @brief Highest-priority task currently blocked on @p m , or @c nullptr

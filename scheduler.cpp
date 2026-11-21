@@ -125,7 +125,7 @@ inline void scheduler::systick_handler()
 		if(task.waiting_ != nullptr)
 		{
 			task.waiting_->remove_waiting(task);
-			task.waiting_ = nullptr; // the task no longer waits on it -- see wake_up, which does the same
+			task.waiting_ = nullptr; // the task no longer waits on it -- see wake, which does the same
 			task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
 		}
 
@@ -295,13 +295,10 @@ void __attribute__((section(".text.opsy.resumewaiter"))) scheduler::resume_waite
 	hooks::task_ready(task);
 }
 
-void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_control_block& task, [[maybe_unused]] condition_variable& condition)
+void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variable& condition)
 {
-	auto previous = cortex_m::set_basepri(service_call_priority); // get a lock up to service call
 	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
-	// The caller took the task off the condition's waiting list already:
-	// notify_one() and notify_all() pop it from the front before coming here.
 	task.waiting_ = nullptr;
 	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
 
@@ -312,8 +309,39 @@ void __attribute__((section(".text.opsy.wakeup"))) scheduler::wake_up(task_contr
 	}
 
 	resume_waiter(task); // may block on the mutex instead of becoming runnable
-	do_switch(); // ask for a switch if needed (released a task with higher priority)
-	cortex_m::set_basepri(previous); // and restore the basepri to its previous value
+}
+
+void __attribute__((section(".text.opsy.wakeone"))) scheduler::wake_one(condition_variable& condition)
+{
+	auto previous = cortex_m::set_basepri(service_call_priority); // SysTick included: a deadline may not expire between the pop and the wake
+
+	if (!condition.waiting_list_.empty())
+	{
+		auto& task = condition.waiting_list_.front();
+		condition.waiting_list_.pop_front();
+		wake(task, condition);
+		do_switch(); // ask for a switch if needed (released a task with higher priority)
+	}
+
+	cortex_m::set_basepri(previous);
+}
+
+void __attribute__((section(".text.opsy.wakeall"))) scheduler::wake_all(condition_variable& condition)
+{
+	auto previous = cortex_m::set_basepri(service_call_priority); // see wake_one
+
+	if (!condition.waiting_list_.empty())
+	{
+		do
+		{
+			auto& task = condition.waiting_list_.front();
+			condition.waiting_list_.pop_front();
+			wake(task, condition);
+		} while (!condition.waiting_list_.empty());
+		do_switch(); // once: the highest of everything made ready wins
+	}
+
+	cortex_m::set_basepri(previous);
 }
 
 void __attribute__((section(".text.opsy.takemutex"))) scheduler::take_mutex(mutex& m, task_control_block& task)
@@ -729,7 +757,7 @@ void __attribute__((section(".text.opsy.isr.svc_handler"))) scheduler::service_c
 		// Pre-set stack_pointer_ so set_return_value() is safe if an ISR tail-chains
 		// before PendSV saves the context. PendSV will save context (and fp_context
 		// when the FPU was active) below 'frame'; computing that address here lets
-		// wake_up() → set_return_value() navigate to stack_frame::r0 correctly regardless
+		// wake() → set_return_value() navigate to stack_frame::r0 correctly regardless
 		// of whether PendSV has already run.
 		{
 			auto* sp = reinterpret_cast<task_control_block::stack_item*>(frame)

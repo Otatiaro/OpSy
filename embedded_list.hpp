@@ -647,6 +647,16 @@ public:
 	}
 
 	/**
+	 * @brief Gets the first @c Item in the @c embedded_list
+	 * @return The first @c Item in the @c embedded_list
+	 */
+	const Item& front() const
+	{
+		assert(!empty());
+		return *first_;
+	}
+
+	/**
 	 * @brief Removes an item from the @c embedded_list
 	 * @param item The @c Item to remove from the @c embedded_list
 	 * @return An @c embedded_iterator pointing to the @c Item that was just after the removed @c Item

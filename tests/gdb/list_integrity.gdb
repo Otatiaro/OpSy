@@ -38,8 +38,8 @@
 # bytes in. Its elements are task_control_block objects, and each list uses a
 # different pair of link fields inside them -- a task can be in several lists
 # at once, so it carries one pair per list it can belong to. Which pair
-# belongs to which list is a matter of layout, and the layout is not in the
-# image: the scheduler's static members carry no type information there.
+# belongs to which list is a matter of layout, and the scenario states that
+# layout: the lists are read through casts at fixed offsets, not by type.
 #
 # So rather than hard-coding offsets that a change to the task's declaration
 # would silently invalidate, the scenario finds each list's pair by trying

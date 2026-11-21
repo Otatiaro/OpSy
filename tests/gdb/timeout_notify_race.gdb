@@ -35,8 +35,8 @@
 #
 # The verdict is the number of tasks in ready_, read from the list's size
 # field after wake_one returns. The waiter belongs there exactly once. The
-# scheduler's static members carry no type information, so the field is read
-# through a cast: the size follows the head pointer.
+# field is read through a cast at its offset, not by type: the size follows
+# the head pointer.
 #
 # The image is killed rather than resumed: a list with a node linked twice is
 # not worth running on.

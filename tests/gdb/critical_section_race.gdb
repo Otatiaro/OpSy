@@ -28,7 +28,7 @@
 # WHAT YOU NEED TO KNOW TO READ IT
 #
 # critical_section_ is a one-byte flag in the image's data, read through a
-# cast because the scheduler's static members carry no type information there.
+# cast at its address, not by type, like every scheduler static here.
 #
 # rwatch stops the CPU on a read of that byte -- so, on the load half of the
 # read-modify-write, before the store half has run. That is exactly the window

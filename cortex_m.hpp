@@ -977,7 +977,8 @@ public:
 		uint32_t result;
 		asm volatile(
 				"mrs %[output], basepri \n\t"
-				"msr basepri, %[input]"
+				"msr basepri, %[input] \n\t"
+				"isb" // probe: the barrier of set_basepri, both ways, to tell whether the isb-less raise of #33 is what a project saw
 				: [output] "=&r" (result)
 				: [input] "r" (priority.value())
 				: "memory");

@@ -439,7 +439,10 @@ Between a task's `start()` and `scheduler::start()` the task exists and
 is queued, and nothing runs yet. Its priority and its name can be set
 there, and `scheduler::start()` picks the ready list as those calls left
 it; what needs a running scheduler -- `kill()`, `sleep_for`, taking a lock
-that may block -- waits for a task to call it from.
+that may block -- waits for a task to call it from. `scheduler::is_started()`
+says which side of the line a program is on, and `kill()` asserts on it in
+a debug build: the service call it issues has no handler of OpSy's to land
+in before start.
 
 The reason is `main()` itself. C++ forbids calling it from the program and
 giving it C linkage, so a C++ `Reset_Handler` cannot call it: the function

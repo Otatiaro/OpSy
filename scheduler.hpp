@@ -249,7 +249,7 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed));
+		assert(is_started());
 		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
@@ -260,7 +260,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed)
+		assert(is_started()
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 
 		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
@@ -333,6 +333,20 @@ public:
 			.value_or(cortex_m::lowest_priority)
 			.masked_value<preemption_bits>()
 			>= os_callable_priority.masked_value<preemption_bits>();
+	}
+
+	/**
+	 * @brief Whether @c scheduler::start has handed the core to its tasks
+	 * @return @c true once the first context switch is pended, @c false before
+	 * @remark What may be done to a task before that -- start it, set its
+	 *         priority or its name -- is in the README, under starting up.
+	 *         The rest of the API asserts on this: before start there is no
+	 *         task to switch from, and the service call a @c kill or a sleep
+	 *         issues has no handler of OpSy's to land in.
+	 */
+	[[nodiscard]] static inline bool is_started()
+	{
+		return state_.is_started_.load(std::memory_order_relaxed);
 	}
 
 	/**
@@ -447,7 +461,7 @@ private:
 			cortex_m::exchange_basepri(previous);
 		}
 
-		if(state_.is_started_.load(std::memory_order_relaxed))
+		if(is_started())
 			trigger_soft_switch();
 	}
 

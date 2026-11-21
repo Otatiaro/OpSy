@@ -25,7 +25,7 @@ constinit embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 			|| running == cortex_m::core_type::m7
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
-	assert(!state_.is_started_.load(std::memory_order_relaxed));
+	assert(!is_started());
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
@@ -121,7 +121,7 @@ inline void scheduler::systick_handler()
 
 bool scheduler::do_switch()
 {
-	assert(state_.is_started_.load(std::memory_order_relaxed));
+	assert(is_started());
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
 	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
 	assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
@@ -526,7 +526,7 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	// Before the scheduler starts the lists are kept in order for start to
 	// pick from, and that is all: there is no task to preempt, and the PendSV a
 	// switch pends has no handler of OpSy's to land in yet.
-	if (may_preempt && state_.is_started_.load(std::memory_order_relaxed))
+	if (may_preempt && is_started())
 		do_switch();
 
 	hooks::task_priority_changed(task);
@@ -933,6 +933,7 @@ bool task_control_block::kill()
 	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
 
 	if(!is_started()) // can only terminate an active task
+	assert(scheduler::is_started()); // the service call below has no handler of OpSy's to land in before scheduler::start
 		return false;
 
 	// "memory" clobber: see scheduler::trigger_hard_switch.

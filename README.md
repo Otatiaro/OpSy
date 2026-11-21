@@ -430,6 +430,12 @@ the other way, a startup the project owns:
 - it then calls `application()`, declared `[[noreturn]] void application();`
   and defined once per image. That is where the Quick start's body goes.
 
+Between a task's `start()` and `scheduler::start()` the task exists and
+is queued, and nothing runs yet. Its priority and its name can be set
+there, and `scheduler::start()` picks the ready list as those calls left
+it; what needs a running scheduler -- `kill()`, `sleep_for`, taking a lock
+that may block -- waits for a task to call it from.
+
 The reason is `main()` itself. C++ forbids calling it from the program and
 giving it C linkage, so a C++ `Reset_Handler` cannot call it: the function
 the startup calls has to be another one, and once it is, the start files

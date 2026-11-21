@@ -496,11 +496,12 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	// owed to it.
 	(void) recompute_priority(task);
 
+	bool may_preempt = false;
 	if(task.is_started()) // check task is started
 	{
 		if(&task == state_.current_task_.load(std::memory_order_relaxed)
 			|| &task == state_.next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
-			do_switch(); // ask for a switch, this will compare priority again with other ready tasks
+			may_preempt = true; // compare its priority again with the other ready tasks
 		else if(task.waiting_ != nullptr) // task is waiting a condition variable
 			requeue(task);
 		else if(task.blocked_on_ != nullptr)
@@ -518,10 +519,15 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 			// and blocked_on_ included.
 			ready_.erase(task); // remove the task from ready list
 			ready_.insert_when(task_control_block::priority_is_lower{}, task); // then re insert it, this will update its order
-			if(&ready_.front() == &task) // this brought the task to the first place in the ready list
-				do_switch(); // so test if it is higher priority than current / next task
+			may_preempt = &ready_.front() == &task; // brought to the first place: it may outrank the current / next task
 		}
 	}
+
+	// Before the scheduler starts the lists are kept in order for start to
+	// pick from, and that is all: there is no task to preempt, and the PendSV a
+	// switch pends has no handler of OpSy's to land in yet.
+	if (may_preempt && state_.is_started_.load(std::memory_order_relaxed))
+		do_switch();
 
 	hooks::task_priority_changed(task);
 	cortex_m::exchange_basepri(previous);

@@ -505,14 +505,11 @@ private:
 	callback<void(void)> entry_;
 	condition_variable* waiting_ = nullptr;
 
-	// The mutex this task is blocked on, or nullptr. Single source of truth
-	// for "what is this task waiting for": the waiters of a mutex are derived
-	// by filtering all_tasks_ on this field, so there is no per-mutex wait
-	// list to keep in step with it.
-	//
-	// A task blocked here is in no list at all — its task_lists::waiting node
-	// stays free, which is why ready_ and condition_variable::waiting_list_
-	// remain that node's only two users.
+	// The mutex this task is blocked on, or nullptr: the other end of its
+	// place in that mutex's waiters_, which is where the task is queued
+	// then, on the task_lists::waiting node that ready_ and a condition
+	// variable's waiting_list_ use otherwise. The two ends change together,
+	// in scheduler::block_on, hand_over, requeue and terminate_task only.
 	mutex* blocked_on_ = nullptr;
 	// The lock a condition variable wait released on this task's behalf, to be
 	// re-acquired on wake. A variant rather than two pointers or a tagged one:

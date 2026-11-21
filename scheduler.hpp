@@ -538,7 +538,7 @@ private:
 	 *         (@c task::blocked_on_ ). all_tasks_ is a handful of entries on
 	 *         any real system, and this only runs on unlock with contention.
 	 */
-	static task_control_block* highest_waiter(const mutex& m);
+	static const task_control_block* highest_waiter(const mutex& m);
 
 	/**
 	 * @brief Moves @p task to where its current priority belongs in whichever

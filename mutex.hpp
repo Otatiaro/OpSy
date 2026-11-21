@@ -141,12 +141,17 @@ public:
 
 private:
 
-	// The single source of truth for "who holds this mutex". Everything else
-	// about the relation is derived: the tasks waiting on it are the ones in
-	// scheduler::all_tasks() whose blocked_on_ points here, and the mutexes a
+	// The single source of truth for "who holds this mutex"; the mutexes a
 	// task holds are the ones in scheduler::locked_mutexes_ owned by it.
-	// Nothing is stored twice, so nothing can disagree.
 	task_control_block* owner_ = nullptr;
+
+	// The tasks blocked on this mutex, the most important first: the one
+	// unlock hands it to is the front. A task's blocked_on_ is the other end
+	// of the same link, and the two change together, in scheduler::block_on,
+	// hand_over, requeue and terminate_task only. The node is the one ready_
+	// and a condition variable's waiters use: a task blocked here is in
+	// neither.
+	embedded_list<task_control_block, task_lists::waiting> waiters_;
 };
 
 /**

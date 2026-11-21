@@ -354,12 +354,13 @@ bool scheduler::hand_over(mutex& m)
 {
 	assert(m.owner_ == nullptr);
 
-	auto* next = highest_waiter(m);
-	if (next == nullptr)
+	if (m.waiters_.empty())
 		return false;
 
 	// Handed over rather than left free: whoever was blocked owns it on wake,
 	// so it cannot be taken by someone else in between.
+	auto* next = &m.waiters_.front();
+	m.waiters_.pop_front();
 	next->blocked_on_ = nullptr;
 	take_mutex(m, *next);
 	ready_.insert_when(task_control_block::priority_is_lower{}, *next);
@@ -373,6 +374,7 @@ void scheduler::block_on(mutex& m, task_control_block& task)
 	assert(m.owner_ != &task);
 
 	task.blocked_on_ = &m;
+	m.waiters_.insert_when(task_control_block::priority_is_lower{}, task);
 	hooks::mutex_blocked(m, task);
 
 	// Raise the holder — and whoever it is itself waiting for — so it can run
@@ -381,16 +383,11 @@ void scheduler::block_on(mutex& m, task_control_block& task)
 	inherit_priority(*m.owner_, task.priority_);
 }
 
-task_control_block* scheduler::highest_waiter(const mutex& m)
+const task_control_block* scheduler::highest_waiter(const mutex& m)
 {
-	// Walked rather than looked up: the waiters of a mutex are derived from
-	// task::blocked_on_, which is the only place the relation is stored. A
-	// per-mutex wait list would be a second copy of it, and a second thing to
-	// keep in step.
-	auto waiters = all_tasks_ | std::views::filter([&m](const auto& task) { return task.blocked_on_ == &m; });
-
-	const auto best = std::ranges::min_element(waiters, task_control_block::priority_is_lower{});
-	return best == std::ranges::end(waiters) ? nullptr : &*best;
+	// The list is ordered by priority, and kept so by requeue when a waiter's
+	// priority changes.
+	return m.waiters_.empty() ? nullptr : &m.waiters_.front();
 }
 
 void scheduler::recompute_priority(task_control_block& task)
@@ -409,10 +406,11 @@ void scheduler::recompute_priority(task_control_block& task)
 
 void scheduler::requeue(task_control_block& task)
 {
-	// Both lists are ordered by priority, and both are read from the front:
+	// The three lists are ordered by priority, and all read from the front:
 	// do_switch elects the front of ready_, notify_one wakes the front of a
-	// condition variable's waiters. A task whose priority changed while it was
-	// queued stays where its old priority put it until it is moved.
+	// condition variable's waiters, unlock hands the mutex to the front of
+	// its. A task whose priority changed while it was queued stays where its
+	// old priority put it until it is moved.
 	if (task.is_ready())
 	{
 		ready_.erase(task);
@@ -422,6 +420,11 @@ void scheduler::requeue(task_control_block& task)
 	{
 		task.waiting_->remove_waiting(task);
 		task.waiting_->add_waiting(task);
+	}
+	else if (task.blocked_on_ != nullptr)
+	{
+		task.blocked_on_->waiters_.erase(task);
+		task.blocked_on_->waiters_.insert_when(task_control_block::priority_is_lower{}, task);
 	}
 }
 
@@ -496,8 +499,10 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 			requeue(task);
 		else if(task.blocked_on_ != nullptr)
 		{
-			// Blocked on a mutex, so in no list to re-sort — but the holder
-			// may now owe it more than before, and the chain has to hear it.
+			// Blocked on a mutex: its place among the waiters moves, and the
+			// holder may now owe it more than before, which the chain has to
+			// hear.
+			requeue(task);
 			inherit_priority(*task.blocked_on_->owner_, task.priority_);
 		}
 		else if(task.is_ready())
@@ -633,6 +638,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 			// for the rest of its hold — preempting work that genuinely
 			// outranks it.
 			auto* const holder = task.blocked_on_->owner_;
+			task.blocked_on_->waiters_.erase(task);
 			task.blocked_on_ = nullptr;
 			if (holder != nullptr)
 			{

@@ -84,15 +84,16 @@ one task can sit in three lists at once without them interfering:
 | `ready_` | `waiting` | Runnable tasks that are not currently running, ordered by priority. |
 
 > **The `waiting` node is shared.** `condition_variable::waiting_list_`
-> uses the *same* node pair as `ready_`. A task is therefore in one or
-> the other, never both — and mixing them corrupts both lists. This is
-> not a detail: several fixed bugs came from a task being linked into
-> `ready_` while something still believed it was in a condition
-> variable's list. When touching either, check which list owns the task
-> first.
+> and `mutex::waiters_` use the *same* node pair as `ready_`. A task is
+> therefore in one of the three, never two — and mixing them corrupts
+> both lists. This is not a detail: several fixed bugs came from a task
+> being linked into `ready_` while something still believed it was in a
+> condition variable's list. When touching any of them, check which list
+> owns the task first.
 
-A task blocked on a `mutex` is in `all_tasks_` and nothing else — it
-carries `blocked_on_` instead of being linked anywhere.
+A task blocked on a `mutex` is in `all_tasks_` and in that mutex's
+`waiters_`, ordered by priority, and carries `blocked_on_` as the way back
+to the mutex: the two ends of one link, changed together.
 
 A task that sleeps with a timeout is in `all_tasks_` **and** `timeouts_`.
 A task waiting on a condition variable with a timeout is in `all_tasks_`,

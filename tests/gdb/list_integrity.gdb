@@ -19,9 +19,9 @@
 # at tick after tick and checks the structures directly, which is where the
 # damage is visible.
 #
-# WHAT IS CHECKED, at each stop, for the two lists that hold tasks --
-# all_tasks_, which holds every task that exists, and ready_, which holds the
-# ones waiting for their turn to run:
+# WHAT IS CHECKED, at each stop, for the lists that hold tasks -- all_tasks_,
+# which holds every task that exists, ready_, which holds the ones waiting
+# for their turn to run, and the waiters of the mutex tests' two mutexes:
 #
 #   - walking forward from the first element reaches exactly as many elements
 #     as the count says, and ends at null rather than at a cycle or at a link
@@ -227,11 +227,19 @@ if $ready_links < 0 || $all_links < 0 || $ready_links == $all_links
   kill
 end
 
+# A mutex's waiters sit on the node ready_ uses, so their chain is checked
+# with the links identified above. The two mutexes of the mutex tests are
+# watched, at mutex.hpp's layout: the node of locked_mutexes_ (two pointers),
+# owner_, then waiters_ (first, count).
+set $mutex_a_waiters = (unsigned long)&'(anonymous namespace)::g_a' + 12
+set $mutex_b_waiters = (unsigned long)&'(anonymous namespace)::g_b' + 12
+
 set $stops = 0
 set $count_mismatch = 0
 set $one_way = 0
 set $unterminated = 0
 set $running_task_queued = 0
+set $mutex_waiters_seen = 0
 
 break SysTick_Handler
 while $stops < 150
@@ -279,13 +287,52 @@ while $stops < 150
 end
 delete
 
+# The mutex tests run later than the ticks above reach, and a mutex has
+# waiters only while one is contended: the waiters are looked at where they
+# are read, on entry to hand_over, which unlock calls with the list intact.
+set $hand_overs = 0
+break opsy::scheduler::hand_over
+while $hand_overs < 40
+  continue
+  set $hand_overs = $hand_overs + 1
+
+  set $mutex_waiters = $mutex_a_waiters
+  while $mutex_waiters != 0
+    walk_list $mutex_waiters $ready_links
+    if $walked != *(unsigned int *)($mutex_waiters + 4)
+      set $count_mismatch = $count_mismatch + 1
+      printf "CHECK a mutex says %d waiters, chain has %d\n", *(unsigned int *)($mutex_waiters + 4), $walked
+    end
+    if $linked_both == 0
+      set $one_way = $one_way + 1
+      printf "CHECK a mutex's waiters have a back-link that disagrees with the chain\n"
+    end
+    if $terminated == 0
+      set $unterminated = $unterminated + 1
+      printf "CHECK a mutex's waiters chain did not end at null: a cycle, or a link that is not a task\n"
+    end
+    if $walked != 0
+      set $mutex_waiters_seen = $mutex_waiters_seen + 1
+    end
+    if $mutex_waiters == $mutex_a_waiters
+      set $mutex_waiters = $mutex_b_waiters
+    else
+      set $mutex_waiters = 0
+    end
+  end
+end
+delete
+
 printf "CHECK ticks inspected: %d (expected 150)\n", $stops
 printf "CHECK ticks where a list's count disagreed with its chain: %d (expected 0)\n", $count_mismatch
 printf "CHECK ticks where a back-link disagreed with the chain: %d (expected 0)\n", $one_way
 printf "CHECK ticks where a chain did not end at null: %d (expected 0)\n", $unterminated
 printf "CHECK ticks where the running task was also queued: %d (expected 0)\n", $running_task_queued
+# Zero would mean the mutex chains were never exercised, and their checks
+# above proved nothing.
+printf "CHECK hand-overs at which a mutex had waiters: %d (expected at least 1)\n", $mutex_waiters_seen
 
-if $stops == 150 && $count_mismatch == 0 && $one_way == 0 && $unterminated == 0 && $running_task_queued == 0
+if $stops == 150 && $count_mismatch == 0 && $one_way == 0 && $unterminated == 0 && $running_task_queued == 0 && $mutex_waiters_seen > 0
   printf "SCENARIO: PASS\n"
 else
   printf "SCENARIO: FAIL\n"

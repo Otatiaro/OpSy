@@ -254,15 +254,9 @@ constexpr quaternion<T> identity_quaternion()
  *
  *        Applying @c hamilton_product(q1, q2) to a vector first rotates by
  *        @c q2, then by @c q1.
- *
- * @remark Marked @c [[gnu::always_inline]] : the body is ~12 mul + 8 add/sub
- *         which is just above @c -Og 's "small function" inlining threshold.
- *         Without the hint, hot loops at @c -Og would pay a real call
- *         overhead per iteration. At @c -O2 the attribute is a no-op (the
- *         function would be inlined anyway).
  */
 template<typename T>
-[[gnu::always_inline]] constexpr quaternion<T> hamilton_product(const quaternion<T>& q1, const quaternion<T>& q2)
+constexpr quaternion<T> hamilton_product(const quaternion<T>& q1, const quaternion<T>& q2)
 {
 	return {
 		q1.w() * q2.x() + q1.x() * q2.w() + q1.y() * q2.z() - q1.z() * q2.y(),
@@ -274,7 +268,7 @@ template<typename T>
 
 /** @c q1 @c * @c q2 is the Hamilton product. */
 template<typename T>
-[[gnu::always_inline]] constexpr quaternion<T> operator*(const quaternion<T>& q1, const quaternion<T>& q2)
+constexpr quaternion<T> operator*(const quaternion<T>& q1, const quaternion<T>& q2)
 {
 	return hamilton_product(q1, q2);
 }
@@ -332,7 +326,7 @@ quaternion<T> from_axis_angle(const vector<3, T>& axis, T angle)
  * @pre   @p q must be unit-length.
  */
 template<typename T>
-[[gnu::always_inline]] constexpr vector<3, T> rotate(const vector<3, T>& v, const quaternion<T>& q)
+constexpr vector<3, T> rotate(const vector<3, T>& v, const quaternion<T>& q)
 {
 	const vector<3, T> qv{ q.x(), q.y(), q.z() };
 	const auto t = T{2} * cross_product(qv, v);
@@ -341,7 +335,7 @@ template<typename T>
 
 /** @c q @c * @c v3 rotates the 3D vector by the unit quaternion. */
 template<typename T>
-[[gnu::always_inline]] constexpr vector<3, T> operator*(const quaternion<T>& q, const vector<3, T>& v)
+constexpr vector<3, T> operator*(const quaternion<T>& q, const vector<3, T>& v)
 {
 	return rotate(v, q);
 }

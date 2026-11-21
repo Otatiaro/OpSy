@@ -9,12 +9,12 @@ triggered on pushes to `master` and on pull requests targeting it. It is
 not triggered on pushes to other branches, so **work on a branch is not
 checked until you open the pull request**.
 
-56 jobs, all running in parallel on `ubuntu-latest`. A full run takes
+60 jobs, all running in parallel on `ubuntu-latest`. A full run takes
 about a minute and a half. `fail-fast` is off everywhere: one broken
 axis does not cancel the others, so a single run tells you whether a
 failure is specific to one compiler or target, or general.
 
-## The five groups of jobs
+## The six groups of jobs
 
 | Job group | Axes | Count | What a green run means |
 |---|---|---|---|
@@ -22,6 +22,7 @@ failure is specific to one compiler or target, or general.
 | **Host tests** | `{gcc, clang}` × `{c++23, c++26}` | 4 | The portable half of OpSy — containers, allocator, callback, numerics — behaves. Built and run natively, 32-bit. |
 | **QEMU and GDB tests** | `{gcc, clang}` × `{m3, m4, m7, m33}` | 8 | The scheduler behaves on an emulated Cortex-M: 125 on-target cases, run at the nominal speed and on a core sixteen times slower, 7 debugger-driven scenarios, and the no-heap check on the linked image. Built with no `-O`. |
 | **QEMU tests, optimised** | gcc × `{m3, m4, m7, m33}` × `{-Os, -Os + NDEBUG, -O2 + NDEBUG, -O3 + LTO}`, clang × `{m4, m33}` × the same four | 24 | The same on-target cases at both speeds and the no-heap check, once the optimiser is allowed to reorder, cache, eliminate and inline across translation units, and in the release configurations a project ships. |
+| **Bench** | `{m3, m4, m7, m33}` | 4 | The paths that cost -- a wake-up from an interrupt handler through a semaphore, a condition variable or a queue, a task switch, a mutex free and contended, a sleep ended by the tick, an `isr_lock` round trip -- execute no more instructions than `tests/qemu/bench/baseline-<target>.json` records, within 5 %. Built at `-Os` under `NDEBUG`, counted out of QEMU's execution trace, per function. A drop beyond 5 % is printed too: the PR that earns it updates the baseline. |
 | **Codegen checks** | `{m3, m4, m7, m33}` | 4 | The optimiser left the memory-mapped accesses and the stack alignment alone, the barriers the architecture requires are emitted, and the exclusive accesses are visible to the compiler. Built at `-O2` and read out of the disassembly. |
 
 [`tests/README.md`](../tests/README.md) describes what each suite covers
@@ -127,7 +128,9 @@ so a change breaking it passed every job.
 | a host case in an existing file | nothing — `OPSY_TEST(name)` registers itself |
 | an on-target test file | add it to `add_executable(opsy_qemu_tests ...)` in `tests/qemu/CMakeLists.txt` |
 | an on-target case in an existing file | nothing — `OPSY_QEMU_TEST(name)` registers itself |
-| an on-target image of its own (one that must stop, or owns the vector table) | `add_executable` + `opsy_qemu_image` + `add_test` in `tests/qemu/CMakeLists.txt`, and its name in the `set_tests_properties` timeout list, as `opsy_qemu_start_check` and `opsy_qemu_faults` are |
+| an on-target image of its own (one that must stop, or owns the vector table) | `add_executable` + `opsy_qemu_image` + `add_test` in `tests/qemu/CMakeLists.txt`, and its name in the `set_tests_properties` timeout list, as `opsy_qemu_start_check`, `opsy_qemu_faults` and `opsy_qemu_bench` are |
+| a scenario to the bench | a value in `bench::scenario`, its `name()`, its `run<>()` in `driver()` in `tests/qemu/bench/bench.cpp`, and its medians in the four `tests/qemu/bench/baseline-<target>.json`, from `profile.py --json` on each target |
+| a change that makes a bench scenario cheaper by more than 5 % | the new medians in the four baselines, in the same PR: the job prints which ones |
 | a GDB scenario | drop the `.gdb` file in `tests/gdb/` — nothing else; the glob that picks it up is `CONFIGURE_DEPENDS`, so a plain `cmake --build` re-configures and finds it. It must work on an unoptimised build, which is the only configuration it will be registered in |
 | a codegen check | add the probe function to `tests/codegen/codegen_probe.cpp` and the assertion about its disassembly to `tests/codegen/check_codegen.py` |
 

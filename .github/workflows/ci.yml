@@ -271,6 +271,53 @@ jobs:
       - name: Run
         run: ctest --test-dir build-qemu-optimised --output-on-failure
 
+  bench:
+    name: Bench (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: m3,  machine: mps2-an385 }
+          - { target: m4,  machine: mps2-an386 }
+          - { target: m7,  machine: mps2-an500 }
+          - { target: m33, machine: mps2-an505 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GCC ARM toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.3.Rel1'
+
+      - name: Install Ninja and QEMU
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-system-arm
+
+      # The release configuration a project ships, which is what the baseline
+      # was taken in. Instructions executed between the markers of each
+      # scenario, per function, read out of QEMU's execution trace; the
+      # medians are held against tests/qemu/bench/baseline-<target>.json and
+      # a growth beyond 5 % fails the job. A drop beyond it is printed too:
+      # the PR that earns it updates the baseline. See tests/qemu/bench.
+      - name: Configure
+        run: >
+          cmake -S tests/qemu -B build-bench
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=${{ matrix.target }}
+          "-DOPSY_OPTIMISATION=-Os;-DNDEBUG"
+
+      - name: Build
+        run: cmake --build build-bench --target opsy_qemu_bench
+
+      - name: Profile against the baseline
+        run: >
+          python3 tests/qemu/bench/profile.py
+          --image build-bench/opsy_qemu_bench.elf
+          --machine ${{ matrix.machine }}
+          --baseline tests/qemu/bench/baseline-${{ matrix.target }}.json
+
   codegen-checks:
     name: Codegen checks (cortex-${{ matrix.target }})
     runs-on: ubuntu-latest

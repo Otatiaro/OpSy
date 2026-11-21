@@ -3,10 +3,14 @@
 
 QEMU does not model cycles: with -icount it executes one instruction per tick,
 and the DWT the image would read is absent. What it gives instead is exact and
-repeatable: the list of translated blocks and every execution of them. This
-script runs the bench image with `-d in_asm,exec,nochain`, counts the
-instructions executed between bench::begin<S>() and bench::end<S>() for each
-scenario S, and attributes them to the functions they belong to.
+repeatable: every instruction executed, in order. This script runs the bench
+image with one instruction per translation block and the execution trace on
+(`-accel tcg,one-insn-per-tb=on -d exec,nochain`), so each trace line is one
+instruction; it counts them between bench::begin<S>() and bench::end<S>() for
+each scenario S, and attributes them to the functions they belong to. One
+instruction per block, rather than the translated blocks' sizes: with -icount
+a block is cut where the instruction budget runs out, so the same start
+address is translated at several lengths, and a count by block is wrong.
 
     profile.py --image build/opsy_qemu_bench.elf --machine mps2-an505
                [--qemu qemu-system-arm] [--nm arm-none-eabi-nm] [--top 12]
@@ -30,8 +34,6 @@ import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
-IN_ASM_HEADER = re.compile(r"^IN: ")
-INSTRUCTION = re.compile(r"^0x([0-9a-f]+):\s")
 EXEC = re.compile(r"^Trace \d+: \S+ \[[0-9a-f]+/([0-9a-f]+)/")
 SYMBOL = re.compile(r"^([0-9a-f]+) [TtWw] (.+)$")
 BEGIN = re.compile(r"^void bench::begin<\(bench::scenario\)(\d+)>\(\)$")
@@ -41,9 +43,9 @@ RESULT_LINE = re.compile(r"^BENCH (\S+) ")
 
 def run_qemu(qemu, machine, image, trace_path):
     command = [
-        qemu, "-machine", machine, "-icount", "shift=5,sleep=off", "-kernel", str(image),
-        "-nographic", "-semihosting-config", "enable=on,target=native",
-        "-monitor", "none", "-serial", "none", "-d", "in_asm,exec,nochain", "-D", str(trace_path),
+        qemu, "-machine", machine, "-accel", "tcg,one-insn-per-tb=on", "-icount", "shift=5,sleep=off",
+        "-kernel", str(image), "-nographic", "-semihosting-config", "enable=on,target=native",
+        "-monitor", "none", "-serial", "none", "-d", "exec,nochain", "-D", str(trace_path),
     ]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=600)
     output = completed.stdout + completed.stderr
@@ -72,30 +74,17 @@ def function_of(symbols, addresses):
 
 
 def parse_trace(trace_path):
-    """Instruction count per translated block (by start address), and the executed blocks in order."""
-    block_sizes = {}
+    """The executed instructions' addresses, in order."""
     executed = []
-    current_start = None
-    current_count = 0
     with open(trace_path, encoding="utf-8", errors="replace") as trace:
         for line in trace:
-            if IN_ASM_HEADER.match(line):
-                current_start, current_count = None, 0
-                continue
-            match = INSTRUCTION.match(line)
-            if match:
-                if current_start is None:
-                    current_start = int(match.group(1), 16)
-                current_count += 1
-                block_sizes[current_start] = current_count
-                continue
             match = EXEC.match(line)
             if match:
                 executed.append(int(match.group(1), 16))
-    return block_sizes, executed
+    return executed
 
 
-def count(block_sizes, executed, symbols, markers):
+def count(executed, symbols, markers):
     """Per scenario: one (total, Counter per function) per iteration, in order."""
     addresses = [address for address, _ in symbols]
     lookup = function_of(symbols, addresses)
@@ -120,15 +109,9 @@ def count(block_sizes, executed, symbols, markers):
             continue
         if running is None:
             continue
-        size = block_sizes.get(pc)
-        if size is None:
-            # Executed but never seen translated: not possible with -d in_asm,
-            # unless the trace was cut. Count it as one so it shows up.
-            size = 1
-        total += size
-        name = lookup(pc)
+        total += 1
         if pc not in marker_addresses:
-            per_function[name] += size
+            per_function[lookup(pc)] += 1
     return iterations
 
 
@@ -166,8 +149,8 @@ def main():
     # where the names come from.
     names = [match.group(1) for match in map(RESULT_LINE.match, output.splitlines()) if match]
 
-    block_sizes, executed = parse_trace(trace_path)
-    iterations = count(block_sizes, executed, symbols, markers)
+    executed = parse_trace(trace_path)
+    iterations = count(executed, symbols, markers)
 
     medians = {}
     for scenario in sorted(iterations):

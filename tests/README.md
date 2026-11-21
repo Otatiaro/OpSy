@@ -190,7 +190,7 @@ queue; a task-to-task switch; a mutex with and without contention; a sleep
 ended by the tick; an `isr_lock` round trip. Two instruments read the same
 image. Under QEMU, which does not model cycles,
 [`bench/profile.py`](qemu/bench/profile.py) runs it with
-`-d in_asm,exec,nochain`, counts the instructions executed between the
+one instruction per translation block (`-accel tcg,one-insn-per-tb=on -d exec,nochain`), counts the instructions executed between the
 markers and attributes them to functions: exact, repeatable, and what the
 CI holds against `bench/baseline-<target>.json`. On a board the markers
 read the DWT cycle counter and the image prints cycles, which is where

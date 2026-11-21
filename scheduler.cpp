@@ -143,6 +143,12 @@ bool scheduler::do_switch()
 
 	if (current != nullptr)
 	{
+		// Outranking everything ready, the running task keeps running: no
+		// need to queue it to pop it again. An equal at the head takes its
+		// turn, as below.
+		if (ready_.empty() || task_control_block::priority_is_lower{}(*current, ready_.front()))
+			return false;
+
 		ready_.insert_when(task_control_block::priority_is_lower{}, *current);
 		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 	}

@@ -186,7 +186,7 @@ def main():
             print(f"    {instructions:6d}  {function}")
 
     if args.json:
-        args.json.write_text(json.dumps(medians, indent=2) + "\n")
+        args.json.write_text(json.dumps(medians, indent=2) + "\n", newline="\n")
 
     if args.baseline:
         baseline = json.loads(args.baseline.read_text())

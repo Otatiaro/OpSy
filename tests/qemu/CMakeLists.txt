@@ -145,6 +145,16 @@ add_executable(opsy_qemu_start_check
 
 opsy_qemu_image(opsy_qemu_start_check)
 
+# What a program does to its tasks before scheduler::start. A separate image,
+# because it is about the time before start: see test_before_start.cpp.
+add_executable(opsy_qemu_before_start
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_before_start.cpp
+)
+
+opsy_qemu_image(opsy_qemu_before_start)
+
 # Every fault through opsy::fault_isrs, decoded and stepped over. A separate
 # image: it owns the vector table and the fault configuration, and its last
 # case ends the run from the handler. See test_faults.cpp.
@@ -208,6 +218,14 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
             -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
             -DIMAGE=$<TARGET_FILE:opsy_qemu_start_check>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
+add_test(
+    NAME opsy_qemu_before_start_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_before_start>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
 )
 

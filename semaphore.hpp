@@ -67,7 +67,12 @@ namespace opsy
  *        is visible after acquiring.
  *
  * @tparam LeastMaxValue The largest count it has to hold. Releasing past it
- *         is a precondition violation, asserted.
+ *         is a precondition violation, asserted. A @c binary_semaphore an
+ *         interrupt handler releases is the usual case: the handler may run
+ *         again before the task has taken the first release, and the second
+ *         one is past the maximum. The handler coalesces them -- a flag it
+ *         sets and the task clears, or a count of its own -- rather than
+ *         releasing for every event.
  *
  * @warning As for every OpSy primitive, an interrupt handler has to run strictly
  *          below OpSy's preemption level to use it.
@@ -119,7 +124,13 @@ public:
 		// it looks. notify_one() takes its own lock, at the same level as lock_,
 		// around the one step that needs it: taking lock_ here as well would
 		// only add a second BASEPRI round trip to every release.
-		for (std::ptrdiff_t i = 0; i < update && !available_.waiting_list_.empty(); ++i)
+		//
+		// size() rather than empty(): SysTick, which the lock does not mask
+		// either, takes a waiter whose deadline passed off the list, and can do
+		// so in the middle of this read. empty() checks the list's two fields
+		// against each other and would see them disagree; size() is one word,
+		// read whole, and a hint only -- wake_one looks again under the mask.
+		for (std::ptrdiff_t i = 0; i < update && available_.waiting_list_.size() != 0; ++i)
 			available_.notify_one();
 	}
 

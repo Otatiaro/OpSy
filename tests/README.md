@@ -246,6 +246,16 @@ ends the run from there, as the stack pointer is not to be trusted after
 it. The `mpu.hpp` and `thumb.hpp` helpers (a read-only region, the length
 of a Thumb instruction) are shared with the start check.
 
+`test_before_start.cpp` is a fourth image, `opsy_qemu_before_start`: what
+a program does to its tasks between their `start()` and
+`scheduler::start()`. Two tasks are started at the default priority, one
+is then raised and the other lowered and restored, and the scheduler
+starts: the raised task has to run first and both have to report the
+priority they were given. Its own image because it is about the time
+before start, which the suite's image is past. It fell with "fault:
+unhandled exception" before `update_priority` learnt not to ask for a
+switch the scheduler cannot make yet.
+
 `mps2-an505` needs its own linker script for a second reason beyond
 TrustZone addressing: its SRAM at `0x30000000` sits behind a Memory
 Protection Controller that comes up blocking, so the very first stack

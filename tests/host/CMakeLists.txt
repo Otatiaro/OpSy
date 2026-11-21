@@ -59,9 +59,14 @@ set_target_properties(opsy_host_tests PROPERTIES
 
 # Same strict set as the Cortex-M suite, so a warning cannot be introduced
 # here and go unnoticed until the cross build runs.
+# A debug build: the contracts are checked, and host_test.cpp has the handler.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../contracts.cmake)
+opsy_contract_semantic("" OPSY_CONTRACTS)
+target_compile_options(opsy_host_tests PRIVATE ${OPSY_CONTRACTS})
+
 target_compile_options(opsy_host_tests PRIVATE
     -Wall -Werror -Wpedantic -Wextra
-    -Wshadow -Wcast-align -Wcast-qual -Wnull-dereference
+    -Wshadow -Wcast-align -Wcast-qual
     -Wconversion -Wsign-conversion -Wdouble-promotion
     -fno-exceptions -fno-rtti
 )

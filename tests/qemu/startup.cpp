@@ -12,6 +12,7 @@
 #include "qemu_test.hpp"
 #include "semihosting.hpp"
 
+#include <contracts>
 #include <cstddef>
 #include <cstdint>
 
@@ -116,6 +117,31 @@ alignas(512) handler_t g_vectors[16 + 64];
 extern "C" void __aeabi_unwind_cpp_pr0()
 {
 	fault_handler();
+}
+
+/**
+ * @brief Where a failed contract check lands: says which, and exits as a failure
+ *
+ *        The images check OpSy's contracts under the observe semantic, whose
+ *        handler is all that runs on a violation. This one does not return, so
+ *        a violation stops the image where an assertion used to, with the
+ *        file, the line and the condition on the console.
+ */
+[[noreturn]] void handle_contract_violation(const std::contracts::contract_violation& violation);
+
+void handle_contract_violation(const std::contracts::contract_violation& violation)
+{
+	const auto location = violation.location();
+	qemu::write("\n");
+	qemu::write(location.file_name());
+	qemu::write(":");
+	qemu::write_unsigned(location.line());
+	qemu::write(": ");
+	qemu::write(location.function_name());
+	qemu::write(": contract violated: ");
+	qemu::write(violation.comment());
+	qemu::write("\n");
+	qemu::exit(1);
 }
 
 extern "C" void Default_Handler()

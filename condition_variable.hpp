@@ -264,8 +264,8 @@ private:
  */
 inline void condition_variable::notify_one()
 {
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	contract_assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	contract_assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
 	std::lock_guard<isr_lock> _(notify_lock_);
 
@@ -279,8 +279,8 @@ inline void condition_variable::notify_one()
  */
 inline void condition_variable::notify_all()
 {
-	assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
-	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	contract_assert(notify_lock_.priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>() >= cortex_m::current_priority().value_or(scheduler::service_call_priority).masked_value<preemption_bits>()); // do not call notify when priority is higher than the mutex priority !
+	contract_assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
 	std::lock_guard<isr_lock> _(notify_lock_);
 
@@ -297,7 +297,7 @@ inline void condition_variable::notify_all()
 static inline void record_lock(std::variant<std::monostate, mutex*, isr_lock*> lock)
 {
 	auto* current = scheduler::current_task();
-	assert(current != nullptr);
+	contract_assert(current != nullptr);
 	current->record_released_lock(lock);
 }
 
@@ -320,13 +320,13 @@ inline cv_status condition_variable::do_wait(duration timeout)
 			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
 			: "r0", "r1", "r2", "memory");
 
-	assert(result == 0 || result == 1);
+	contract_assert(result == 0 || result == 1);
 	return static_cast<cv_status>(result);
 }
 
 inline void condition_variable::wait()
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	contract_assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 
 	record_lock(std::monostate{});
 	(void) do_wait(duration{-1}); // negative count means "no timeout"
@@ -334,9 +334,9 @@ inline void condition_variable::wait()
 
 inline void condition_variable::wait(isr_lock& mtx)
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
-	assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
+	contract_assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	contract_assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	contract_assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
 
 	record_lock(&mtx);
 	(void) do_wait(duration{-1});
@@ -344,8 +344,8 @@ inline void condition_variable::wait(isr_lock& mtx)
 
 inline void condition_variable::wait(mutex& mtx)
 {
-	assert(cortex_m::ipsr() == 0);
-	assert(mtx.owner_ == scheduler::current_task()); // must be held by the caller
+	contract_assert(cortex_m::ipsr() == 0);
+	contract_assert(mtx.owner_ == scheduler::current_task()); // must be held by the caller
 
 	record_lock(&mtx);
 	(void) do_wait(duration{-1});
@@ -353,7 +353,7 @@ inline void condition_variable::wait(mutex& mtx)
 
 inline cv_status condition_variable::wait_for(duration timeout)
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	contract_assert(cortex_m::ipsr() == 0); // cannot call in interrupt
 
 	// A negative count is how the service call encodes "no timeout at all"
 	// (wait() passes -1), so it must never reach the SVC as a duration. It
@@ -369,9 +369,9 @@ inline cv_status condition_variable::wait_for(duration timeout)
 
 inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 {
-	assert(cortex_m::ipsr() == 0); // cannot call in interrupt
-	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
-	assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
+	contract_assert(cortex_m::ipsr() == 0); // cannot call in interrupt
+	contract_assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
+	contract_assert(mtx.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // held across the service call, so it may not mask it: the SVC would escalate to HardFault
 
 	if (timeout.count() < 0)
 		return cv_status::timeout;
@@ -382,8 +382,8 @@ inline cv_status condition_variable::wait_for(isr_lock& mtx, duration timeout)
 
 inline cv_status condition_variable::wait_for(mutex& mtx, duration timeout)
 {
-	assert(cortex_m::ipsr() == 0);
-	assert(mtx.owner_ == scheduler::current_task());
+	contract_assert(cortex_m::ipsr() == 0);
+	contract_assert(mtx.owner_ == scheduler::current_task());
 
 	if (timeout.count() < 0)
 		return cv_status::timeout;

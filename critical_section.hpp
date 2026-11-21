@@ -48,7 +48,6 @@
 
 #pragma once
 
-#include "opsy_assert.hpp"
 
 namespace opsy
 {
@@ -80,7 +79,7 @@ public:
 	 */
 	constexpr critical_section& operator=(critical_section&& other)
 	{
-		assert(!valid_);
+		contract_assert(!valid_);
 		valid_ = other.valid_;
 		other.valid_ = false;
 		return *this;

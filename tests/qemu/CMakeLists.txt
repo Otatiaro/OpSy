@@ -60,6 +60,10 @@ if(DEFINED OPSY_OPTIMISATION)
     add_compile_options(${OPSY_OPTIMISATION})
 endif()
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../contracts.cmake)
+opsy_contract_semantic("${OPSY_OPTIMISATION}" OPSY_CONTRACTS)
+add_compile_options(${OPSY_CONTRACTS})
+
 # Debug information in every image. It changes nothing in the code. The GDB
 # scenarios stop inside OpSy and walk up to the caller, and with the
 # compiler's frame descriptions in the image the debugger does that from

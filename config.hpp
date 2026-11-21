@@ -63,10 +63,6 @@
 
 #pragma once
 
-// First, so that opsy::trap is declared before the definition below (or the
-// one in opsy_config.hpp) rather than redeclared after it.
-#include "opsy_assert.hpp"
-
 #include <cstdint>
 #include <chrono>
 #include <ratio>
@@ -226,12 +222,4 @@ static constexpr time_point startup = time_point{ duration{ 0 } };
 static_assert(opsy::preemption_bits<=opsy::priority_bits, "Required preemption bits is more than what is available in the system");
 static_assert(opsy::opsy_preemption < (1<<opsy::preemption_bits), "OpSy preemption level mismatch with requested preemption bits");
 static_assert(opsy::opsy_preemption + 1 < (1<<opsy::preemption_bits), "OpSy must leave a preemption level below its own: interrupt handlers can only call OpSy from there");
-
-// Pull in our assert override AFTER every header config.hpp brings in, since
-// a standard header may include <cassert> and define the standard macro.
-// opsy_assert.hpp wins because it does its own #undef just before installing
-// the trap-based macro, and no OpSy header includes <cassert> directly -- they
-// all include opsy_assert.hpp instead, so nothing re-clobbers it later in the
-// chain.
-#include "opsy_assert.hpp"
 

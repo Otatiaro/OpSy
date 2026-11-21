@@ -59,7 +59,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "../opsy_assert.hpp"
 #include "vector.hpp"
 
 namespace opsy::utility
@@ -965,7 +964,7 @@ void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 template<std::size_t Rows, std::size_t Cols, typename T>
 vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (Rows == Cols && Rows >= 2)
 {
-	assert(*this == this->transposed());
+	contract_assert(*this == this->transposed());
 
 	matrix<Rows, Rows, T> V = *this;
 	vector<Rows, T> d;
@@ -979,7 +978,7 @@ template<std::size_t Rows, std::size_t Cols, typename T>
 typename matrix<Rows, Cols, T>::eigen_decomposition_t
 matrix<Rows, Cols, T>::symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2)
 {
-	assert(*this == this->transposed());
+	contract_assert(*this == this->transposed());
 
 	eigen_decomposition_t result;
 	result.vectors = *this;

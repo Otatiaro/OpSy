@@ -35,7 +35,6 @@
 #include <utility>
 #include <cstring>
 
-#include "../opsy_assert.hpp"
 
 namespace opsy::utility
 {
@@ -162,9 +161,9 @@ public:
 			// run and whose handle would go on pointing at what is now this
 			// frame -- so destroying the old handle would tear down the new
 			// routine. Destroy the first routine before starting a second.
-			assert(storage.used == 0);
+			contract_assert(storage.used == 0);
 
-			assert(size <= available); // the routine does not fit: raise Size
+			contract_assert(size <= available); // the routine does not fit: raise Size
 
 			if(size > available || storage.used != 0)
 				return nullptr;
@@ -291,7 +290,7 @@ public:
 		// the cause. A routine that a handler may resume should not call into
 		// the scheduler at all; if it does, the task and the handler must not
 		// be able to reach it at the same time.
-		assert(!handle_.promise().running_); // re-entered while already running
+		contract_assert(!handle_.promise().running_); // re-entered while already running
 		handle_.promise().running_ = true;
 #endif
 

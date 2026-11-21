@@ -37,7 +37,6 @@
 #include <limits>
 #include <mutex>
 
-#include "opsy_assert.hpp"
 #include "scheduler.hpp"
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
@@ -99,7 +98,7 @@ public:
 	constexpr explicit counting_semaphore(std::ptrdiff_t desired) :
 			count_(static_cast<int32_t>(desired))
 	{
-		assert(desired >= 0 && desired <= max());
+		contract_assert(desired >= 0 && desired <= max());
 	}
 
 	counting_semaphore(const counting_semaphore&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
@@ -112,10 +111,10 @@ public:
 	 */
 	void release(std::ptrdiff_t update = 1)
 	{
-		assert(scheduler::is_os_callable());
-		assert(update >= 0);
+		contract_assert(scheduler::is_os_callable());
+		contract_assert(update >= 0);
 		[[maybe_unused]] const auto previous = count_.fetch_add(static_cast<int32_t>(update), std::memory_order_release);
-		assert(previous <= max() - update); // released past max()
+		contract_assert(previous <= max() - update); // released past max()
 
 		// Read without the lock: a waiter only queues itself while holding it,
 		// and holding it masks every handler that may call OpSy and every task
@@ -143,7 +142,7 @@ public:
 		if (try_acquire())
 			return;
 
-		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
+		contract_assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
 		std::lock_guard<isr_lock> _(lock_);
 		while (!try_acquire())
@@ -157,7 +156,7 @@ public:
 	 */
 	[[nodiscard]] bool try_acquire() noexcept
 	{
-		assert(scheduler::is_os_callable());
+		contract_assert(scheduler::is_os_callable());
 		auto current = count_.load(std::memory_order_relaxed);
 		while (current > 0)
 			if (count_.compare_exchange_weak(current, current - 1, std::memory_order_acquire, std::memory_order_relaxed))
@@ -185,7 +184,7 @@ public:
 		if (try_acquire())
 			return true;
 
-		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
+		contract_assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
 		std::lock_guard<isr_lock> _(lock_);
 		while (!try_acquire())

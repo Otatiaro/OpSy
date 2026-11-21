@@ -6,15 +6,23 @@
 # warns under a user's flags is a header that does not build for that user.
 #
 # Several of these only report something once the optimiser has run
-# (-Wnull-dereference, -Wstack-usage, -Wformat-truncation), which is why each
-# suite builds at more than one -O level.
+# (-Wstack-usage, -Wformat-truncation), which is why each suite builds at more
+# than one -O level.
+#
+# Not -Wnull-dereference: a contract check is not an assertion that stops. GCC
+# (16 and trunk alike) does not know that the path it takes on a violation --
+# the handler under observe, its terminate wrapper under enforce -- never
+# returns, so a contract_assert(ptr != nullptr) followed by *ptr reports a
+# null dereference on that path, under every evaluation semantic. The
+# warning is heuristic by GCC's own account; here it would only ever flag
+# the continuation of a violated contract.
 #
 # Use: include(../warnings.cmake) then opsy_strict_warnings(<target>).
 
 function(opsy_strict_warnings target)
     target_compile_options(${target} PRIVATE
         -Wall -Wextra -Wpedantic -Werror
-        -Wshadow -Wcast-qual -Wnull-dereference -Wpointer-arith
+        -Wshadow -Wcast-qual -Wpointer-arith
         -Wconversion -Wsign-conversion -Wdouble-promotion -Wfloat-equal
         -Wformat=2 -Wundef -Wredundant-decls -Wmissing-declarations -Wvla
         -Wold-style-cast -Wzero-as-null-pointer-constant -Wnon-virtual-dtor

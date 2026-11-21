@@ -53,7 +53,6 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
-#include "opsy_assert.hpp"
 
 namespace opsy
 {
@@ -216,37 +215,37 @@ private:
 
 	inline void reset() const
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		ptr_->Interface::previous_ = ptr_->Interface::next_ = nullptr;
 	}
 
 	inline void next(pointer ptr)
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		ptr_->Interface::next_ = ptr;
 	}
 
 	inline void previous(pointer ptr)
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		ptr_->Interface::previous_ = ptr;
 	}
 
 	inline pointer next() const
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		return ptr_->Interface::next_;
 	}
 
 	inline pointer previous() const
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		return ptr_->Interface::previous_;
 	}
 
 	bool is_free() const
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		return previous() == nullptr && next() == nullptr;
 	}
 
@@ -319,7 +318,7 @@ public:
 	 */
 	inline self_type& operator++()
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		ptr_ = ptr_->Interface::next_;
 		return *this;
 	}
@@ -330,7 +329,7 @@ public:
 	 */
 	inline self_type operator++(int)
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		const self_type before = *this;
 		ptr_ = ptr_->Interface::next_;
 		return before;
@@ -342,7 +341,7 @@ public:
 	 */
 	inline self_type& operator--()
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		ptr_ = ptr_->Interface::previous_;
 		return *this;
 	}
@@ -353,10 +352,19 @@ public:
 	 */
 	inline self_type operator--(int)
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		const self_type before = *this;
 		ptr_ = ptr_->Interface::previous_;
 		return before;
+	}
+
+	/**
+	 * @brief Whether the @c Item is linked into no list: both of its links are null
+	 */
+	bool is_free() const
+	{
+		contract_assert(ptr_ != nullptr);
+		return ptr_->Interface::previous_ == nullptr && ptr_->Interface::next_ == nullptr;
 	}
 
 	/**
@@ -365,7 +373,7 @@ public:
 	 */
 	constexpr reference operator*() const
 	{
-		assert(ptr_ != nullptr);
+		contract_assert(ptr_ != nullptr);
 		return *ptr_;
 	}
 
@@ -493,7 +501,7 @@ public:
 	 */
 	[[nodiscard]] constexpr inline bool empty() const
 	{
-		assert((first_ == nullptr) ^ (size_ != 0));
+		contract_assert((first_ == nullptr) ^ (size_ != 0));
 		return first_ == nullptr;
 	}
 
@@ -609,7 +617,7 @@ public:
 	 */
 	void push_front(Item& item)
 	{
-		assert(iterator(&item).is_free());
+		contract_assert(const_iterator(&item).is_free());
 
 		iterator(&item).next(first_);
 
@@ -625,8 +633,8 @@ public:
 	 */
 	void pop_front()
 	{
-		assert(!empty());
-		assert(iterator(first_).previous() == nullptr);
+		contract_assert(!empty());
+		contract_assert(iterator(first_).previous() == nullptr);
 
 		auto i = begin();
 
@@ -645,7 +653,7 @@ public:
 	 */
 	Item& front()
 	{
-		assert(!empty());
+		contract_assert(!empty());
 		return *first_;
 	}
 
@@ -655,7 +663,7 @@ public:
 	 */
 	const Item& front() const
 	{
-		assert(!empty());
+		contract_assert(!empty());
 		return *first_;
 	}
 
@@ -729,7 +737,7 @@ public:
 	 */
 	iterator insert_after(iterator previous, Item& item)
 	{
-		assert(iterator(&item).is_free());
+		contract_assert(const_iterator(&item).is_free());
 
 		if (empty() || previous.ptr() == nullptr) // list is empty or previous is null (before the list)
 		{

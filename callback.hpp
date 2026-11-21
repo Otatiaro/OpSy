@@ -53,7 +53,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "opsy_assert.hpp"
 
 namespace opsy
 {
@@ -150,7 +149,7 @@ struct callback_call;
 		R operator()(A... arguments) CV REF noexcept(Noexcept)                             \
 		{                                                                                  \
 			auto& self = static_cast<Derived CV &>(*this);                                 \
-			assert(self.operations_ != nullptr);                                           \
+			contract_assert(self.operations_ != nullptr);                                           \
 			return self.operations_->invoke(                                               \
 				const_cast<void*>(static_cast<CV void*>(self.storage_)),                   \
 				std::forward<A>(arguments)...);                                            \

@@ -50,7 +50,6 @@
 
 #include <atomic>
 #include <mutex>
-#include "opsy_assert.hpp"
 #include <optional>
 
 #include "isr_priority.hpp"
@@ -105,7 +104,7 @@ public:
 	 */
 	isr_lock& operator=(isr_lock&& from)
 	{
-		assert(!locked_); // trying to override a locked mutex !
+		contract_assert(!locked_); // trying to override a locked mutex !
 		locked_ = from.locked_;
 		previous_lock_ = from.previous_lock_;
 		critical_section_ = std::move(from.critical_section_);
@@ -211,7 +210,7 @@ inline void isr_lock::lock()
 	{
 		if (priority_->value() == 0)
 		{
-			assert(!cortex_m::is_primask());
+			contract_assert(!cortex_m::is_primask());
 
 			hooks::enter_full_lock();
 			cortex_m::disable_interrupts();
@@ -223,16 +222,16 @@ inline void isr_lock::lock()
 			else
 				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
 				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
-				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+				contract_assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
 			hooks::enter_priority_lock(*priority_);
 			previous_lock_ = cortex_m::exchange_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
-			assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
+			contract_assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
 	else
 	{
-		assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
+		contract_assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
 		critical_section_ = scheduler::critical_section_begin();
 	}
 
@@ -257,25 +256,21 @@ inline void isr_lock::unlock()
 		// optional::value() would emit under -fno-exceptions.
 		if (priority_->value() == 0)
 		{
-			assert(cortex_m::is_primask());
+			contract_assert(cortex_m::is_primask());
 			cortex_m::enable_interrupts();
 			hooks::exit_full_lock();
 		}
 		else
 		{
-#ifndef NDEBUG
-			auto was = cortex_m::exchange_basepri(previous_lock_);
-			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
-#else
-			cortex_m::exchange_basepri(previous_lock_);
-#endif
+			const auto was = cortex_m::exchange_basepri(previous_lock_);
+			contract_assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 			hooks::exit_priority_lock();
 			leave_critical_section();
 		}
 	}
 	else
 	{
-		assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
+		contract_assert(cortex_m::ipsr() == 0); // there is no reason to lock task switch from anything but a task
 		leave_critical_section();
 	}
 }
@@ -305,7 +300,7 @@ inline uint32_t isr_lock::relock_from_pend_sv()
 	{
 		// See comment on lock(): * / -> avoids the abort path that
 		// optional::value() would emit under -fno-exceptions.
-		assert(priority_->value() != 0); // 0 is full mutex, can't be preempted by system
+		contract_assert(priority_->value() != 0); // 0 is full mutex, can't be preempted by system
 		previous_lock_ = isr_priority(0);
 	}
 
@@ -322,7 +317,7 @@ inline uint32_t isr_lock::relock_from_pend_sv()
  */
 inline void isr_lock::release_from_service_call()
 {
-	assert(locked_);
+	contract_assert(locked_);
 
 	if (priority_.has_value())
 	{
@@ -330,17 +325,13 @@ inline void isr_lock::release_from_service_call()
 		// optional::value() would emit under -fno-exceptions.
 		if (priority_->value() == 0)
 		{
-			assert(cortex_m::is_primask());
+			contract_assert(cortex_m::is_primask());
 			cortex_m::enable_interrupts();
 		}
 		else
 		{
-#ifndef NDEBUG
-			auto was = cortex_m::exchange_basepri(previous_lock_);
-			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
-#else
-			cortex_m::exchange_basepri(previous_lock_);
-#endif
+			const auto was = cortex_m::exchange_basepri(previous_lock_);
+			contract_assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 		}
 	}
 }

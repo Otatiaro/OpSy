@@ -58,8 +58,8 @@ namespace opsy
  */
 void inline sleep_for(duration t)
 {
-	assert(cortex_m::ipsr() == 0);            // there is no task to put to sleep in an ISR
-	assert(scheduler::is_os_callable());      // ... and an ISR above OpSy must not enter it at all
+	contract_assert(cortex_m::ipsr() == 0);            // there is no task to put to sleep in an ISR
+	contract_assert(scheduler::is_os_callable());      // ... and an ISR above OpSy must not enter it at all
 
 	// A duration that has already elapsed is not an error -- std::this_thread's
 	// sleep_for and sleep_until both return immediately on one. It arrives here
@@ -96,7 +96,7 @@ void inline sleep_until(time_point tp)
 {
 	using namespace std::chrono_literals;
 	const auto remaining = tp - scheduler::now();
-	assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
+	contract_assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
 	sleep_for(remaining);
 }
 

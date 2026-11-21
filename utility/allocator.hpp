@@ -43,7 +43,6 @@
 #pragma once
 
 #include <array>
-#include "../opsy_assert.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -173,10 +172,10 @@ public:
 	 */
 	void deallocate(const void* ptr)
 	{
-		assert(owns(ptr)); // to deallocate, the ptr must be handled by the allocator
+		contract_assert(owns(ptr)); // to deallocate, the ptr must be handled by the allocator
 		auto ptr_index = static_cast<size_type>(reinterpret_cast<const element_type*>(ptr) - data_.data()); // ptr_index is the slot index of the pointer
 		auto allocated_slots = -data_[ptr_index - 1]; // the size of the allocation
-		assert(allocated_slots > 0 && (data_[ptr_index + static_cast<size_type>(allocated_slots)] == -allocated_slots)); // check the indicators are coherent
+		contract_assert(allocated_slots > 0 && (data_[ptr_index + static_cast<size_type>(allocated_slots)] == -allocated_slots)); // check the indicators are coherent
 		data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(allocated_slots)] = allocated_slots; // release the allocation
 
 		if constexpr (UseDummy)
@@ -226,7 +225,7 @@ public:
 	 */
 	bool owns(const void* ptr) const
 	{
-		assert(reinterpret_cast<std::uintptr_t>(ptr) % alignof(element_type) == 0); // the pointer is necessary aligned with the slots
+		contract_assert(reinterpret_cast<std::uintptr_t>(ptr) % alignof(element_type) == 0); // the pointer is necessary aligned with the slots
 		const auto index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
 		return index > 0 && index < static_cast<std::ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
 	}

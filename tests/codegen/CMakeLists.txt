@@ -58,9 +58,12 @@ set_target_properties(opsy_codegen PROPERTIES
 
 # -O2 and NDEBUG on purpose: this is the configuration the checks are about.
 # -fno-lto so the probes survive as inspectable symbols.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../contracts.cmake)
+opsy_contract_semantic("-DNDEBUG" OPSY_CONTRACTS)
 target_compile_options(opsy_codegen PRIVATE
     ${OPSY_CPU_FLAGS}
     -O2 -DNDEBUG -fno-lto
+    ${OPSY_CONTRACTS}
     -fno-exceptions -fno-rtti
 )
 

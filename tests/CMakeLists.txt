@@ -32,6 +32,7 @@ endif()
 set(OPSY_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/warnings.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/contracts.cmake)
 
 # OpSy is written in C++26. -DOPSY_CXX_STANDARD=23 builds it under the previous
 # standard for an experiment; nothing promises that it still does.
@@ -71,9 +72,11 @@ function(opsy_sanity_library target flags)
         CXX_EXTENSIONS OFF
     )
 
+    opsy_contract_semantic("${flags}" contracts)
     target_compile_options(${target} PRIVATE
         ${OPSY_CPU_FLAGS}
         ${flags}
+        ${contracts}
         -fno-exceptions -fno-rtti
         -ffunction-sections -fdata-sections
     )

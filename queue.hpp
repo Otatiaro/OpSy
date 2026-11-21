@@ -44,7 +44,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "opsy_assert.hpp"
 #include "scheduler.hpp"
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
@@ -445,7 +444,7 @@ private:
 		std::uintptr_t expected = 0;
 		const auto running = context();
 		if (!side.compare_exchange_strong(expected, running, std::memory_order_relaxed))
-			assert(expected == running);   // one producer, one consumer
+			contract_assert(expected == running);   // one producer, one consumer
 	}
 
 	std::atomic<std::uintptr_t> producer_{ 0 };

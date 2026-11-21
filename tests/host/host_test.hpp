@@ -16,9 +16,8 @@
  *          list, so adding a file to CMakeLists.txt is all it takes; there is
  *          no central list to keep in sync.
  *
- * @warning Do not use @c assert in tests. OpSy headers install their own
- *          @c assert macro (see opsy_assert.hpp) which routes to
- *          @c opsy::trap and aborts the whole run. Use @ref CHECK.
+ * @warning Do not use @c assert in tests: it aborts the whole run on the
+ *          first failure. Use @ref CHECK.
  ******************************************************************************
  * @see https://github.com/Otatiaro/OpSy
  ******************************************************************************

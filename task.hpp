@@ -257,7 +257,7 @@ public:
 	 */
 	~task_control_block()
 	{
-		assert(!is_started());
+		contract_assert(!is_started());
 	}
 
 	/**
@@ -744,7 +744,7 @@ inline void task_control_block::request_stop()
 	// Requesting a stop on a task that has not been started is lost: start
 	// clears the flag so that a reused task slot begins with none pending.
 	// The task would then run to completion having never seen the request.
-	assert(is_started());
+	contract_assert(is_started());
 
 	// No context assert here, deliberately: the flag is a relaxed atomic and
 	// nothing else is touched, so this is safe to call from any interrupt

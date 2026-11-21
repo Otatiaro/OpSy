@@ -20,12 +20,12 @@ embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 {
 	{
 		[[maybe_unused]] const auto running = cortex_m::type();
-		assert(running == cortex_m::core_type::m3
+		contract_assert(running == cortex_m::core_type::m3
 			|| running == cortex_m::core_type::m4
 			|| running == cortex_m::core_type::m7
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
-	assert(!state_.is_started_.load(std::memory_order_relaxed));
+	contract_assert(!state_.is_started_.load(std::memory_order_relaxed));
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
@@ -52,7 +52,7 @@ embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 		|| cortex_m::isr_handler(cortex_m::system_irq::service_call) != ::SVC_Handler)
 		opsy::trap();
 
-	assert(core_clock_value % ratio == 0u); // for exact time clock the core clock divided by ratio should not leave a remainder
+	contract_assert(core_clock_value % ratio == 0u); // for exact time clock the core clock divided by ratio should not leave a remainder
 	cortex_m::enable_systick(core_clock_value / ratio);
 
 	hooks::starting(idle, core_clock_value, [](callback<void(const task_control_block&)> callback)
@@ -66,7 +66,7 @@ embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 	// so the flag is set here, with every handler that may call into OpSy held
 	// off until the switch is pended.
 	[[maybe_unused]] const auto unmasked = cortex_m::exchange_basepri(service_call_priority);
-	assert(unmasked.value() == 0); // started from plain thread mode, nothing masked
+	contract_assert(unmasked.value() == 0); // started from plain thread mode, nothing masked
 
 	cortex_m::set_psp(cortex_m::msp());
 	cortex_m::set_control(cortex_m::control_thread_psp_privileged);
@@ -121,10 +121,10 @@ inline void scheduler::systick_handler()
 
 bool scheduler::do_switch()
 {
-	assert(state_.is_started_.load(std::memory_order_relaxed));
+	contract_assert(state_.is_started_.load(std::memory_order_relaxed));
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
 	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
-	assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
+	contract_assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
 
 	if(state_.critical_section_.load(std::memory_order_relaxed))
 	{
@@ -134,7 +134,7 @@ bool scheduler::do_switch()
 
 	if (next != nullptr)
 	{
-		assert(current != next);
+		contract_assert(current != next);
 
 		ready_.insert_when(task_control_block::priority_is_lower{}, *next);
 		state_.next_task_.store(nullptr, std::memory_order_relaxed);
@@ -280,7 +280,7 @@ void scheduler::resume_waiter(task_control_block& task)
 
 void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variable& condition)
 {
-	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
+	contract_assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
 	task.waiting_ = nullptr;
 	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
@@ -329,7 +329,7 @@ void scheduler::wake_all(condition_variable& condition)
 
 void scheduler::take_mutex(mutex& m, task_control_block& task)
 {
-	assert(m.owner_ == nullptr);
+	contract_assert(m.owner_ == nullptr);
 	m.owner_ = &task;
 	locked_mutexes_.push_front(m);
 	hooks::mutex_taken(m, task);
@@ -337,7 +337,7 @@ void scheduler::take_mutex(mutex& m, task_control_block& task)
 
 void scheduler::release_mutex(mutex& m, task_control_block& owner)
 {
-	assert(m.owner_ == &owner);
+	contract_assert(m.owner_ == &owner);
 
 	locked_mutexes_.erase(m);
 	m.owner_ = nullptr;
@@ -352,7 +352,7 @@ void scheduler::release_mutex(mutex& m, task_control_block& owner)
 
 bool scheduler::hand_over(mutex& m)
 {
-	assert(m.owner_ == nullptr);
+	contract_assert(m.owner_ == nullptr);
 
 	if (m.waiters_.empty())
 		return false;
@@ -370,8 +370,8 @@ bool scheduler::hand_over(mutex& m)
 
 void scheduler::block_on(mutex& m, task_control_block& task)
 {
-	assert(m.owner_ != nullptr);
-	assert(m.owner_ != &task);
+	contract_assert(m.owner_ != nullptr);
+	contract_assert(m.owner_ != &task);
 
 	task.blocked_on_ = &m;
 	m.waiters_.insert_when(task_control_block::priority_is_lower{}, task);
@@ -550,8 +550,8 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 
 	if (previous != nullptr)
 	{
-		assert(psp >= previous->stack_base_); // Process stack pointer below the task stack base, stack overflow !
-		assert(*previous->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
+		contract_assert(psp >= previous->stack_base_); // Process stack pointer below the task stack base, stack overflow !
+		contract_assert(*previous->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
 		previous->stack_pointer_ = psp;
 		hooks::task_stopped(*previous);
 	}
@@ -588,7 +588,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 			hooks::mutex_restored_for_task(*next);
 		}
 
-		assert(next->is_started());
+		contract_assert(next->is_started());
 		hooks::task_started(*next);
 	}
 
@@ -607,12 +607,12 @@ void scheduler::service_call_handler(stack_frame* frame,
 	switch (parameter)
 	{
 	default:
-		assert(false);
+		contract_assert(false);
 		break;
 
 	case service_call_number::terminate:
 	{
-		assert(frame->r0 != 0); // task pointer is nullptr
+		contract_assert(frame->r0 != 0); // task pointer is nullptr
 		auto& task = *reinterpret_cast<task_control_block*>(frame->r0);
 
 		if(!task.active_.exchange(false)) // was not active, abort termination
@@ -668,7 +668,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 
 		if (&task == state_.current_task_.load(std::memory_order_relaxed))
 		{
-			assert(!state_.critical_section_.load(std::memory_order_relaxed));
+			contract_assert(!state_.critical_section_.load(std::memory_order_relaxed));
 			state_.previous_task_.store(nullptr, std::memory_order_relaxed);
 			state_.current_task_.store(nullptr, std::memory_order_relaxed);
 			task_switch = do_switch();
@@ -687,14 +687,14 @@ void scheduler::service_call_handler(stack_frame* frame,
 
 	case service_call_number::sleep:
 	{
-		assert(is_thread); // should not be called from non thread mode
-		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		contract_assert(is_thread); // should not be called from non thread mode
+		contract_assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
 		auto* current = state_.current_task_.load(std::memory_order_relaxed);
-		assert(current != nullptr); // cannot be called if there is no current task running
+		contract_assert(current != nullptr); // cannot be called if there is no current task running
 
 		const int64_t raw = static_cast<int64_t>(frame->r0) | (static_cast<int64_t>(frame->r1) << 32);
 		auto delta = duration{raw + 1}; // add one because we want to wait at least the required time
-		assert(delta.count() >= 0);
+		contract_assert(delta.count() >= 0);
 		current->wait_until_ = ticks_ + delta;
 		timeouts_.insert_when(wakeup_after{}, *current);
 		hooks::task_sleep(*current);
@@ -705,18 +705,18 @@ void scheduler::service_call_handler(stack_frame* frame,
 
 	case service_call_number::context_switch:
 	{
-		assert(is_thread); // should not be called from non thread mode
-		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		contract_assert(is_thread); // should not be called from non thread mode
+		contract_assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
 		task_switch = do_switch();
 		break;
 	}
 
 	case service_call_number::wait:
 	{
-		assert(is_thread); // should not be called from non thread mode
-		assert(frame->r0 != 0); // cannot be called with undefined condition variable
+		contract_assert(is_thread); // should not be called from non thread mode
+		contract_assert(frame->r0 != 0); // cannot be called with undefined condition variable
 		auto* current = state_.current_task_.load(std::memory_order_relaxed);
-		assert(current != nullptr); // cannot be called if there is no current task running
+		contract_assert(current != nullptr); // cannot be called if there is no current task running
 
 		condition_variable* condition = reinterpret_cast<condition_variable*>(frame->r0);
 		const int64_t raw = static_cast<int64_t>(frame->r1) | (static_cast<int64_t>(frame->r2) << 32);
@@ -743,7 +743,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 
 		if (auto* const* isr = std::get_if<isr_lock*>(&released))
 		{
-			assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+			contract_assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 			(*isr)->release_from_service_call();
 			(*isr)->critical_section_ = false;
 			state_.critical_section_.store(false, std::memory_order_relaxed);
@@ -874,7 +874,7 @@ bool task_control_block::is_ready() const
 bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
                                            callback<void(void)>&& entry, const char* name)
 {
-	assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
+	contract_assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
 
 	if(active_.exchange(true)) // we put true in the boolean value, and were expecting false, so we return if exchange return true
 		return false;
@@ -905,7 +905,7 @@ bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_si
 
 	stack_pointer_ -= sizeof(stack_frame) / sizeof(stack_item);
 	static_assert(sizeof(stack_frame) % 8 == 0, "the exception frame must preserve 8-byte stack alignment");
-	assert(reinterpret_cast<std::uintptr_t>(stack_pointer_) % 8 == 0);
+	contract_assert(reinterpret_cast<std::uintptr_t>(stack_pointer_) % 8 == 0);
 	const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
 
 	frame->psr = 1 << 24;
@@ -930,7 +930,7 @@ bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_si
  */
 bool task_control_block::kill()
 {
-	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
+	contract_assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
 
 	if(!is_started()) // can only terminate an active task
 		return false;
@@ -958,14 +958,14 @@ void task_control_block::priority(task_priority new_priority)
 	// puts every task at task_priority::lowest, so the value written here
 	// would be overwritten by the launch and never take effect. Nothing else
 	// would report it -- the task simply runs at the wrong priority.
-	assert(is_started());
+	contract_assert(is_started());
 
 	// Changing a priority re-sorts ready_, re-sorts the waiting list of a
 	// condition variable, or walks the chain of mutex holders paying priority
 	// inheritance -- all of it under a BASEPRI that does not mask an interrupt
 	// more urgent than OpSy. Called from such a handler, it would edit those
 	// lists while the scheduler is halfway through editing them itself.
-	assert(scheduler::is_os_callable());
+	contract_assert(scheduler::is_os_callable());
 
 	// Compared against the requested priority, not the effective one: while
 	// this task is boosted by a waiter, priority_ is the inherited value, and
@@ -981,13 +981,13 @@ void task_control_block::set_name(const char* name)
 	// Naming a task that has not been started is lost: start takes the name
 	// as an argument and writes it, so anything set beforehand is overwritten
 	// by the launch. Pass the name to start instead.
-	assert(is_started());
+	contract_assert(is_started());
 
 	// name_ is a plain pointer, not an atomic, and the scheduler's hooks read
 	// it to label what they trace. Writing it from an interrupt handler more
 	// urgent than OpSy would be a data race with any such read -- undefined
 	// behaviour, whatever a given core happens to do with an aligned word.
-	assert(scheduler::is_os_callable());
+	contract_assert(scheduler::is_os_callable());
 
 	name_ = name;
 }

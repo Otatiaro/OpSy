@@ -52,7 +52,6 @@
 
 #include <cstdint>
 #include <ratio>
-#include "opsy_assert.hpp"
 #include <atomic>
 #include <concepts>
 #include <type_traits>
@@ -249,8 +248,8 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed));
-		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
+		contract_assert(state_.is_started_.load(std::memory_order_relaxed));
+		contract_assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
 
@@ -260,7 +259,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed)
+		contract_assert(state_.is_started_.load(std::memory_order_relaxed)
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 
 		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
@@ -353,7 +352,7 @@ public:
 	 */
 	[[nodiscard]] static inline bool critical_section_begin()
 	{
-		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
+		contract_assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
 
 		// A single read-modify-write, not a load followed by a store: SysTick can
 		// land between the two and switch to a task that takes the section for
@@ -372,7 +371,7 @@ public:
 	 */
 	static void critical_section_end()
 	{
-		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
+		contract_assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 		state_.critical_section_.store(false, std::memory_order_relaxed);
 		hooks::exit_critical_section();
 		if (state_.may_need_switch_.load(std::memory_order_relaxed))
@@ -457,7 +456,7 @@ private:
 	{
 		auto previous = cortex_m::exchange_basepri(service_call_priority);
 		state_.may_need_switch_.store(false, std::memory_order_relaxed);
-		assert(previous.value() == 0); // there is no reason to call this being in a mutex
+		contract_assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
 		cortex_m::exchange_basepri(previous); // PendSV, if pended, is taken within a few instructions
 	}
@@ -477,7 +476,7 @@ private:
 	{
 		constexpr bool operator()(const task_control_block& left, const task_control_block& right) const
 		{
-			assert(left.wait_until_.has_value() && right.wait_until_.has_value());
+			contract_assert(left.wait_until_.has_value() && right.wait_until_.has_value());
 			return left.wait_until_.value_or(startup) < right.wait_until_.value_or(startup);
 		}
 	};

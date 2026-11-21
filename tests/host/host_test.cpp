@@ -10,6 +10,7 @@
 
 #include "host_test.hpp"
 
+#include <contracts>
 #include <cstdio>
 #include <cstdlib>
 
@@ -17,21 +18,35 @@ namespace opsy
 {
 
 /**
- * @brief OpSy's assert macro routes here, and opsy_assert.hpp only declares it
- *        — the default definition lives in config.hpp, which a host build that
- *        includes a single utility header never pulls in.
+ * @brief OpSy's stop for what must never happen; config.hpp defines it, and a
+ *        host build that includes a single utility header never pulls that in
  *
- *        Failing loudly is the right behaviour for a test binary: a tripped
- *        internal assert is a defect, not something to keep running past.
+ *        Failing loudly is the right behaviour for a test binary: a defect is
+ *        not something to keep running past.
  */
 [[noreturn]] void trap()
 {
-	std::fprintf(stderr, "\n*** opsy::trap() reached: an OpSy internal assert failed ***\n");
+	std::fprintf(stderr, "\n*** opsy::trap() reached ***\n");
 	std::fflush(stderr);
 	std::abort();
 }
 
 } // namespace opsy
+
+/**
+ * @brief Where a failed contract check lands: the suite is built under the
+ *        observe semantic, and this handler, which does not return, is what a
+ *        violation runs
+ */
+[[noreturn]] void handle_contract_violation(const std::contracts::contract_violation& violation);
+
+void handle_contract_violation(const std::contracts::contract_violation& violation)
+{
+	const auto location = violation.location();
+	std::fprintf(stderr, "\n%s:%u: %s: contract violated: %s\n", location.file_name(), static_cast<unsigned>(location.line()), location.function_name(), violation.comment());
+	std::fflush(stderr);
+	std::abort();
+}
 
 namespace host_test
 {

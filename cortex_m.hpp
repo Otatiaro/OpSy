@@ -42,7 +42,6 @@
 
 #pragma once
 
-#include "opsy_assert.hpp"
 #include <optional>
 
 #include "config.hpp"
@@ -377,7 +376,7 @@ public:
 	 */
 	static void preempt_bits(uint8_t value)
 	{
-		assert(value <= prigroup_max); // PRIGROUP encodes at most 7 preemption bits
+		contract_assert(value <= prigroup_max); // PRIGROUP encodes at most 7 preemption bits
 		priority_grouping(static_cast<uint8_t>(prigroup_max - value));
 	}
 
@@ -387,8 +386,8 @@ public:
 	 */
 	static void enable_systick(uint32_t reload)
 	{
-		assert(reload != 0);
-		assert(reload - 1 <= SystickReloadMask);
+		contract_assert(reload != 0);
+		contract_assert(reload - 1 <= SystickReloadMask);
 		detail::memory_register<uint32_t>(SystickCtrlAddress).set(0); // stop timer in case it was already started
 		detail::memory_register<uint32_t>(SystickLoadAddress).set(reload - 1); // set the reload value
 		detail::memory_register<uint32_t>(SystickValAddress).set(0); // reset the counter
@@ -412,7 +411,7 @@ public:
 	 */
 	static void enable_interrupt(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		detail::memory_register<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
@@ -425,7 +424,7 @@ public:
 	 */
 	static void disable_interrupt(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		detail::memory_register<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 		data_barrier();
 		instruction_barrier();
@@ -438,7 +437,7 @@ public:
 	 */
 	static bool is_pending(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		return (detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
@@ -448,7 +447,7 @@ public:
 	 */
 	static void set_pending(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
@@ -458,7 +457,7 @@ public:
 	 */
 	static void clear_pending(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		detail::memory_register<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
 	}
 
@@ -485,7 +484,7 @@ public:
 	 */
 	static bool is_active(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		return (detail::memory_register<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
@@ -496,7 +495,7 @@ public:
 	 */
 	static void set_priority(uint32_t irq, isr_priority priority)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		detail::memory_register<uint8_t>(NvicIpAddress + irq).set(priority.value());
 	}
 
@@ -507,7 +506,7 @@ public:
 	 */
 	static isr_priority priority(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		return isr_priority(detail::memory_register<uint8_t>(NvicIpAddress + irq).get());
 	}
 
@@ -537,7 +536,7 @@ public:
 		case system_irq::non_maskable_interrupt:
 		case system_irq::hard_fault:
 		default:
-			assert(false); // priority is architecturally fixed, there is no register to write
+			contract_assert(false); // priority is architecturally fixed, there is no register to write
 			break;
 		}
 	}
@@ -567,7 +566,7 @@ public:
 		case system_irq::non_maskable_interrupt:
 		case system_irq::hard_fault:
 		default:
-			assert(false); // priority is architecturally fixed, there is no register to read
+			contract_assert(false); // priority is architecturally fixed, there is no register to read
 			return isr_priority(0);
 		}
 	}
@@ -629,8 +628,8 @@ public:
 	 */
 	static void move_vtor(isr_handler_t* new_vtor, std::size_t copy_size = 0)
 	{
-		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % vtor_alignment == 0)); // check vtor is not null and correctly aligned
-		assert(copy_size <= MaxIrq + system_irqs_count);
+		contract_assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % vtor_alignment == 0)); // check vtor is not null and correctly aligned
+		contract_assert(copy_size <= MaxIrq + system_irqs_count);
 
 		for (auto i = 0u; i < copy_size; ++i)
 			new_vtor[i] = vtor()[i];
@@ -660,7 +659,7 @@ public:
 		}
 		case system_irq::initial_sp:
 		default:
-			assert(false);
+			contract_assert(false);
 			return nullptr;
 		}
 	}
@@ -672,7 +671,7 @@ public:
 	 */
 	static isr_handler_t isr_handler(uint32_t irq)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		return vtor()[irq + system_irqs_count];
 	}
 
@@ -710,7 +709,7 @@ public:
 	 */
 	static void set_isr_handler(uint32_t irq, isr_handler_t handler)
 	{
-		assert(irq <= MaxIrq);
+		contract_assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
 		{
 			vtor()[irq + system_irqs_count] = handler;
@@ -1234,7 +1233,7 @@ private:
 
 	static void priority_grouping(uint8_t value)
 	{
-		assert(value <= prigroup_max);
+		contract_assert(value <= prigroup_max);
 		detail::memory_register<uint32_t>(AircrAddress).set((detail::memory_register<uint32_t>(AircrAddress).get() & ~(AircrPrigroupMsk | AircrVectkeyMsk)) | (AircrVectkeyValue | static_cast<uint32_t>(value << AircrPrigroupPos)));
 	}
 };

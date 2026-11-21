@@ -63,7 +63,8 @@ its defaults everywhere else; `readme_examples.cpp` asserts under
 
 The strict warning set matches what production OpSy projects run with:
 `-Wall -Werror -Wpedantic -Wextra -Wshadow -Wcast-align -Wcast-qual
--Wnull-dereference -Wconversion -Wsign-conversion -Wdouble-promotion`,
+-Wconversion -Wsign-conversion -Wdouble-promotion` (not
+`-Wnull-dereference`: `warnings.cmake` says why),
 with `-fno-exceptions -fno-rtti`, plus the GCC-only `-Wlogical-op
 -Wduplicated-cond -Wduplicated-branches` when the compiler is GCC.
 
@@ -115,12 +116,13 @@ The harness is [`host_test.hpp`](host/host_test.hpp) / `host_test.cpp`:
 about a hundred lines, no dependency. Tests register themselves at
 static-init time, so adding a case is `OPSY_TEST(name) { ... }` and
 adding the file to `host/CMakeLists.txt`. Use `CHECK` / `CHECK_NEAR`,
-never `assert` — OpSy installs its own `assert` macro, which routes to
-`opsy::trap` and aborts the run.
+never `assert`, which aborts the run on the first failure.
 
-`host_test.cpp` also defines `opsy::trap`. `opsy_assert.hpp` only
-declares it; the default definition lives in `config.hpp`, which a host
-build including a single `utility` header never pulls in.
+`host_test.cpp` also defines `handle_contract_violation`, which a failed
+check of an OpSy contract calls (the suite is built under the `observe`
+semantic), and `opsy::trap`, whose default definition lives in
+`config.hpp`, which a host build including a single `utility` header
+never pulls in.
 
 The suite is built 32-bit. `utility/allocator.hpp` requires
 `sizeof(int) == sizeof(void*)`, true on every Cortex-M target and on no

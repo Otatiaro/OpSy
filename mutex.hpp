@@ -30,7 +30,6 @@
 
 #pragma once
 
-#include "opsy_assert.hpp"
 #include "embedded_list.hpp"
 #include "scheduler.hpp"
 
@@ -86,7 +85,7 @@ public:
 	 */
 	~mutex()
 	{
-		assert(owner_ == nullptr);
+		contract_assert(owner_ == nullptr);
 	}
 
 	mutex(const mutex&) = delete("a mutex is held by address in the scheduler's lists and by its owner: it stays where it is, like std::mutex");
@@ -163,14 +162,14 @@ private:
  */
 inline void mutex::lock()
 {
-	assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
-	assert(scheduler::is_os_callable());
+	contract_assert(cortex_m::ipsr() == 0);            // blocking is meaningless in an ISR
+	contract_assert(scheduler::is_os_callable());
 
 	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
 
 	auto* self = scheduler::current_task();
-	assert(self != nullptr);
-	assert(owner_ != self);                   // not recursive, like std::mutex
+	contract_assert(self != nullptr);
+	contract_assert(owner_ != self);                   // not recursive, like std::mutex
 
 	if (owner_ == nullptr)
 	{
@@ -190,7 +189,7 @@ inline void mutex::lock()
 	                                          // this task resumes below owning the mutex;
 	                                          // not one instruction of the caller's may
 	                                          // run before the switch
-	assert(owner_ == scheduler::current_task());
+	contract_assert(owner_ == scheduler::current_task());
 }
 
 /**
@@ -198,14 +197,14 @@ inline void mutex::lock()
  */
 inline bool mutex::try_lock()
 {
-	assert(cortex_m::ipsr() == 0);
-	assert(scheduler::is_os_callable());
+	contract_assert(cortex_m::ipsr() == 0);
+	contract_assert(scheduler::is_os_callable());
 
 	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
 
 	auto* self = scheduler::current_task();
-	assert(self != nullptr);
-	assert(owner_ != self);                   // not recursive
+	contract_assert(self != nullptr);
+	contract_assert(owner_ != self);                   // not recursive
 
 	const bool taken = owner_ == nullptr;
 	if (taken)
@@ -220,11 +219,11 @@ inline bool mutex::try_lock()
  */
 inline void mutex::unlock()
 {
-	assert(cortex_m::ipsr() == 0);
-	assert(scheduler::is_os_callable());
+	contract_assert(cortex_m::ipsr() == 0);
+	contract_assert(scheduler::is_os_callable());
 
 	const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
-	assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
+	contract_assert(owner_ == scheduler::current_task()); // std::mutex calls this UB
 
 	scheduler::release_mutex(*this, *scheduler::current_task());
 	scheduler::do_switch();                   // a woken waiter may outrank us

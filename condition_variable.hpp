@@ -241,7 +241,7 @@ private:
 	 */
 	void add_waiting(task_control_block& task)
 	{
-		waiting_list_.insert_when(task_control_block::priority_is_lower, task);
+		waiting_list_.insert_when(task_control_block::priority_is_lower{}, task);
 	}
 
 	/**

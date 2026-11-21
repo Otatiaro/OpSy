@@ -12,8 +12,8 @@ This is the document to read before changing anything in `scheduler.cpp`,
 OpSy is a **priority-based preemptive scheduler with a single ready
 queue**. There is one hardware thread, so exactly one task runs at a
 time, and the highest-priority runnable task is always the one running.
-Tasks of equal priority are ordered by how long ago they last ran, so
-they take turns rather than starving each other.
+Tasks of equal priority take turns in the order they became ready: one
+that is preempted or woken goes behind the others, so none starves.
 
 Everything the scheduler owns is static: there is no allocation, and
 `scheduler.cpp` is the only translation unit precisely because it holds

@@ -136,14 +136,14 @@ bool scheduler::do_switch()
 	{
 		assert(current != next);
 
-		ready_.insert_when(task_control_block::priority_is_lower, *next);
+		ready_.insert_when(task_control_block::priority_is_lower{}, *next);
 		state_.next_task_.store(nullptr, std::memory_order_relaxed);
 		next = nullptr;
 	}
 
 	if (current != nullptr)
 	{
-		ready_.insert_when(task_control_block::priority_is_lower, *current);
+		ready_.insert_when(task_control_block::priority_is_lower{}, *current);
 		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 	}
 
@@ -268,7 +268,7 @@ void scheduler::resume_waiter(task_control_block& task)
 		take_mutex(target, task);
 	}
 
-	ready_.insert_when(task_control_block::priority_is_lower, task);
+	ready_.insert_when(task_control_block::priority_is_lower{}, task);
 	hooks::task_ready(task);
 }
 
@@ -356,7 +356,7 @@ bool scheduler::hand_over(mutex& m)
 	// so it cannot be taken by someone else in between.
 	next->blocked_on_ = nullptr;
 	take_mutex(m, *next);
-	ready_.insert_when(task_control_block::priority_is_lower, *next);
+	ready_.insert_when(task_control_block::priority_is_lower{}, *next);
 	hooks::task_ready(*next);
 	return true;
 }
@@ -383,7 +383,7 @@ task_control_block* scheduler::highest_waiter(const mutex& m)
 	// keep in step.
 	auto waiters = all_tasks_ | std::views::filter([&m](const auto& task) { return task.blocked_on_ == &m; });
 
-	const auto best = std::ranges::min_element(waiters, task_control_block::priority_is_lower);
+	const auto best = std::ranges::min_element(waiters, task_control_block::priority_is_lower{});
 	return best == std::ranges::end(waiters) ? nullptr : &*best;
 }
 
@@ -410,7 +410,7 @@ void scheduler::requeue(task_control_block& task)
 	if (task.is_ready())
 	{
 		ready_.erase(task);
-		ready_.insert_when(task_control_block::priority_is_lower, task);
+		ready_.insert_when(task_control_block::priority_is_lower{}, task);
 	}
 	else if (task.waiting_ != nullptr)
 	{
@@ -500,7 +500,7 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 			// predicate that knows every state a task can be in, state_.next_task_
 			// and blocked_on_ included.
 			ready_.erase(task); // remove the task from ready list
-			ready_.insert_when(task_control_block::priority_is_lower, task); // then re insert it, this will update its order
+			ready_.insert_when(task_control_block::priority_is_lower{}, task); // then re insert it, this will update its order
 			if(&ready_.front() == &task) // this brought the task to the first place in the ready list
 				do_switch(); // so test if it is higher priority than current / next task
 		}
@@ -551,7 +551,6 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		state_.current_task_.store(next, std::memory_order_relaxed);
 		result = reinterpret_cast<uintptr_t>(next->stack_pointer_);
 		stack_base = next->stack_base_;
-		next->last_started_ = ticks_;
 		state_.next_task_.store(nullptr, std::memory_order_relaxed);
 
 		// Only an isr_lock is re-acquired here: it is a BASEPRI level, which
@@ -673,7 +672,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		auto delta = duration{raw + 1}; // add one because we want to wait at least the required time
 		assert(delta.count() >= 0);
 		current->wait_until_ = ticks_ + delta;
-		timeouts_.insert_when(wakeup_after, *current);
+		timeouts_.insert_when(wakeup_after{}, *current);
 		hooks::task_sleep(*current);
 		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
@@ -706,7 +705,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		if(timeout.count() >= 0)
 		{
 			current->wait_until_ = ticks_ + timeout;
-			timeouts_.insert_when(wakeup_after, *current);
+			timeouts_.insert_when(wakeup_after{}, *current);
 			// Just engaged on the previous line; use * not .value() to avoid
 			// the bad_optional_access -> abort path under -fno-exceptions.
 			hooks::task_wait_timeout(*current, *condition, *current->wait_until_);

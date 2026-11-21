@@ -451,6 +451,13 @@ private:
 	 */
 	static void resume_waiter(task_control_block& task);
 
+	/**
+	 * @brief Wakes @p task , which @p initiator was notified for: clears its
+	 *        wait and timeout, sets its return value, and asks for a switch
+	 *        when it outranks what runs
+	 * @remark The caller has already taken the task off the condition's
+	 *         waiting list; this does not touch that list.
+	 */
 	static void wake_up(task_control_block& task, condition_variable& initiator);
 
 	/**

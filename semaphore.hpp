@@ -114,12 +114,11 @@ public:
 
 		// Read without the lock: a waiter only queues itself while holding it,
 		// and holding it masks every handler that may call OpSy and every task
-		// switch, so nothing that could run this. So either it queued before the count was raised, and is
-		// seen here, or it will see the count when it looks.
-		if (available_.waiting_list_.empty())
-			return;
-
-		std::lock_guard<isr_lock> guard(lock_);
+		// switch, so nothing that could run this. So either it queued before
+		// the count was raised, and is seen here, or it will see the count when
+		// it looks. notify_one() takes its own lock, at the same level as lock_,
+		// around the one step that needs it: taking lock_ here as well would
+		// only add a second BASEPRI round trip to every release.
 		for (std::ptrdiff_t i = 0; i < update && !available_.waiting_list_.empty(); ++i)
 			available_.notify_one();
 	}

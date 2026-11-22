@@ -53,6 +53,7 @@
 #include "embedded_list.hpp"
 #include "cortex_m.hpp"
 #include "callback.hpp"
+#include "hooks.hpp"
 
 // Where an idle entry function that returns lands: a breakpoint, defined by
 // the asm in scheduler.cpp. Only its address is taken.
@@ -712,8 +713,7 @@ public:
 };
 
 /**
- * @brief Default idle behaviour: spin on @c WFI (or @c NOP when @c NDEBUG is
- *        not defined, so the debugger can step through reliably).
+ * @brief Default idle behaviour: wait for an interrupt, through @c hook::idle_wait
  * @remark Pulled out of @c default_idle so that the latter can be a plain
  *         zero-initialized variable. @c scheduler::start passes this as the
  *         default @c entry argument.
@@ -721,13 +721,7 @@ public:
 [[noreturn]] inline void default_idle_loop()
 {
 	while(true)
-	{
-#ifndef NDEBUG
-		cortex_m::nop();
-#else
-		cortex_m::wfi();
-#endif
-	}
+		hook::idle_wait();
 }
 
 /**

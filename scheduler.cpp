@@ -25,7 +25,7 @@ constinit embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 			|| running == cortex_m::core_type::m7
 			|| running == cortex_m::core_type::m33); // only M3/M4/M7/M33 are officially supported
 	}
-	assert(!state_.is_started_.load(std::memory_order_relaxed));
+	assert(!is_started());
 
 	uint32_t ratio = std::chrono::duration_cast<duration>(
 			std::chrono::duration<int64_t>(1)).count(); // get ratio from timeout clock (system ticks to 1Hz)
@@ -55,7 +55,7 @@ constinit embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 	assert(core_clock_value % ratio == 0u); // for exact time clock the core clock divided by ratio should not leave a remainder
 	cortex_m::enable_systick(core_clock_value / ratio);
 
-	hooks::starting(idle, core_clock_value, [](callback<void(const task_control_block&)> callback)
+	hook::starting(idle, core_clock_value, [](callback<void(const task_control_block&)> callback)
 	{
 		for(const auto& task : all_tasks_)
 			callback(task);
@@ -84,7 +84,7 @@ constinit embedded_list<mutex, mutex> scheduler::locked_mutexes_;
 
 inline void scheduler::systick_handler()
 {
-	hooks::enter_systick();
+	hook::enter_systick();
 	ticks_+=duration(1); // the only writer, and nothing above system preemption level runs while it does; readers below that level go through now(), which masks
 
 	bool dirty = false;
@@ -99,29 +99,31 @@ inline void scheduler::systick_handler()
 		timeouts_.pop_front();
 		task.wait_until_ = std::nullopt;
 
+		// Either way the same path as a notification: a task that waited
+		// holding a mutex must own it again before it can run, and may have
+		// to block on it instead of becoming runnable.
 		if(task.waiting_ != nullptr)
 		{
 			task.waiting_->remove_waiting(task);
 			task.waiting_ = nullptr; // the task no longer waits on it -- see wake, which does the same
 			task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
+			resume_waiter(task, wake_reason::timed_out);
 		}
+		else
+			resume_waiter(task, wake_reason::sleep_elapsed);
 
-		// Same path as a notification: a task that waited holding a mutex
-		// must own it again before it can run, and may have to block on
-		// it instead of becoming runnable.
-		resume_waiter(task);
 		dirty = true;
 	}
 
 	if(dirty)
-		hooks::exit_systick(do_switch());
+		hook::exit_systick(do_switch());
 	else
-		hooks::exit_systick(false);
+		hook::exit_systick(false);
 }
 
 bool scheduler::do_switch()
 {
-	assert(state_.is_started_.load(std::memory_order_relaxed));
+	assert(is_started());
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
 	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
 	assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
@@ -256,7 +258,7 @@ void __attribute__((naked)) scheduler::terminate_task([[maybe_unused]] task_cont
  *        obtained. Inserting first and sorting it out afterwards is what put a
  *        task in two lists at once in earlier versions of this scheduler.
  */
-void scheduler::resume_waiter(task_control_block& task)
+void scheduler::resume_waiter(task_control_block& task, wake_reason reason)
 {
 	if (auto* const* held = std::get_if<mutex*>(&task.released_lock_))
 	{
@@ -275,7 +277,7 @@ void scheduler::resume_waiter(task_control_block& task)
 	}
 
 	ready_.insert_when(task_control_block::priority_is_lower{}, task);
-	hooks::task_ready(task);
+	hook::task_ready(task, reason);
 }
 
 void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variable& condition)
@@ -291,7 +293,7 @@ void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variab
 		timeouts_.erase(task);
 	}
 
-	resume_waiter(task); // may block on the mutex instead of becoming runnable
+	resume_waiter(task, wake_reason::notified); // may block on the mutex instead of becoming runnable
 }
 
 void scheduler::wake_one(condition_variable& condition)
@@ -332,7 +334,7 @@ void scheduler::take_mutex(mutex& m, task_control_block& task)
 	assert(m.owner_ == nullptr);
 	m.owner_ = &task;
 	locked_mutexes_.push_front(m);
-	hooks::mutex_taken(m, task);
+	hook::mutex_taken(m, task);
 }
 
 void scheduler::release_mutex(mutex& m, task_control_block& owner)
@@ -341,7 +343,7 @@ void scheduler::release_mutex(mutex& m, task_control_block& owner)
 
 	locked_mutexes_.erase(m);
 	m.owner_ = nullptr;
-	hooks::mutex_released(m, owner);
+	hook::mutex_released(m, owner);
 
 	hand_over(m);
 
@@ -364,7 +366,7 @@ bool scheduler::hand_over(mutex& m)
 	next->blocked_on_ = nullptr;
 	take_mutex(m, *next);
 	ready_.insert_when(task_control_block::priority_is_lower{}, *next);
-	hooks::task_ready(*next);
+	hook::task_ready(*next, wake_reason::mutex_granted);
 	return true;
 }
 
@@ -375,7 +377,7 @@ void scheduler::block_on(mutex& m, task_control_block& task)
 
 	task.blocked_on_ = &m;
 	m.waiters_.insert_when(task_control_block::priority_is_lower{}, task);
-	hooks::mutex_blocked(m, task);
+	hook::mutex_blocked(m, task);
 
 	// Raise the holder — and whoever it is itself waiting for — so it can run
 	// to the point of releasing rather than being starved by a task of
@@ -448,7 +450,7 @@ void scheduler::inherit_priority(task_control_block& owner, task_priority priori
 			break; // already at least this important, and so is the rest of the chain
 
 		current->priority_ = priority;
-		hooks::task_priority_changed(*current);
+		hook::task_priority_changed(*current);
 
 		requeue(*current);
 
@@ -475,7 +477,7 @@ bool scheduler::release_all_mutexes(task_control_block& task)
 
 		locked_mutexes_.erase(held);
 		held.owner_ = nullptr;
-		hooks::mutex_released(held, task); // a tracer must see every take paired
+		hook::mutex_released(held, task); // a tracer must see every take paired
 
 		woke |= hand_over(held);
 	}
@@ -526,16 +528,16 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	// Before the scheduler starts the lists are kept in order for start to
 	// pick from, and that is all: there is no task to preempt, and the PendSV a
 	// switch pends has no handler of OpSy's to land in yet.
-	if (may_preempt && state_.is_started_.load(std::memory_order_relaxed))
+	if (may_preempt && is_started())
 		do_switch();
 
-	hooks::task_priority_changed(task);
+	hook::task_priority_changed(task);
 	cortex_m::exchange_basepri(previous);
 }
 
 uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 {
-	hooks::enter_pend_sv();
+	hook::enter_pend_sv();
 	cortex_m::clear_pend_sv();
 
 	// Two words for the assembly half, in R0 and R1: the process stack pointer
@@ -553,7 +555,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		assert(psp >= previous->stack_base_); // Process stack pointer below the task stack base, stack overflow !
 		assert(*previous->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
 		previous->stack_pointer_ = psp;
-		hooks::task_stopped(*previous);
+		hook::task_stopped(*previous);
 	}
 
 	if (state_.idling_.load(std::memory_order_relaxed))
@@ -565,7 +567,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		state_.previous_task_.store(nullptr, std::memory_order_relaxed);
 		result = reinterpret_cast<uintptr_t>(idle->stack_pointer_);
 		stack_base = idle->stack_base_;
-		hooks::enter_idle();
+		hook::enter_idle();
 	}
 	else
 	{
@@ -585,11 +587,11 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 			result |= static_cast<uint64_t>((*held)->relock_from_pend_sv()) << 32;
 			state_.critical_section_.store(true, std::memory_order_relaxed);
 			next->released_lock_ = std::monostate{};
-			hooks::mutex_restored_for_task(*next);
+			hook::mutex_restored_for_task(*next);
 		}
 
 		assert(next->is_started());
-		hooks::task_started(*next);
+		hook::task_started(*next);
 	}
 
 	if constexpr (cortex_m::has_stack_limit_regs)
@@ -601,7 +603,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 void scheduler::service_call_handler(stack_frame* frame,
 		service_call_number parameter, [[maybe_unused]] bool is_thread, uint32_t exc_return)
 {
-	hooks::enter_service_call();
+	hook::enter_service_call();
 	bool task_switch = false;
 
 	switch (parameter)
@@ -681,7 +683,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		if (woke_someone || holder_dropped)
 			task_switch = do_switch() || task_switch;
 
-		hooks::task_terminated(task);
+		hook::task_terminated(task);
 		break;
 	}
 
@@ -697,7 +699,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 		assert(delta.count() >= 0);
 		current->wait_until_ = ticks_ + delta;
 		timeouts_.insert_when(wakeup_after{}, *current);
-		hooks::task_sleep(*current);
+		hook::task_sleep(*current, *current->wait_until_); // engaged two lines up: * not .value(), see the wait below
 		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 		task_switch = do_switch();
 		break;
@@ -732,13 +734,13 @@ void scheduler::service_call_handler(stack_frame* frame,
 			timeouts_.insert_when(wakeup_after{}, *current);
 			// Just engaged on the previous line; use * not .value() to avoid
 			// the bad_optional_access -> abort path under -fno-exceptions.
-			hooks::task_wait_timeout(*current, *condition, *current->wait_until_);
-			hooks::condition_variable_start_waiting(*condition, *current, timeout);
+			hook::task_wait_timeout(*current, *condition, *current->wait_until_);
+			hook::condition_variable_start_waiting(*condition, *current, timeout);
 		}
 		else
 		{
-			hooks::task_wait(*current, *condition);
-			hooks::condition_variable_start_waiting(*condition, *current);
+			hook::task_wait(*current, *condition);
+			hook::condition_variable_start_waiting(*condition, *current);
 		}
 
 		if (auto* const* isr = std::get_if<isr_lock*>(&released))
@@ -747,7 +749,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 			(*isr)->release_from_service_call();
 			(*isr)->critical_section_ = false;
 			state_.critical_section_.store(false, std::memory_order_relaxed);
-			hooks::mutex_stored_for_task(*current);
+			hook::mutex_stored_for_task(*current);
 		}
 		else if (auto* const* held = std::get_if<mutex*>(&released))
 		{
@@ -755,7 +757,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 			// take it while this one sleeps, which is the whole point of
 			// waiting with a mutex held.
 			release_mutex(**held, *current);
-			hooks::mutex_stored_for_task(*current);
+			hook::mutex_stored_for_task(*current);
 		}
 
 		condition->add_waiting(*current);
@@ -785,7 +787,7 @@ void scheduler::service_call_handler(stack_frame* frame,
 	}
 
 	}
-	hooks::exit_service_call(task_switch);
+	hook::exit_service_call(task_switch);
 }
 
 namespace
@@ -931,6 +933,7 @@ bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_si
 bool task_control_block::kill()
 {
 	assert(scheduler::is_os_callable()); // an ISR above OpSy must not enter the scheduler
+	assert(scheduler::is_started()); // the service call below has no handler of OpSy's to land in before scheduler::start
 
 	if(!is_started()) // can only terminate an active task
 		return false;

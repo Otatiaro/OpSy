@@ -249,7 +249,7 @@ public:
 	 */
 	static const embedded_list<task_control_block, task_lists::handle>& all_tasks()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed));
+		assert(is_started());
 		assert(is_os_callable()); // the list can be mid-update under an ISR above OpSy
 		return all_tasks_;
 	}
@@ -260,7 +260,7 @@ public:
 	 */
 	static inline time_point now()
 	{
-		assert(state_.is_started_.load(std::memory_order_relaxed)
+		assert(is_started()
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
 
 		// ticks_ is 64 bits, which is two ldr on Cortex-M, and SysTick — the only
@@ -336,6 +336,20 @@ public:
 	}
 
 	/**
+	 * @brief Whether @c scheduler::start has handed the core to its tasks
+	 * @return @c true once the first context switch is pended, @c false before
+	 * @remark What may be done to a task before that -- start it, set its
+	 *         priority or its name -- is in the README, under starting up.
+	 *         The rest of the API asserts on this: before start there is no
+	 *         task to switch from, and the service call a @c kill or a sleep
+	 *         issues has no handler of OpSy's to land in.
+	 */
+	[[nodiscard]] static inline bool is_started()
+	{
+		return state_.is_started_.load(std::memory_order_relaxed);
+	}
+
+	/**
 	 * @brief Try to get a valid @c critical_section from the @c scheduler
 	 * @return A @c critical_section with state @c true if possible, @c false otherwise (already in critical section)
 	 * @remark Use this only for @c task to @c task synchronization, prefer @c mutex for a more generic synchronization (uses @c isr_priority to sychronize with interrupt service routines)
@@ -362,7 +376,7 @@ public:
 		if (state_.critical_section_.exchange(true, std::memory_order_relaxed)) // was already in critical section, iterative is OK but the new object is invalid, meaning the critical section is ended only when the first (the only valid) object is released
 			return false;
 
-		hooks::enter_critical_section();
+		hook::enter_critical_section();
 		return true;
 	}
 
@@ -374,7 +388,7 @@ public:
 	{
 		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 		state_.critical_section_.store(false, std::memory_order_relaxed);
-		hooks::exit_critical_section();
+		hook::exit_critical_section();
 		if (state_.may_need_switch_.load(std::memory_order_relaxed))
 			trigger_soft_switch();
 	}
@@ -432,7 +446,7 @@ private:
 
 	static void add_task(task_control_block& task)
 	{
-		hooks::task_added(task);
+		hook::task_added(task);
 
 		{
 			// Called straight from task context by task_control_block::start_impl,
@@ -447,7 +461,7 @@ private:
 			cortex_m::exchange_basepri(previous);
 		}
 
-		if(state_.is_started_.load(std::memory_order_relaxed))
+		if(is_started())
 			trigger_soft_switch();
 	}
 
@@ -524,8 +538,9 @@ private:
 	/**
 	 * @brief Puts a task woken from a condition variable back where it belongs,
 	 *        re-acquiring the mutex it waited with, or blocking on it
+	 * @param reason What woke it, for the hook
 	 */
-	static void resume_waiter(task_control_block& task);
+	static void resume_waiter(task_control_block& task, wake_reason reason);
 
 	/**
 	 * @brief Wakes the first task waiting on @p condition , if any, and asks
@@ -609,7 +624,7 @@ private:
 
 	static void update_name(task_control_block& task)
 	{
-		hooks::task_name_changed(task);
+		hook::task_name_changed(task);
 	}
 };
 

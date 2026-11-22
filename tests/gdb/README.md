@@ -50,6 +50,7 @@ ctest --test-dir build-qemu -R tick_wrap --output-on-failure
 | `start_window.gdb` | The scheduler counts as started only once nothing that may call into OpSy can interleave with its first switch. From then on starting a task asks for a context switch, which before the process stack is set up would save a context through a PSP pointing at nothing. Single-steps `start_impl` and checks at every instruction that the flag is clear, or the handlers allowed to call OpSy are masked. |
 | `list_integrity.gdb` | The scheduler's task lists, a mutex's waiters included, stay coherent tick after tick: counts match the chains, back-links agree with forward links, no chain is a cycle, and the running task is not also queued as waiting. Intrusive lists do not fail loudly when mis-stitched, so this looks for the damage directly. |
 | `release_hint_race.gdb` | A semaphore release reads the waiting list without the lock, as a hint; the tick can remove a timed-out waiter in the middle of that read. Stops the release on its read of the list's head and lands the tick there: the hint has to be one word, read whole, or an asserting build dies on two words that disagree. |
+| `kill_before_start.gdb` | `kill()` refuses to run before `scheduler::start`: its service call has no handler of OpSy's to land in yet, and a program killing a task from `main` on some condition would die there in release with nothing to say why. No case can make the call from a task, so the scenario makes it itself: stopped on the way into `start_impl`, it redirects the CPU into `kill` as `main` would have called it, and the stop that follows has to be `opsy::trap`, called from `kill`. |
 
 ## How a scenario reports
 
@@ -80,6 +81,7 @@ defect in the source, rebuilding and confirming the scenario turns red:
 | `list_integrity.gdb` | `pop_front` leaves a back-link pointing at a removed element | yes |
 | `release_hint_race.gdb` | `counting_semaphore::release` reads `empty()`, two words, without the lock (the code before the fix) | yes |
 | `pendsv_window.gdb` | `PendSV` does not clear `next_task_` | yes |
+| `kill_before_start.gdb` | `kill()` without its `scheduler::is_started()` assertion | yes: the call returns to its caller, the SVC issued into an unstarted scheduler |
 | `start_window.gdb` | `start_impl` sets `is_started_` on entry, unmasked (the code before this check) | yes |
 | `pendsv_window.gdb` | `PendSV` installs a task other than the elected one | yes |
 

@@ -2,20 +2,24 @@
  ******************************************************************************
  * @file    hooks.hpp
  * @author  Thomas Legrand
- * @version V0.1
+ * @version V0.2
  * @date    01-March-2019
- * @brief   Default (empty) hooks for OpSy
+ * @brief   The points OpSy reports, and how a program listens to them
  *
- * 			This class is a default (empty) implementation of the hooks
- * 			used by OpSy. All methods are @c static @c constexpr @c void and
- * 			empty, so that starting at Og all calls to these are removed by
- * 			the compiler.
+ * 			OpSy reports what it does -- a task made ready, a handler entered,
+ * 			a mutex handed over -- through the static functions of @c opsy::hook.
+ * 			Each of them forwards to the function of the same name in
+ * 			@c opsy::hooks when the program defines one, and is empty otherwise:
+ * 			a hook nobody listens to costs nothing from -Og up, its arguments
+ * 			included.
  *
- * 			You can redirect these calls to a custom implementation by creating
- * 			a file opsy_hooks.hpp in one of the include directory of the project.
- *
- * 			You can then add custom checks and code, e.g. for integration of a
- * 			monitoring tool like SEGGER SystemView.
+ * 			A program listens by providing a file @c opsy_hooks.hpp on its
+ * 			include path, defining @c opsy::hooks with the hooks it wants and
+ * 			no other. @c hook below is the list of what it may define, with the
+ * 			signature of each; a hook may also take the shorter form noted on
+ * 			it. A name that matches nothing in the list is never called -- the
+ * 			compiler has no way to tell a hook from a helper -- so a hook that
+ * 			stays silent is checked against this list first.
  *
  ******************************************************************************
  * @copyright Copyright 2019 Thomas Legrand under the MIT License
@@ -47,13 +51,12 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "callback.hpp"
 #include "config.hpp"
+#include "cortex_m.hpp"
 #include "isr_priority.hpp"
-
-#if __has_include(<opsy_hooks.hpp>)
-#include <opsy_hooks.hpp>
-#else
 
 namespace opsy
 {
@@ -62,191 +65,333 @@ namespace opsy
 // include this one back. Every type the signatures below name has to be
 // listed -- an omission stops this header compiling on its own, and with it
 // anything standalone that includes it, while most callers go on building
-// because they included <opsy.hpp> first.
+// because they included <opsy.hpp> first. An <opsy_hooks.hpp> sees these
+// declarations too, and needs none of its own.
 class task_control_block;
 class idle_task_control_block;
 class condition_variable;
 class mutex;
 class isr_lock;
 
+/**
+ * @brief What made a task ready: the one fact about a wake-up that cannot be
+ *        read back from the task afterwards
+ */
+enum class wake_reason : uint8_t
+{
+	notified,      ///< a @c condition_variable it waited on was notified
+	timed_out,     ///< its wait on a @c condition_variable reached its deadline
+	sleep_elapsed, ///< its sleep is over
+	mutex_granted, ///< the @c mutex it was blocked on was handed to it
+};
+
 }
+
+#if __has_include(<opsy_hooks.hpp>)
+#include <opsy_hooks.hpp>
+#else
 
 namespace opsy
 {
 	/**
-	 * @brief Methods called by OpSy at various places in the code
+	 * @brief The hooks of a program that provides no @c <opsy_hooks.hpp>: none
 	 */
 	class hooks
+	{};
+}
+
+#endif
+
+namespace opsy
+{
+	/**
+	 * @brief Every point OpSy reports, each forwarded to @c opsy::hooks when
+	 *        the program defines a function of that name there
+	 *
+	 *        What OpSy calls. A program never calls these, and never defines
+	 *        them: it defines the ones it listens to in @c opsy::hooks, with
+	 *        the signature given here or the shorter one a hook notes, and
+	 *        @c hook finds them. The hooks run where OpSy calls them: inside
+	 *        its handlers and under its locks, at every level from a task to
+	 *        SysTick. One must not block, and must not call into OpSy.
+	 */
+	struct hook
 	{
-	public:
 		/**
-		 * @brief Called when the scheduler is starting
+		 * @brief The scheduler is starting
 		 * @param idle The idle task
-		 * @param core_clock_value The core clock
-		 * @param foreach_task A @c callback used to iterate over all @c task
+		 * @param core_clock_value The core clock, in hertz
+		 * @param foreach_task Calls its argument once per task
 		 * @remark Runs before the scheduler counts as started, with interrupts
 		 *         enabled and SysTick already ticking: @c scheduler::now and
 		 *         @c scheduler::all_tasks assert here. @p foreach_task is the
 		 *         way to see the tasks.
 		 */
-		static void starting([[maybe_unused]] idle_task_control_block& idle, [[maybe_unused]] uint32_t core_clock_value, [[maybe_unused]] callback<void(callback<void(const task_control_block&)>)> foreach_task)
-		{}
+		template<class Hooks = hooks>
+		static void starting(idle_task_control_block& idle, uint32_t core_clock_value, callback<void(callback<void(const task_control_block&)>)> foreach_task)
+		{
+			if constexpr(requires { Hooks::starting(idle, core_clock_value, foreach_task); })
+				Hooks::starting(idle, core_clock_value, foreach_task);
+		}
 
 		/**
-		 * @brief Called when entering PendSv for context switch
+		 * @brief The idle task has nothing to run: wait for an interrupt
+		 * @remark The default is a @c WFI, or a @c NOP in a build without
+		 *         @c NDEBUG so that a debugger steps through it. A tracer that
+		 *         reads memory through the debug port while the core sleeps
+		 *         gets zeros on some parts, and defines this as a @c NOP .
 		 */
+		template<class Hooks = hooks>
+		static void idle_wait()
+		{
+			if constexpr(requires { Hooks::idle_wait(); })
+				Hooks::idle_wait();
+			else
+			{
+#ifndef NDEBUG
+				cortex_m::nop();
+#else
+				cortex_m::wfi();
+#endif
+			}
+		}
+
+		/** @brief PendSV is entered, for a context switch */
+		template<class Hooks = hooks>
 		static constexpr void enter_pend_sv()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_pend_sv(); })
+				Hooks::enter_pend_sv();
+		}
 
-		/**
-		 * @brief Called when going to idle (no active task)
-		 */
+		/** @brief The switch goes to the idle task: no task is ready */
+		template<class Hooks = hooks>
 		static constexpr void enter_idle()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_idle(); })
+				Hooks::enter_idle();
+		}
 
-		/**
-		 * @brief Called when entering Systick handler
-		 */
+		/** @brief The SysTick handler is entered */
+		template<class Hooks = hooks>
 		static constexpr void enter_systick()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_systick(); })
+				Hooks::enter_systick();
+		}
 
 		/**
-		 * @brief Called when exiting Systick handler
-		 * @param task_switch @c true if a @c task switch is requested, @c false otherwise
+		 * @brief The SysTick handler is about to return
+		 * @param task_switch @c true if it asked for a context switch
 		 */
-		static constexpr void exit_systick([[maybe_unused]] bool task_switch)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void exit_systick(bool task_switch)
+		{
+			if constexpr(requires { Hooks::exit_systick(task_switch); })
+				Hooks::exit_systick(task_switch);
+		}
 
-		/**
-		 * @brief Called when entering Service Call handler
-		 */
+		/** @brief The service call handler is entered */
+		template<class Hooks = hooks>
 		static constexpr void enter_service_call()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_service_call(); })
+				Hooks::enter_service_call();
+		}
 
 		/**
-		 * @brief Called when exiting Service Call handler
-		 * @param task_switch @c true if a @c task switch is requested, @c false otherwise
+		 * @brief The service call handler is about to return
+		 * @param task_switch @c true if it asked for a context switch
 		 */
-		static constexpr void exit_service_call([[maybe_unused]] bool task_switch)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void exit_service_call(bool task_switch)
+		{
+			if constexpr(requires { Hooks::exit_service_call(task_switch); })
+				Hooks::exit_service_call(task_switch);
+		}
 
 		/**
-		 * @brief Called when a @c task is added to the list of active @c task
-		 * @param task The newly added @c task
+		 * @brief A task joins the list of active tasks
+		 * @param task The task
 		 */
-		static constexpr void task_added([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_added(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_added(task); })
+				Hooks::task_added(task);
+		}
 
 		/**
-		 * @brief Called when a @c task is terminated (removed from the list of active @c task)
-		 * @param task The terminated @c task
+		 * @brief A task leaves the list of active tasks
+		 * @param task The task
 		 */
-		static constexpr void task_terminated([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_terminated(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_terminated(task); })
+				Hooks::task_terminated(task);
+		}
 
 		/**
-		 * @brief Called when a @c task is started (executed)
-		 * @param task The @c task being started
+		 * @brief A task is chosen to run: its context is about to be restored
+		 * @param task The task
 		 */
-		static constexpr void task_started([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_started(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_started(task); })
+				Hooks::task_started(task);
+		}
 
 		/**
-		 * @brief Called when a @c task is put to sleep
-		 * @param task The @c task put to sleep
+		 * @brief A task goes to sleep
+		 * @param task The task
+		 * @param until When it is due to wake
+		 * @remark Also accepted: @c task_sleep(task) .
+		 * @return What the hook returns, which is nothing; it tells a test
+		 *         which form was taken.
 		 */
-		static constexpr void task_sleep([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr auto task_sleep(task_control_block& task, time_point until)
+		{
+			if constexpr(requires { Hooks::task_sleep(task, until); })
+				return Hooks::task_sleep(task, until);
+			else if constexpr(requires { Hooks::task_sleep(task); })
+				return Hooks::task_sleep(task);
+		}
 
 		/**
-		 * @brief Called when a @c task is stopped (stop being executed)
-		 * @param task The @c task being stopped
+		 * @brief A task stops running: its context is about to be saved
+		 * @param task The task
 		 */
-		static constexpr void task_stopped([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_stopped(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_stopped(task); })
+				Hooks::task_stopped(task);
+		}
 
 		/**
-		 * @brief Called when a @c task starts waiting a @c condition_variable
-		 * @param task The @c task that starts waiting
-		 * @param cv The @c condition_variable being waited on
+		 * @brief A task starts waiting on a @c condition_variable
+		 * @param task The task
+		 * @param cv The condition variable
 		 */
-		static constexpr void task_wait([[maybe_unused]] task_control_block& task, [[maybe_unused]] condition_variable& cv)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_wait(task_control_block& task, condition_variable& cv)
+		{
+			if constexpr(requires { Hooks::task_wait(task, cv); })
+				Hooks::task_wait(task, cv);
+		}
 
 		/**
-		 * @brief Called when a @c task starts waiting a @c condition_variable with a duration
-		 * @param task The @c task that starts waiting
-		 * @param cv The @c condition_variable being waited on
-		 * @param tp The @c time_point at which a timeout would occur
+		 * @brief A task starts waiting on a @c condition_variable with a deadline
+		 * @param task The task
+		 * @param cv The condition variable
+		 * @param until When the wait times out
 		 */
-		static constexpr void task_wait_timeout([[maybe_unused]] task_control_block& task, [[maybe_unused]] condition_variable& cv, [[maybe_unused]] time_point tp)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_wait_timeout(task_control_block& task, condition_variable& cv, time_point until)
+		{
+			if constexpr(requires { Hooks::task_wait_timeout(task, cv, until); })
+				Hooks::task_wait_timeout(task, cv, until);
+		}
 
 		/**
-		 * @brief Called when a @c task is ready (to be executed)
-		 * @param task The @c task that is ready to be executed
+		 * @brief A task becomes ready to run
+		 * @param task The task
+		 * @param reason What woke it
+		 * @remark Also accepted: @c task_ready(task) . A task that is started
+		 *         is reported by @ref task_added, and one whose priority
+		 *         changes while ready by @ref task_priority_changed: neither
+		 *         is a wake-up.
+		 * @return What the hook returns, which is nothing; it tells a test
+		 *         which form was taken.
 		 */
-		static constexpr void task_ready([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr auto task_ready(task_control_block& task, wake_reason reason)
+		{
+			if constexpr(requires { Hooks::task_ready(task, reason); })
+				return Hooks::task_ready(task, reason);
+			else if constexpr(requires { Hooks::task_ready(task); })
+				return Hooks::task_ready(task);
+		}
 
 		/**
-		 * @brief Called when a @c task name has changed
-		 * @param task The @c task that has changed name
+		 * @brief A task's name changed
+		 * @param task The task
 		 */
-		static constexpr void task_name_changed([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_name_changed(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_name_changed(task); })
+				Hooks::task_name_changed(task);
+		}
 
 		/**
-		 * @brief Called when a @c task priority has changed
-		 * @param task The @c task that has changed priority
+		 * @brief A task's priority changed
+		 * @param task The task
 		 */
-		static constexpr void task_priority_changed([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void task_priority_changed(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::task_priority_changed(task); })
+				Hooks::task_priority_changed(task);
+		}
 
-		/**
-		 * @brief Called when a @c task enters a critical section (prevents task switching)
-		 */
+		/** @brief A task enters the scheduler's critical section: no task switch until it leaves */
+		template<class Hooks = hooks>
 		static constexpr void enter_critical_section()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_critical_section(); })
+				Hooks::enter_critical_section();
+		}
 
-		/**
-		 * @brief Called when a @c task exits a critical section (task switching allowed)
-		 */
+		/** @brief A task leaves the scheduler's critical section */
+		template<class Hooks = hooks>
 		static constexpr void exit_critical_section()
-		{}
+		{
+			if constexpr(requires { Hooks::exit_critical_section(); })
+				Hooks::exit_critical_section();
+		}
 
 		/**
-		 * @brief Called when a task takes ownership of a @c mutex
+		 * @brief A task takes a @c mutex
 		 * @param taken The mutex now held
 		 * @param owner The task that holds it
 		 */
-		static constexpr void mutex_taken([[maybe_unused]] mutex& taken, [[maybe_unused]] task_control_block& owner)
+		template<class Hooks = hooks>
+		static constexpr void mutex_taken(mutex& taken, task_control_block& owner)
 		{
-
+			if constexpr(requires { Hooks::mutex_taken(taken, owner); })
+				Hooks::mutex_taken(taken, owner);
 		}
 
 		/**
-		 * @brief Called when a task releases a @c mutex
+		 * @brief A task releases a @c mutex
 		 * @param released The mutex just freed
 		 * @param owner The task that held it
 		 */
-		static constexpr void mutex_released([[maybe_unused]] mutex& released, [[maybe_unused]] task_control_block& owner)
+		template<class Hooks = hooks>
+		static constexpr void mutex_released(mutex& released, task_control_block& owner)
 		{
-
+			if constexpr(requires { Hooks::mutex_released(released, owner); })
+				Hooks::mutex_released(released, owner);
 		}
 
 		/**
-		 * @brief Called when a task blocks waiting for a @c mutex
-		 * @param blocking The mutex it is waiting for
+		 * @brief A task blocks on a @c mutex another task holds
+		 * @param blocking The mutex it waits for
 		 * @param waiter The task now suspended
 		 */
-		static constexpr void mutex_blocked([[maybe_unused]] mutex& blocking, [[maybe_unused]] task_control_block& waiter)
+		template<class Hooks = hooks>
+		static constexpr void mutex_blocked(mutex& blocking, task_control_block& waiter)
 		{
-
+			if constexpr(requires { Hooks::mutex_blocked(blocking, waiter); })
+				Hooks::mutex_blocked(blocking, waiter);
 		}
 
 		/**
-		 * @brief Called when a wait releases the lock a task was holding
+		 * @brief A wait releases the lock a task was holding
 		 * @param task The task whose lock was released on its behalf
 		 *
 		 * @warning Pairs with @ref mutex_restored_for_task only for an
@@ -256,102 +401,125 @@ namespace opsy
 		 *          stored/restored one-to-one will drift by one per mutex
 		 *          wait.
 		 */
-		static constexpr void mutex_stored_for_task([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void mutex_stored_for_task(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::mutex_stored_for_task(task); })
+				Hooks::mutex_stored_for_task(task);
+		}
 
 		/**
-		 * @brief Called when a @c mutex is restored by the system for a @c task
-		 * @param task The @c task whose @c mutex has been restored by the system
+		 * @brief The @c isr_lock a task waited with is taken back for it
+		 * @param task The task about to run with it
 		 */
-		static constexpr void mutex_restored_for_task([[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void mutex_restored_for_task(task_control_block& task)
+		{
+			if constexpr(requires { Hooks::mutex_restored_for_task(task); })
+				Hooks::mutex_restored_for_task(task);
+		}
 
-		/**
-		 * @brief Called when a @c task or interrupt service routine enters a full lock (complete lock, @c PRIMASK = 1)
-		 */
+		/** @brief A task or a handler masks every interrupt (@c PRIMASK = 1) */
+		template<class Hooks = hooks>
 		static constexpr void enter_full_lock()
-		{}
+		{
+			if constexpr(requires { Hooks::enter_full_lock(); })
+				Hooks::enter_full_lock();
+		}
 
-		/**
-		 * @brief Called when a @c task or interrupt service routine exits a full lock
-		 */
+		/** @brief A task or a handler unmasks the interrupts a full lock held */
+		template<class Hooks = hooks>
 		static constexpr void exit_full_lock()
-		{}
+		{
+			if constexpr(requires { Hooks::exit_full_lock(); })
+				Hooks::exit_full_lock();
+		}
 
 		/**
-		 * @brief Called when a @c task or interrupt service routine enters a priority lock (partial lock, @c BASEPRI = XX)
+		 * @brief A task or a handler masks the interrupts at and below a priority (@c BASEPRI )
+		 * @param priority The priority masked from
 		 */
-		static constexpr void enter_priority_lock(isr_priority)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void enter_priority_lock(isr_priority priority)
+		{
+			if constexpr(requires { Hooks::enter_priority_lock(priority); })
+				Hooks::enter_priority_lock(priority);
+		}
 
-		/**
-		 * @brief Called when a @c task or interrupt service routine exits a priority lock
-		 */
+		/** @brief A task or a handler lifts a priority lock */
+		template<class Hooks = hooks>
 		static constexpr void exit_priority_lock()
-		{}
+		{
+			if constexpr(requires { Hooks::exit_priority_lock(); })
+				Hooks::exit_priority_lock();
+		}
 
 		/**
-		 * @brief Called when a @c task starts waiting a @c condition_variable
-		 * @param cv The @c condition_variable being waiting on
-		 * @param task The @c task that starts waiting
+		 * @brief A @c condition_variable gains a waiter
+		 * @param cv The condition variable
+		 * @param task The task that starts waiting
 		 */
-		static constexpr void condition_variable_start_waiting([[maybe_unused]] condition_variable& cv, [[maybe_unused]] task_control_block& task)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void condition_variable_start_waiting(condition_variable& cv, task_control_block& task)
+		{
+			if constexpr(requires { Hooks::condition_variable_start_waiting(cv, task); })
+				Hooks::condition_variable_start_waiting(cv, task);
+		}
 
 		/**
-		 * @brief Called when a @c task starts waiting a @c condition_variable with a timeout
-		 * @param cv The @c condition_variable being waiting on
-		 * @param task The @c task that starts waiting
-		 * @param timeout The timeout duration
+		 * @brief A @c condition_variable gains a waiter with a timeout
+		 * @param cv The condition variable
+		 * @param task The task that starts waiting
+		 * @param timeout How long it waits at most
 		 */
-		static constexpr void condition_variable_start_waiting([[maybe_unused]] condition_variable& cv, [[maybe_unused]] task_control_block& task, [[maybe_unused]] duration timeout)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void condition_variable_start_waiting(condition_variable& cv, task_control_block& task, duration timeout)
+		{
+			if constexpr(requires { Hooks::condition_variable_start_waiting(cv, task, timeout); })
+				Hooks::condition_variable_start_waiting(cv, task, timeout);
+		}
 
 		/**
-		 * @brief Called when a @c condition_variable is notified once
-		 * @param cv The @c condition_variable being notified
+		 * @brief A @c condition_variable is notified once
+		 * @param cv The condition variable
 		 */
-		static constexpr void condition_variable_notify_one([[maybe_unused]] condition_variable& cv)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void condition_variable_notify_one(condition_variable& cv)
+		{
+			if constexpr(requires { Hooks::condition_variable_notify_one(cv); })
+				Hooks::condition_variable_notify_one(cv);
+		}
 
 		/**
-		 * @brief Called when a @c condition_variable is notified for all waiting @c task
-		 * @param cv The @c condition_variable being notified
+		 * @brief A @c condition_variable is notified for all its waiters
+		 * @param cv The condition variable
 		 */
-		static constexpr void condition_variable_notify_all([[maybe_unused]] condition_variable& cv)
-		{}
+		template<class Hooks = hooks>
+		static constexpr void condition_variable_notify_all(condition_variable& cv)
+		{
+			if constexpr(requires { Hooks::condition_variable_notify_all(cv); })
+				Hooks::condition_variable_notify_all(cv);
+		}
 
 		/**
-		 * @brief This is a placeholder to set names for different objects, it is not called by OpSy
-		 * @tparam T The type of the object to name
-		 * @param target The @c T object to set name for
-		 * @param name The @c T name
+		 * @brief The handler a vector table holds for a device interrupt, in place of @p Handler
+		 * @tparam Handler The handler the program wrote
+		 * @return What @c Hooks::decorate_isr<Handler>() returns -- the same
+		 *         handler wrapped in whatever the hooks want to see around it,
+		 *         as a plain function pointer -- or @p Handler itself
 		 */
-		template<typename T>
-		static constexpr void set_name([[maybe_unused]] const T& target, [[maybe_unused]] const char* name)
-		{}
-
-		/**
-		 * @brief This is a placeholder that you can use to call code before @c main starts, it is not called by OpSy
-		 * @param core_clock_value The core clock in hertz
-		 */
-		static constexpr void boot([[maybe_unused]] uint32_t core_clock_value)
-		{}
-
-		template<void(*Routine)()>
+		template<void (*Handler)(), class Hooks = hooks>
 		static constexpr auto decorate_isr()
 		{
-			return Routine;
+			if constexpr(requires { Hooks::template decorate_isr<Handler>(); })
+				return Hooks::template decorate_isr<Handler>();
+			else
+				return Handler;
 		}
 	};
-}
 
-#endif
-
-namespace opsy
-{
 	/**
-	 * @brief Passes the handler of each device interrupt through @c hooks::decorate_isr
+	 * @brief Passes the handler of each device interrupt through @c hook::decorate_isr
 	 *
 	 *        The decoration a generated vector table takes as a template
 	 *        argument -- SvdGenerator's @c vector_table<Unhandled, Decoration>,
@@ -365,14 +533,10 @@ namespace opsy
 	 *     .with(opsy::scheduler::isrs)
 	 *     .with<USART3_IRQn, uart::rx_isr>();
 	 * @endcode
-	 *
-	 * @remark Defined here rather than in the default hooks, so that it follows
-	 *         the @c decorate_isr of an @c <opsy_hooks.hpp> as well.
 	 */
 	struct hooked_isr
 	{
 		template<void (*Handler)()>
-		static constexpr void (*wrap)() = hooks::decorate_isr<Handler>();
+		static constexpr void (*wrap)() = hook::decorate_isr<Handler>();
 	};
 }
-

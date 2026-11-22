@@ -78,15 +78,14 @@ knowing before adding to the build:
 
 **GCC 16.2.0, release `v16.2.0-1` of
 [Otatiaro/arm-none-eabi-toolchain](https://github.com/Otatiaro/arm-none-eabi-toolchain)**,
-installed by the composite action
-[`.github/actions/arm-none-eabi-toolchain`](../.github/actions/arm-none-eabi-toolchain/action.yml):
-the release tarball, checked against the release's `SHA256SUMS`, its
-`bin` on `PATH`. Arm's own GNU toolchain lags a GCC major by about a
+installed by that repository's own action, pinned to a commit: the
+release tarball, checked against the release's `SHA256SUMS`, its `bin`
+on `PATH`. Arm's own GNU toolchain lags a GCC major by about a
 year, and the C++26 work needs 16 now. The release carries GCC, binutils
 and newlib (standard and nano) and no GDB: the GDB scenarios drive the
 runner's `gdb-multiarch`, which reads the image's architecture itself.
-Moving to a newer release is one change to the action's default
-`version`.
+Moving to a newer release is one change to `TOOLCHAIN_VERSION` in
+`ci.yml`.
 
 **g++-16 explicitly, for the host tests.** The same major as the target
 compiler, so a header that uses the C++26 library builds on the host

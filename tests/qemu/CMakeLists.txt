@@ -72,6 +72,7 @@ add_executable(opsy_qemu_tests
     ${OPSY_ROOT}/scheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qemu_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/qemu_irq.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_condition_variable.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_critical_section.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test_isr_lock.cpp
@@ -170,6 +171,17 @@ add_executable(opsy_qemu_before_start
 
 opsy_qemu_image(opsy_qemu_before_start)
 
+# notify_one in an interrupt more urgent than the condition variable's lock. A
+# separate image, because it must stop there: see test_notify_check.cpp.
+add_executable(opsy_qemu_notify_check
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/qemu_irq.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_notify_check.cpp
+)
+
+opsy_qemu_image(opsy_qemu_notify_check)
+
 # Every fault through opsy::fault_isrs, decoded and stepped over. A separate
 # image: it owns the vector table and the fault configuration, and its last
 # case ends the run from the handler. See test_faults.cpp.
@@ -247,6 +259,14 @@ add_test(
 )
 
 add_test(
+    NAME opsy_qemu_notify_check_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_notify_check>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
+add_test(
     NAME opsy_qemu_faults_${OPSY_TARGET}
     COMMAND ${CMAKE_COMMAND}
             -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
@@ -266,6 +286,7 @@ set_tests_properties(
     opsy_qemu_tests_${OPSY_TARGET}
     opsy_qemu_tests_slow_${OPSY_TARGET}
     opsy_qemu_start_check_${OPSY_TARGET}
+    opsy_qemu_notify_check_${OPSY_TARGET}
     opsy_qemu_faults_${OPSY_TARGET}
     opsy_qemu_bench_${OPSY_TARGET}
     PROPERTIES TIMEOUT 120)

@@ -46,6 +46,7 @@
 #include <cstdint>
 
 #include "cortex_m.hpp"
+#include "hooks.hpp"
 
 namespace opsy
 {
@@ -94,7 +95,8 @@ namespace detail
 {
 
 /**
- * @brief The C++ half of the fault entry: reads the status and calls the handler
+ * @brief The C++ half of the fault entry: reads the status, reports it to
+ *        @ref hook::fault, and calls the handler
  *
  *        Reached by a branch, not a call, so its @c lr is @c EXC_RETURN and
  *        its own return is the exception return.
@@ -102,7 +104,9 @@ namespace detail
 template<fault_handler_t OnFault>
 void fault_dispatch(exception_frame* frame, uint32_t exc_return)
 {
-	OnFault(cortex_m::read_fault_status(), *frame, exc_return);
+	const fault_status status = cortex_m::read_fault_status();
+	hook::fault(status, *frame, exc_return);
+	OnFault(status, *frame, exc_return);
 }
 
 /**

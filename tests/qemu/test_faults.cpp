@@ -131,9 +131,21 @@ void expect(bool condition, const char* what)
 	fail("an exception the table does not expect was taken");
 }
 
+/** @brief hook::fault ran once for this fault, before the handler, and saw what the handler is given. */
+void expect_hooked(const opsy::fault_status& status, const opsy::exception_frame& frame, uint32_t exc_return)
+{
+	using seen = opsy::fault_seen;
+	expect(seen::count == g_faults + 1, "hook::fault did not run once before the handler");
+	expect(seen::frame == &frame, "hook::fault was given another frame");
+	expect(seen::exc_return == exc_return, "hook::fault was given another EXC_RETURN");
+	expect(seen::status.cfsr == status.cfsr && seen::status.hfsr == status.hfsr, "hook::fault was given another status");
+}
+
 /** @brief The application's handler: records, steps over the faulting instruction, clears the status, returns. */
 void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, uint32_t exc_return)
 {
+	expect_hooked(status, frame, exc_return);
+
 	// The last case: the stack pointer is below its limit, and no more pushes
 	// may happen on it. The run ends here.
 	if (status.stack_overflow())
@@ -253,7 +265,7 @@ int opsy_test_main()
 	*reinterpret_cast<volatile uint32_t*>(vtor) = reinterpret_cast<uint32_t>(&g_table);
 	asm volatile("dsb\n\tisb" ::: "memory");
 
-	(void) g_task.start([] { run_cases(); }, "faults");
+	(void) g_task.start([] { run_cases(); });
 
 	opsy::scheduler::start(g_idle);
 }

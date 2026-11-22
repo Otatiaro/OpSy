@@ -75,7 +75,6 @@ CASES = {
         {
             (void) t.start([] {});
             t.priority(opsy::task_priority::high);
-            t.set_name("probe");
             t.request_stop();
             (void) t.kill();
         }

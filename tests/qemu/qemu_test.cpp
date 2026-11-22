@@ -144,7 +144,7 @@ int opsy_test_main()
 	{
 		g_runner.priority(opsy::task_priority::high);
 		qemu_test::run_all_and_exit();
-	}, "runner"))
+	}))
 	{
 		qemu::write("*** could not start the runner task ***\nRESULT: FAIL\n");
 		qemu::exit(1);

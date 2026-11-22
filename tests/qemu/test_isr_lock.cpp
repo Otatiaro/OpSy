@@ -87,7 +87,7 @@ OPSY_QEMU_TEST(an_isr_lock_blocks_a_higher_priority_task_until_released)
 		g_plain.lock();
 		g_first_ran = 1;
 		g_plain.unlock();
-	}, "waiter"));
+	}));
 	g_first.priority(opsy::task_priority::highest);
 
 	// It outranks the runner, so the only thing keeping it out is the mutex.
@@ -110,7 +110,7 @@ OPSY_QEMU_TEST(an_isr_lock_can_be_relocked_after_release)
 
 	// Still usable by somebody else afterwards.
 	g_first_ran = 0;
-	CHECK(g_first.start([] { g_plain.lock(); g_first_ran = 1; g_plain.unlock(); }, "relock"));
+	CHECK(g_first.start([] { g_plain.lock(); g_first_ran = 1; g_plain.unlock(); }));
 	g_first.priority(opsy::task_priority::highest);
 	CHECK(g_first_ran == 1);
 
@@ -124,8 +124,8 @@ OPSY_QEMU_TEST(an_isr_lock_actually_excludes_two_contending_tasks)
 	g_iterations = 0;
 	g_stage      = 0;
 
-	CHECK(g_first.start([] { contend_on_isr_lock(); }, "contender-a"));
-	CHECK(g_second.start([] { contend_on_isr_lock(); }, "contender-b"));
+	CHECK(g_first.start([] { contend_on_isr_lock(); }));
+	CHECK(g_second.start([] { contend_on_isr_lock(); }));
 	g_first.priority(opsy::task_priority::normal);
 	g_second.priority(opsy::task_priority::normal);
 
@@ -167,7 +167,7 @@ OPSY_QEMU_TEST(a_priority_carrying_isr_lock_locks_and_unlocks)
 		g_with_priority.lock();
 		g_first_ran = 1;
 		g_with_priority.unlock();
-	}, "prio-waiter"));
+	}));
 	g_first.priority(opsy::task_priority::highest);
 	CHECK(g_first_ran == 1);
 
@@ -192,7 +192,7 @@ OPSY_QEMU_TEST(a_held_isr_lock_suspends_task_switching)
 			++g_second_ran;
 			opsy::sleep_for(1ms);
 		}
-	}, "ticker"));
+	}));
 	g_second.priority(opsy::task_priority::highest);   // above the runner
 
 	// It outranks us, so it has already run at least once.

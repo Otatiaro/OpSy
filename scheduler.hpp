@@ -621,11 +621,6 @@ private:
 	 */
 	static bool hand_over(mutex& m);
 	static void update_priority(task_control_block& task, task_priority new_priority);
-
-	static void update_name(task_control_block& task)
-	{
-		hook::task_name_changed(task);
-	}
 };
 
 /**

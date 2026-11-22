@@ -405,32 +405,6 @@ public:
 	void priority(task_priority new_priority);
 
 	/**
-	 * @brief Gets the current name of the @c task_control_block
-	 * @return The current name of the @c task_control_block
-	 */
-	constexpr const char* name() const
-	{
-		return name_;
-	}
-
-	/**
-	 * @brief Sets the name of the @c task_control_block
-	 * @param name The new name of the @c task_control_block
-	 *
-	 * @warning The name is stored as the pointer given, not copied, so it must
-	 *          outlive the task. A string literal does; a buffer on the
-	 *          caller's stack does not, and nothing here can detect it.
-	 *
-	 * @warning The task must be started, and this must not be called from an
-	 *          interrupt handler more urgent than OpSy. Both are asserted in
-	 *          debug; see the definition for what each one prevents.
-	 *
-	 * @remark To name a task at launch, pass the name to @c task::start
-	 *         instead -- that is what start's @c name parameter is for.
-	 */
-	void set_name(const char* name);
-
-	/**
 	 * @brief Orders two tasks by which one should run first
 	 * @param left The left operand
 	 * @param right The right operand
@@ -472,7 +446,6 @@ protected:
 	 * @param stack_base Pointer to the base of the task's stack
 	 * @param stack_size Size of the stack, in @c stack_item increments
 	 * @param entry The @c callback executed by the task
-	 * @param name Optional task name
 	 * @return @c true if the task has been launched, @c false if already started
 	 * @remark Called by @c task<StackSize>::start. Writes @c stack_base_,
 	 *         @c stack_size_ and @c priority_ on first launch so that the
@@ -480,7 +453,7 @@ protected:
 	 *         until the user actually starts the task.
 	 */
 	[[nodiscard]] bool start_impl(stack_item* stack_base, std::size_t stack_size,
-	                              callback<void(void)>&& entry, const char* name);
+	                              callback<void(void)>&& entry);
 
 private:
 
@@ -502,7 +475,6 @@ private:
 	task_priority base_priority_ {};              // set to task_priority::lowest by start_impl
 	task_priority priority_ {};                   // effective; base_priority_ unless inherited
 	std::optional<time_point> wait_until_;
-	const char* name_ = nullptr;
 	callback<void(void)> entry_;
 	condition_variable* waiting_ = nullptr;
 
@@ -579,17 +551,16 @@ public:
 	/**
 	 * @brief Starts the task with the given @p entry callback
 	 * @param entry The @c callback the task will execute
-	 * @param name Optional name for the task
 	 * @return @c true if the task was successfully started, @c false if it was already active
 	 * @remark Forwards the stack of the embedded @c stack_storage<StackSize> base
 	 *         to @c task_control_block::start_impl, which performs the actual
 	 *         registration with the scheduler.
 	 */
-	[[nodiscard]] bool start(callback<void(void)>&& entry, const char* name = nullptr)
+	[[nodiscard]] bool start(callback<void(void)>&& entry)
 	{
 		return task_control_block::start_impl(
 			stack_storage<StackSize>::stack_.data(), StackSize,
-			std::move(entry), name);
+			std::move(entry));
 	}
 
 };

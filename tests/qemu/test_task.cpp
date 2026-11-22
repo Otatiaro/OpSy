@@ -13,7 +13,6 @@
 
 #include <atomic>
 
-#include <cstring>
 
 namespace
 {
@@ -57,25 +56,13 @@ OPSY_QEMU_TEST(a_task_reports_started_between_start_and_stop)
 {
 	CHECK(!g_alpha.is_started());
 
-	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }, "alpha"));
+	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }));
 	CHECK(g_alpha.is_started());
 
 	CHECK(g_alpha.kill());
 	CHECK(!g_alpha.is_started());
 
 	CHECK(!g_alpha.kill());   // stopping twice is refused, not fatal
-}
-
-OPSY_QEMU_TEST(a_task_carries_the_name_it_was_given)
-{
-	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }, "alpha-name"));
-	CHECK(g_alpha.name() != nullptr);
-	CHECK(std::strcmp(g_alpha.name(), "alpha-name") == 0);
-
-	g_alpha.set_name("renamed");
-	CHECK(std::strcmp(g_alpha.name(), "renamed") == 0);
-
-	stop_all();
 }
 
 OPSY_QEMU_TEST(higher_priority_tasks_run_first)
@@ -87,9 +74,9 @@ OPSY_QEMU_TEST(higher_priority_tasks_run_first)
 	// All three start below the runner and stay queued; raising them in
 	// reverse order of priority proves the ready list is ordered by priority
 	// and not by arrival.
-	CHECK(g_alpha.start([] { record(1); }, "low"));
-	CHECK(g_beta.start([]  { record(2); }, "mid"));
-	CHECK(g_gamma.start([] { record(3); }, "high"));
+	CHECK(g_alpha.start([] { record(1); }));
+	CHECK(g_beta.start([]  { record(2); }));
+	CHECK(g_gamma.start([] { record(3); }));
 
 	// All strictly below the runner (high), so none of them can run until we
 	// yield -- and ordered among themselves so the drain order is observable.
@@ -113,7 +100,7 @@ OPSY_QEMU_TEST(raising_a_queued_task_above_the_runner_preempts_immediately)
 {
 	g_alpha_ran = 0;
 
-	CHECK(g_alpha.start([] { g_alpha_ran = 1; }, "climber"));
+	CHECK(g_alpha.start([] { g_alpha_ran = 1; }));
 	CHECK(g_alpha_ran == 0);                             // queued below us
 
 	g_alpha.priority(opsy::task_priority::highest);      // now above us
@@ -126,7 +113,7 @@ OPSY_QEMU_TEST(lowering_the_running_task_hands_over_to_a_queued_one)
 {
 	g_alpha_ran = 0;
 
-	CHECK(g_alpha.start([] { g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }, "waiting"));
+	CHECK(g_alpha.start([] { g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::low);   // below the runner
 	CHECK(g_alpha_ran == 0);
 
@@ -139,7 +126,7 @@ OPSY_QEMU_TEST(lowering_the_running_task_hands_over_to_a_queued_one)
 
 OPSY_QEMU_TEST(a_task_reports_the_priority_it_was_given)
 {
-	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }, "prio"));
+	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }));
 
 	g_alpha.priority(opsy::task_priority::normal);
 	CHECK(g_alpha.priority() == opsy::task_priority::normal);
@@ -176,8 +163,8 @@ OPSY_QEMU_TEST(all_tasks_lists_every_started_task_and_drops_stopped_ones)
 
 	const auto before = count();
 
-	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }, "listed-a"));
-	CHECK(g_beta.start([]  { while (true) opsy::sleep_for(1ms); }, "listed-b"));
+	CHECK(g_alpha.start([] { while (true) opsy::sleep_for(1ms); }));
+	CHECK(g_beta.start([]  { while (true) opsy::sleep_for(1ms); }));
 	CHECK(count() == before + 2);
 
 	CHECK(g_alpha.kill());
@@ -194,7 +181,7 @@ OPSY_QEMU_TEST(a_task_slot_can_be_restarted_many_times)
 	for (int round = 0; round < 5; ++round)
 	{
 		g_alpha_ran = 0;
-		CHECK(g_alpha.start([] { g_alpha_ran = 1; }, "recycled"));
+		CHECK(g_alpha.start([] { g_alpha_ran = 1; }));
 		g_alpha.priority(opsy::task_priority::highest);
 		CHECK(g_alpha_ran == 1);
 
@@ -208,7 +195,7 @@ OPSY_QEMU_TEST(stopping_a_sleeping_task_removes_it_from_the_timeout_list)
 {
 	g_alpha_ran = 0;
 
-	CHECK(g_alpha.start([] { opsy::sleep_for(500ms); g_alpha_ran = 1; }, "sleeper"));
+	CHECK(g_alpha.start([] { opsy::sleep_for(500ms); g_alpha_ran = 1; }));
 	g_alpha.priority(opsy::task_priority::highest);
 
 	// It parked on a long sleep; kill it while it sits in timeouts_.
@@ -234,9 +221,9 @@ OPSY_QEMU_TEST(many_tasks_run_concurrently_without_losing_any)
 	g_gamma_ran = 0;
 	g_stop      = false;
 
-	CHECK(g_alpha.start([] { while (!g_stop) { ++g_alpha_ran; opsy::sleep_for(1ms); } }, "a"));
-	CHECK(g_beta.start([]  { while (!g_stop) { ++g_beta_ran;  opsy::sleep_for(1ms); } }, "b"));
-	CHECK(g_gamma.start([] { while (!g_stop) { ++g_gamma_ran; opsy::sleep_for(1ms); } }, "c"));
+	CHECK(g_alpha.start([] { while (!g_stop) { ++g_alpha_ran; opsy::sleep_for(1ms); } }));
+	CHECK(g_beta.start([]  { while (!g_stop) { ++g_beta_ran;  opsy::sleep_for(1ms); } }));
+	CHECK(g_gamma.start([] { while (!g_stop) { ++g_gamma_ran; opsy::sleep_for(1ms); } }));
 
 	g_alpha.priority(opsy::task_priority::normal);
 	g_beta.priority(opsy::task_priority::normal);
@@ -271,7 +258,7 @@ OPSY_QEMU_TEST(a_task_stops_itself_when_a_stop_is_requested)
 			opsy::sleep_for(1ms);
 		}
 		g_alpha_ran = 2;   // reached only by leaving the loop cleanly
-	}, "cooperative"));
+	}));
 	g_alpha.priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(10ms);
@@ -292,7 +279,7 @@ OPSY_QEMU_TEST(a_task_stops_itself_when_a_stop_is_requested)
 
 OPSY_QEMU_TEST(a_restarted_task_starts_with_no_stop_pending)
 {
-	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }, "first"));
+	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::normal);
 	g_alpha.request_stop();
 	for (int guard = 0; guard < 200 && g_alpha.is_started(); ++guard)
@@ -300,7 +287,7 @@ OPSY_QEMU_TEST(a_restarted_task_starts_with_no_stop_pending)
 	CHECK(!g_alpha.is_started());
 
 	// Reusing the slot must not inherit the previous request.
-	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }, "second"));
+	CHECK(g_alpha.start([] { while (!g_alpha.stop_requested()) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::normal);
 	opsy::sleep_for(5ms);
 	CHECK(!g_alpha.stop_requested());
@@ -332,7 +319,7 @@ std::atomic<std::size_t> g_measured = 0;
 OPSY_QEMU_TEST(a_task_that_has_not_run_far_reports_a_small_high_water)
 {
 	g_alpha_ran = 0;
-	CHECK(g_alpha.start([] { g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }, "idle-ish"));
+	CHECK(g_alpha.start([] { g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::highest);
 	CHECK(g_alpha_ran == 1);
 
@@ -354,7 +341,7 @@ OPSY_QEMU_TEST(the_high_water_is_the_deepest_the_task_went_and_stays_there)
 		(void) use_stack(1800);
 		g_alpha_ran = 1;
 		while (true) opsy::sleep_for(1ms);   // back near the top of its stack
-	}, "deep"));
+	}));
 	g_alpha.priority(opsy::task_priority::highest);
 	CHECK(g_alpha_ran == 1);
 
@@ -372,14 +359,14 @@ OPSY_QEMU_TEST(the_high_water_is_the_deepest_the_task_went_and_stays_there)
 OPSY_QEMU_TEST(a_restarted_task_measures_from_scratch)
 {
 	g_alpha_ran = 0;
-	CHECK(g_alpha.start([] { (void) use_stack(1800); g_alpha_ran = 1; }, "deep then done"));
+	CHECK(g_alpha.start([] { (void) use_stack(1800); g_alpha_ran = 1; }));
 	g_alpha.priority(opsy::task_priority::highest);
 	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
 		opsy::sleep_for(1ms);
 	CHECK(g_alpha_ran == 1);
 	CHECK(g_alpha.stack_high_water() >= 1800);   // still readable once it ended
 
-	CHECK(g_alpha.start([] { g_alpha_ran = 2; while (true) opsy::sleep_for(1ms); }, "shallow"));
+	CHECK(g_alpha.start([] { g_alpha_ran = 2; while (true) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::highest);
 	CHECK(g_alpha_ran == 2);
 	CHECK(g_alpha.stack_high_water() < 512);
@@ -407,7 +394,7 @@ void measure_from_isr()
 OPSY_QEMU_TEST(the_high_water_can_be_read_from_an_interrupt_handler)
 {
 	g_alpha_ran = 0;
-	CHECK(g_alpha.start([] { (void) use_stack(1200); g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }, "measured"));
+	CHECK(g_alpha.start([] { (void) use_stack(1200); g_alpha_ran = 1; while (true) opsy::sleep_for(1ms); }));
 	g_alpha.priority(opsy::task_priority::highest);
 	CHECK(g_alpha_ran == 1);
 

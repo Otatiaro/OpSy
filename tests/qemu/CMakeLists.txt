@@ -180,6 +180,8 @@ add_executable(opsy_qemu_faults
 )
 
 opsy_qemu_image(opsy_qemu_faults)
+# Its opsy_hooks.hpp records hook::fault, for the handler to check.
+target_include_directories(opsy_qemu_faults PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/faults)
 
 # The paths through OpSy that cost, each between two markers: see bench.cpp.
 # A separate image with its own include directory, so that its opsy_hooks.hpp

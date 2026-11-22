@@ -438,6 +438,30 @@ OPSY_QEMU_TEST(an_interrupt_handler_wakes_a_task_through_event_bits)
 	stop_all();
 }
 
+// The lock masks the handler, so the handler may take it and notify: a handler
+// less urgent than the lock as much as one at its level.
+OPSY_QEMU_TEST(an_interrupt_handler_less_urgent_than_the_lock_wakes_a_task)
+{
+	g_events = 0;
+	g_events_got = 0;
+	g_rounds = 0;
+	CHECK(install_event_irq());
+	constexpr auto less_urgent = opsy::isr_priority::from_preempt_sub<opsy::preemption_bits>(opsy::opsy_preemption + 2, 0);
+	static_assert(less_urgent.masked_value<opsy::preemption_bits>() > opsy::scheduler::os_callable_priority.masked_value<opsy::preemption_bits>());
+	opsy::cortex_m::set_priority(g_event_irq, less_urgent);
+
+	CHECK(g_waiter_a.start(&event_consumer));
+	g_waiter_a.priority(opsy::task_priority::highest);
+	opsy::sleep_for(2ms);
+
+	raise_event(0x1u);
+	CHECK(g_rounds == 1);
+	CHECK(g_events_got == 0x1u);
+
+	opsy::cortex_m::set_priority(g_event_irq, opsy::scheduler::os_callable_priority);
+	stop_all();
+}
+
 OPSY_QEMU_TEST(an_event_raised_before_the_task_waits_is_not_lost)
 {
 	g_events = 0;

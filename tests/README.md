@@ -256,6 +256,14 @@ before start, which the suite's image is past. It fell with "fault:
 unhandled exception" before `update_priority` learnt not to ask for a
 switch the scheduler cannot make yet.
 
+`test_notify_check.cpp` is a fifth image, `opsy_qemu_notify_check`: a
+condition variable whose lock sits below OpSy's callable level, and a
+handler at that level, more urgent than the lock, that calls
+`notify_one`. The lock does not mask such a handler, so it must not
+notify. Passing means reaching HardFault on a trap taken in that handler.
+The check is an `assert`: under `NDEBUG` the image says so and passes.
+The interrupt helpers it shares with the suite are in `qemu_irq.cpp`.
+
 `mps2-an505` needs its own linker script for a second reason beyond
 TrustZone addressing: its SRAM at `0x30000000` sits behind a Memory
 Protection Controller that comes up blocking, so the very first stack

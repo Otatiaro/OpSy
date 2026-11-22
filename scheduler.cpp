@@ -874,7 +874,7 @@ bool task_control_block::is_ready() const
  *         renders the link return one instruction before the SVC).
  */
 bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_size,
-                                           callback<void(void)>&& entry, const char* name)
+                                           callback<void(void)>&& entry)
 {
 	assert(scheduler::is_os_callable()); // add_task mutates all_tasks_ and ready_
 
@@ -888,7 +888,6 @@ bool task_control_block::start_impl(stack_item* stack_base, std::size_t stack_si
 	stop_requested_.store(false, std::memory_order_relaxed); // a reused slot starts clean
 
 	entry_ = std::move(entry);
-	name_ = name;
 
 	// Release builds too: it is what stack_high_water() measures against, and
 	// what the overflow check in PendSV looks for in debug builds.
@@ -977,22 +976,6 @@ void task_control_block::priority(task_priority new_priority)
 		return;
 
 	scheduler::update_priority(*this, new_priority);
-}
-
-void task_control_block::set_name(const char* name)
-{
-	// Naming a task that has not been started is lost: start takes the name
-	// as an argument and writes it, so anything set beforehand is overwritten
-	// by the launch. Pass the name to start instead.
-	assert(is_started());
-
-	// name_ is a plain pointer, not an atomic, and the scheduler's hooks read
-	// it to label what they trace. Writing it from an interrupt handler more
-	// urgent than OpSy would be a data race with any such read -- undefined
-	// behaviour, whatever a given core happens to do with an aligned word.
-	assert(scheduler::is_os_callable());
-
-	name_ = name;
 }
 
 /**

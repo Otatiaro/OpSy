@@ -62,7 +62,7 @@ int opsy_test_main()
 			fail("the first task does not report the default priority");
 		qemu::write("RESULT: PASS\n");
 		qemu::exit(0);
-	}, "first");
+	});
 
 	(void) g_second.start([]
 	{
@@ -70,10 +70,9 @@ int opsy_test_main()
 			fail("the task raised before start did not run first");
 		if (g_second.priority() != opsy::task_priority::high)
 			fail("the raised task does not report its priority");
-		g_second.set_name("second, raised");
 		while (true)
 			opsy::sleep_for(std::chrono::milliseconds(1));
-	}, "second");
+	});
 
 	g_second.priority(opsy::task_priority::high);
 	g_first.priority(opsy::task_priority::low);

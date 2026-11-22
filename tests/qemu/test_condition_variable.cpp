@@ -50,8 +50,8 @@ OPSY_QEMU_TEST(notify_one_wakes_exactly_one_of_two_waiters)
 	g_woken_b = 0;
 	g_ready   = 0;
 
-	CHECK(g_waiter_a.start([] { ++g_ready; g_condition.wait(); g_woken_a = 1; }, "waiter-a"));
-	CHECK(g_waiter_b.start([] { ++g_ready; g_condition.wait(); g_woken_b = 1; }, "waiter-b"));
+	CHECK(g_waiter_a.start([] { ++g_ready; g_condition.wait(); g_woken_a = 1; }));
+	CHECK(g_waiter_b.start([] { ++g_ready; g_condition.wait(); g_woken_b = 1; }));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	g_waiter_b.priority(opsy::task_priority::highest);
 
@@ -77,8 +77,8 @@ OPSY_QEMU_TEST(notify_all_wakes_every_waiter)
 	g_woken_b = 0;
 	g_ready   = 0;
 
-	CHECK(g_waiter_a.start([] { ++g_ready; g_condition.wait(); g_woken_a = 1; }, "waiter-a"));
-	CHECK(g_waiter_b.start([] { ++g_ready; g_condition.wait(); g_woken_b = 1; }, "waiter-b"));
+	CHECK(g_waiter_a.start([] { ++g_ready; g_condition.wait(); g_woken_a = 1; }));
+	CHECK(g_waiter_b.start([] { ++g_ready; g_condition.wait(); g_woken_b = 1; }));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	g_waiter_b.priority(opsy::task_priority::highest);
 	CHECK(g_ready == 2);
@@ -111,7 +111,7 @@ OPSY_QEMU_TEST(wait_for_returns_no_timeout_when_notified_in_time)
 	{
 		opsy::sleep_for(5ms);
 		g_condition.notify_one();
-	}, "notifier"));
+	}));
 	g_notifier.priority(opsy::task_priority::highest);
 
 	const auto before = opsy::scheduler::now();
@@ -146,7 +146,7 @@ OPSY_QEMU_TEST(a_timed_out_waiter_can_wait_again)
 
 	// And the variable still works for a real notification afterwards.
 	g_woken = 0;
-	CHECK(g_notifier.start([] { opsy::sleep_for(3ms); g_condition.notify_one(); }, "late-notifier"));
+	CHECK(g_notifier.start([] { opsy::sleep_for(3ms); g_condition.notify_one(); }));
 	g_notifier.priority(opsy::task_priority::highest);
 
 	CHECK(g_condition.wait_for(500ms) == opsy::cv_status::no_timeout);
@@ -168,7 +168,7 @@ OPSY_QEMU_TEST(waiting_with_a_mutex_releases_it_and_takes_it_back)
 		(void) g_condition.wait_for(g_isr_lock, 500ms);
 		g_woken = 1;
 		g_isr_lock.unlock();
-	}, "mutex-waiter"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 
 	CHECK(g_ready == 1);
@@ -205,10 +205,10 @@ OPSY_QEMU_TEST(several_waiters_with_different_timeouts_expire_in_order)
 
 	// Two timeouts on the same condition variable, inserted out of order into
 	// the scheduler's timeout list: the later one is started first.
-	CHECK(g_waiter_a.start([] { (void) g_condition.wait_for(40ms); g_woken_a = 1; }, "late"));
+	CHECK(g_waiter_a.start([] { (void) g_condition.wait_for(40ms); g_woken_a = 1; }));
 	g_waiter_a.priority(opsy::task_priority::highest);
 
-	CHECK(g_waiter_b.start([] { (void) g_condition.wait_for(10ms); g_woken_b = 1; }, "early"));
+	CHECK(g_waiter_b.start([] { (void) g_condition.wait_for(10ms); g_woken_b = 1; }));
 	g_waiter_b.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(20ms);
@@ -241,7 +241,7 @@ OPSY_QEMU_TEST(waiting_with_a_task_mutex_releases_it_and_takes_it_back)
 		g_woken = 1;
 		CHECK(g_task_mutex.is_locked());   // owned again on wake
 		g_task_mutex.unlock();
-	}, "mutex-waiter"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 
 	CHECK(g_ready == 1);
@@ -271,7 +271,7 @@ OPSY_QEMU_TEST(a_waiter_that_wakes_to_a_taken_mutex_blocks_on_it)
 		(void) g_condition.wait_for(g_task_mutex, 500ms);
 		g_woken = 1;                       // only once it owns it again
 		g_task_mutex.unlock();
-	}, "mutex-waiter"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	CHECK(g_ready == 1);
 
@@ -303,7 +303,7 @@ OPSY_QEMU_TEST(a_task_mutex_wait_that_times_out_still_takes_the_mutex_back)
 		CHECK(g_task_mutex.is_locked());
 		g_woken = 1;
 		g_task_mutex.unlock();
-	}, "timing-out"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	CHECK(g_ready == 1);
 
@@ -331,7 +331,7 @@ OPSY_QEMU_TEST(a_task_killed_while_waiting_with_a_lock_restarts_without_it)
 		g_ready = 1;
 		g_condition.wait(g_isr_lock);
 		g_isr_lock.unlock();
-	}, "waiter"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	CHECK(g_ready == 1);
 
@@ -345,7 +345,7 @@ OPSY_QEMU_TEST(a_task_killed_while_waiting_with_a_lock_restarts_without_it)
 		g_woken = 1;
 		opsy::sleep_for(1ms);
 		g_woken = 2;
-	}, "restarted"));
+	}));
 	g_waiter_a.priority(opsy::task_priority::highest);
 
 	for (int guard = 0; guard < 50 && g_woken != 2; ++guard)
@@ -422,7 +422,7 @@ OPSY_QEMU_TEST(an_interrupt_handler_wakes_a_task_through_event_bits)
 	g_rounds = 0;
 	CHECK(install_event_irq());
 
-	CHECK(g_waiter_a.start(&event_consumer, "consumer"));
+	CHECK(g_waiter_a.start(&event_consumer));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	opsy::sleep_for(2ms);
 	CHECK(g_rounds == 0);            // nothing raised: waiting
@@ -447,7 +447,7 @@ OPSY_QEMU_TEST(an_event_raised_before_the_task_waits_is_not_lost)
 
 	raise_event(0x2u);               // before any task waits for it
 
-	CHECK(g_waiter_a.start(&event_consumer, "late consumer"));
+	CHECK(g_waiter_a.start(&event_consumer));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	opsy::sleep_for(2ms);
 	CHECK(g_rounds == 1);            // found it under the lock, did not wait

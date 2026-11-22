@@ -516,7 +516,9 @@ their own exceptions; until then they reach the handler as HardFault, with
 `cortex_m::set_priority(system_irq::usage_fault, ...)`; a fault in OpSy's
 own handlers reaches yours only if it outranks them. The handler must not
 call OpSy: it may be running on the main stack, in the middle of a context
-switch.
+switch. Before it, `fault_isrs` calls `hook::fault` with the same status,
+frame and `EXC_RETURN`, so that a tracer records the fault even when the
+handler resets.
 
 On ARMv8-M, a task that runs out of stack is a `stack_overflow()` with
 `exc_return` bit 2 set; the stack pointer is then below its limit, and the
@@ -560,7 +562,8 @@ it may define, each with its signature: a task made ready and why
 (`task_ready(task, reason)`, with a `wake_reason` of `notified`,
 `timed_out`, `sleep_elapsed` or `mutex_granted`), a task put to sleep and
 until when, a mutex taken, handed over or blocked on, the entry and exit
-of each of OpSy's handlers, the idle task's wait (`idle_wait`, a `WFI` by
+of each of OpSy's handlers, a fault (`fault`, ahead of the handler given to
+`fault_isrs`), the idle task's wait (`idle_wait`, a `WFI` by
 default, which a tracer reading memory through the debug port replaces
 with a `NOP`), and `decorate_isr`, which the vector table applies to every
 device handler through `opsy::hooked_isr`. Where a hook notes a shorter

@@ -483,10 +483,10 @@ int opsy_test_main()
 	opsy::cortex_m::set_priority(bench::irq, opsy::scheduler::os_callable_priority);
 	opsy::cortex_m::enable_interrupt(bench::irq);
 
-	(void) bench::g_driver.start([] { bench::driver(); }, "driver");
-	(void) bench::g_other.start([] { bench::other(); }, "other");
+	(void) bench::g_driver.start([] { bench::driver(); });
+	(void) bench::g_other.start([] { bench::other(); });
 	for (auto& filler : bench::g_fillers)
-		(void) filler.start([] { while (true) bench::g_filler_go.acquire(); }, "filler");
+		(void) filler.start([] { while (true) bench::g_filler_go.acquire(); });
 
 	opsy::scheduler::start(bench::g_idle);
 }

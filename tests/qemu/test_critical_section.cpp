@@ -130,7 +130,7 @@ OPSY_QEMU_TEST(two_tasks_never_hold_the_section_at_once)
 				contend_once();
 			opsy::sleep_for(1ms);
 		}
-	}, "contender"));
+	}));
 	g_contender.priority(opsy::task_priority::normal);   // below the runner
 
 	const auto deadline = opsy::scheduler::now() + 30ms;

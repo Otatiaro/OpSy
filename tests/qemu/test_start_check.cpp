@@ -178,7 +178,7 @@ int opsy_test_main()
 	(void) g_task.start([]
 	{
 		fail("a task ran: start went on with a table it could not write");
-	}, "should-not-run");
+	});
 
 	opsy::scheduler::start(g_idle);
 }

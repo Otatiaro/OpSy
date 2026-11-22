@@ -182,7 +182,7 @@ OPSY_QEMU_TEST(try_lock_succeeds_on_a_free_mutex_and_fails_on_a_held_one)
 	CHECK(g_high.start([]
 	{
 		g_high_ran = g_a.try_lock() ? 1 : 2;   // 2 == correctly refused
-	}, "try-locker"));
+	}));
 	g_high.priority(opsy::task_priority::highest);
 
 	CHECK(g_high_ran == 2);
@@ -221,7 +221,7 @@ OPSY_QEMU_TEST(a_waiting_task_blocks_and_resumes_owning_the_mutex)
 		g_high_ran = 1;
 		CHECK(g_a.is_locked());
 		g_a.unlock();
-	}, "waiter"));
+	}));
 	g_high.priority(opsy::task_priority::highest);
 
 	// It outranks the runner and still has not run past the lock.
@@ -242,13 +242,13 @@ OPSY_QEMU_TEST(waiters_are_served_in_priority_order)
 	g_a.lock();
 
 	// Started low-to-high; they must be served high-to-low.
-	CHECK(g_low.start([] { g_a.lock(); record(1); g_a.unlock(); }, "low"));
+	CHECK(g_low.start([] { g_a.lock(); record(1); g_a.unlock(); }));
 	g_low.priority(opsy::task_priority::low);
 
-	CHECK(g_middle.start([] { g_a.lock(); record(2); g_a.unlock(); }, "middle"));
+	CHECK(g_middle.start([] { g_a.lock(); record(2); g_a.unlock(); }));
 	g_middle.priority(opsy::task_priority::normal);
 
-	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); }, "high"));
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::high);
 
 	CHECK(g_order_index == 0);   // all three parked on the mutex
@@ -271,8 +271,8 @@ OPSY_QEMU_TEST(a_mutex_actually_excludes_two_contending_tasks)
 	g_iterations = 0;
 	g_stop = false;
 
-	CHECK(g_low.start([] { contend(); }, "contender-a"));
-	CHECK(g_middle.start([] { contend(); }, "contender-b"));
+	CHECK(g_low.start([] { contend(); }));
+	CHECK(g_middle.start([] { contend(); }));
 	g_low.priority(opsy::task_priority::normal);
 	g_middle.priority(opsy::task_priority::normal);
 
@@ -302,7 +302,7 @@ OPSY_QEMU_TEST(two_mutexes_can_be_released_in_any_order)
 
 	// Prove b really still excludes: a higher-priority task must block on it.
 	g_high_ran = 0;
-	CHECK(g_high.start([] { g_b.lock(); g_high_ran = 1; g_b.unlock(); }, "on-b"));
+	CHECK(g_high.start([] { g_b.lock(); g_high_ran = 1; g_b.unlock(); }));
 	g_high.priority(opsy::task_priority::highest);
 	CHECK(g_high_ran == 0);
 
@@ -333,7 +333,7 @@ OPSY_QEMU_TEST(a_holder_is_raised_while_a_more_important_task_waits)
 			opsy::sleep_for(1ms);
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(5ms);
@@ -342,7 +342,7 @@ OPSY_QEMU_TEST(a_holder_is_raised_while_a_more_important_task_waits)
 	CHECK(g_low.priority() == opsy::task_priority::low);   // requested one, unchanged
 
 	// High blocks on the mutex, which must raise the holder.
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::high);
 
 	opsy::sleep_for(5ms);
@@ -378,14 +378,14 @@ OPSY_QEMU_TEST(a_middle_priority_task_cannot_starve_a_raised_holder)
 		opsy::sleep_for(10ms);
 		record(1);
 		g_a.unlock();
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(2ms);
 	CHECK(g_low_ran == 1);
 
 	// High blocks on the mutex: the holder inherits its priority.
-	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }));
 	g_high.priority(opsy::task_priority::high);
 
 	// Middle wants nothing but CPU. Without inheritance it would outrank the
@@ -397,7 +397,7 @@ OPSY_QEMU_TEST(a_middle_priority_task_cannot_starve_a_raised_holder)
 			record(2);
 			opsy::sleep_for(2ms);
 		}
-	}, "cpu-hog"));
+	}));
 	g_middle.priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(40ms);
@@ -432,14 +432,14 @@ OPSY_QEMU_TEST(killing_a_holder_releases_its_mutexes_and_wakes_the_waiters)
 		g_b.lock();
 		while (!g_stop)
 			opsy::sleep_for(1ms);
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_a.is_locked());
 	CHECK(g_b.is_locked());
 
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::high);
 	CHECK(g_high_ran == 0);
 
@@ -490,14 +490,14 @@ OPSY_QEMU_TEST(a_priority_change_is_not_lost_while_the_task_is_boosted)
 		while (!g_stop)
 			opsy::sleep_for(1ms);
 		g_a.unlock();
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_low_ran == 1);
 
 	// Boost it: a highest-priority task blocks on the mutex it holds.
-	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::highest);
 	opsy::sleep_for(5ms);
 
@@ -540,7 +540,7 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 		record(1);
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
@@ -550,7 +550,7 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 
 	// A more important task blocks on the mutex, raising the holder to its
 	// priority for as long as it waits.
-	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }));
 	g_high.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
@@ -574,7 +574,7 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 		g_observer_ran = 1;
 		while (!g_stop)
 			busy_wait(50);
-	}, "observer"));
+	}));
 	g_observer.priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(5ms);
@@ -618,7 +618,7 @@ OPSY_QEMU_TEST(changing_the_priority_of_a_blocked_task_leaves_it_blocked)
 	g_high_ran = 0;
 	g_a.lock();
 
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::normal);
 	CHECK(g_high_ran == 0);
 
@@ -647,11 +647,11 @@ OPSY_QEMU_TEST(killing_a_holder_runs_the_woken_waiter_immediately)
 		g_a.lock();
 		while (!g_stop)
 			opsy::sleep_for(1ms);
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 	opsy::sleep_for(5ms);
 
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::highest);
 	CHECK(g_high_ran == 0);
 
@@ -687,13 +687,13 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 		while (!g_stop)
 			busy_wait(200);
 		g_a.unlock();
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::lowest);
 	opsy::sleep_for(5ms);
 	CHECK(g_low_ran == 1);
 
 	// Boost the holder, then kill the task doing the boosting.
-	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }, "waiter"));
+	CHECK(g_high.start([] { g_a.lock(); g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::normal);
 	opsy::sleep_for(5ms);
 	CHECK(g_high.kill());
@@ -709,7 +709,7 @@ OPSY_QEMU_TEST(killing_a_waiter_returns_the_holder_to_its_own_priority)
 			g_middle_ran = 1;
 			opsy::sleep_for(1ms);
 		}
-	}, "observer"));
+	}));
 	g_middle.priority(opsy::task_priority::low);
 
 	opsy::sleep_for(20ms);
@@ -764,7 +764,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 		record(1);
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "bottom"));
+	}));
 	g_low.priority(opsy::task_priority::lowest);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
@@ -783,7 +783,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 		g_a.unlock();
 		g_b.unlock();
 		g_middle_ran = 2;
-	}, "middle"));
+	}));
 	g_middle.priority(opsy::task_priority::low);
 
 	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
@@ -798,7 +798,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 		record(4);
 		g_b.unlock();
 		g_high_ran = 1;
-	}, "top"));
+	}));
 	g_high.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
@@ -813,7 +813,7 @@ OPSY_QEMU_TEST(priority_inheritance_travels_along_a_chain_of_mutexes)
 		g_observer_ran = 1;
 		while (!g_stop)
 			busy_wait(50);
-	}, "observer"));
+	}));
 	g_observer.priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(5ms);
@@ -881,7 +881,7 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 		record(1);
 		g_b.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::lowest);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
@@ -898,7 +898,7 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 		record(3);
 		g_b.unlock();
 		g_high_ran = 1;
-	}, "waiter on B"));
+	}));
 	g_high.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
@@ -911,7 +911,7 @@ OPSY_QEMU_TEST(releasing_one_of_two_held_mutexes_keeps_the_boost_the_other_owes)
 		g_observer_ran = 1;
 		while (!g_stop)
 			busy_wait(50);
-	}, "observer"));
+	}));
 	g_observer.priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(5ms);
@@ -986,7 +986,7 @@ OPSY_QEMU_TEST(a_waiter_raised_by_inheritance_is_the_one_notify_one_wakes)
 		record(1);
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
@@ -1001,7 +1001,7 @@ OPSY_QEMU_TEST(a_waiter_raised_by_inheritance_is_the_one_notify_one_wakes)
 		g_waiters.wait();
 		record(2);
 		g_middle_ran = 2;
-	}, "other waiter"));
+	}));
 	g_middle.priority(opsy::task_priority::normal);
 
 	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
@@ -1010,7 +1010,7 @@ OPSY_QEMU_TEST(a_waiter_raised_by_inheritance_is_the_one_notify_one_wakes)
 
 	// The most important task blocks on A, raising the holder above the other
 	// waiter.
-	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }, "blocked on A"));
+	CHECK(g_high.start([] { g_a.lock(); record(3); g_a.unlock(); g_high_ran = 1; }));
 	g_high.priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
@@ -1056,7 +1056,7 @@ OPSY_QEMU_TEST(a_waiter_dropped_by_a_kill_is_no_longer_the_one_notify_one_wakes)
 		record(1);
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
@@ -1069,7 +1069,7 @@ OPSY_QEMU_TEST(a_waiter_dropped_by_a_kill_is_no_longer_the_one_notify_one_wakes)
 		g_waiters.wait();
 		record(2);
 		g_middle_ran = 2;
-	}, "other waiter"));
+	}));
 	g_middle.priority(opsy::task_priority::normal);
 
 	for (int guard = 0; guard < 50 && g_middle_ran == 0; ++guard)
@@ -1077,7 +1077,7 @@ OPSY_QEMU_TEST(a_waiter_dropped_by_a_kill_is_no_longer_the_one_notify_one_wakes)
 	CHECK(g_middle_ran == 1);
 
 	// Raised by the task blocked on A, then dropped again when it is killed.
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked on A"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::highest);
 	opsy::sleep_for(5ms);
 	CHECK(g_high_ran == 0);
@@ -1129,7 +1129,7 @@ OPSY_QEMU_TEST(a_holder_that_kills_its_waiter_gives_way_to_what_now_outranks_it)
 			g_observer_ran = 1;
 			while (!g_stop)
 				busy_wait(50);
-		}, "observer");
+		});
 		g_observer.priority(opsy::task_priority::normal);  // below the raised holder
 
 		(void) g_high.kill();
@@ -1137,14 +1137,14 @@ OPSY_QEMU_TEST(a_holder_that_kills_its_waiter_gives_way_to_what_now_outranks_it)
 
 		g_a.unlock();
 		g_low_ran = 2;
-	}, "holder"));
+	}));
 	g_low.priority(opsy::task_priority::low);
 
 	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
 		opsy::sleep_for(1ms);
 	CHECK(g_low_ran == 1);
 
-	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }, "blocked on A"));
+	CHECK(g_high.start([] { g_a.lock(); g_high_ran = 1; g_a.unlock(); }));
 	g_high.priority(opsy::task_priority::highest);
 	opsy::sleep_for(5ms);
 	CHECK(g_high_ran == 0);

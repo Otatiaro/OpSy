@@ -83,7 +83,7 @@ OPSY_QEMU_TEST(now_stays_monotonic_while_another_task_reads_it)
 			}
 			opsy::sleep_for(1ms);
 		}
-	}, "clock-reader"));
+	}));
 	// Above the runner, so that it preempts it rather than living on what the
 	// runner leaves: at -O0 on a slow core, the runner and the tick can use
 	// most of a millisecond, and a reader below them barely runs. It sleeps

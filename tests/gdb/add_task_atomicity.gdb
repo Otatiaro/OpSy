@@ -63,7 +63,10 @@ set $steps = 0
 # Step until both lists have gained the task, which is where add_task's
 # critical region ends. The cap keeps a scenario that never reaches that state
 # from hanging: it stops, and the check below fails on the count it did reach.
-while $steps < 600
+# It bounds a hang, not the cost of add_task: the hooks it calls run inside the
+# region and are stepped through too, so a program with costly ones (a tracer,
+# an unoptimised build) takes many more steps, and must not fail for it.
+while $steps < 10000
   stepi
   set $steps = $steps + 1
 

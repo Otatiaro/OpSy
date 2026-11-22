@@ -72,6 +72,7 @@ class idle_task_control_block;
 class condition_variable;
 class mutex;
 class isr_lock;
+struct exception_frame;
 
 /**
  * @brief What made a task ready: the one fact about a wake-up that cannot be
@@ -317,17 +318,6 @@ namespace opsy
 		}
 
 		/**
-		 * @brief A task's name changed
-		 * @param task The task
-		 */
-		template<class Hooks = hooks>
-		static constexpr void task_name_changed(task_control_block& task)
-		{
-			if constexpr(requires { Hooks::task_name_changed(task); })
-				Hooks::task_name_changed(task);
-		}
-
-		/**
 		 * @brief A task's priority changed
 		 * @param task The task
 		 */
@@ -499,6 +489,23 @@ namespace opsy
 		{
 			if constexpr(requires { Hooks::condition_variable_notify_all(cv); })
 				Hooks::condition_variable_notify_all(cv);
+		}
+
+		/**
+		 * @brief A fault exception is entered, before the application's handler
+		 * @param status The fault status registers, read on entry
+		 * @param frame The stacked registers of the code that faulted
+		 * @param exc_return @c EXC_RETURN as the core set it
+		 * @remark Called by @ref fault_isrs only, ahead of the handler given to
+		 *         it: that handler may reset or halt, and never come back.
+		 *         Runs in the fault handler, at its priority, on whatever
+		 *         state the fault left.
+		 */
+		template<class Hooks = hooks>
+		static constexpr void fault(const fault_status& status, const exception_frame& frame, uint32_t exc_return)
+		{
+			if constexpr(requires { Hooks::fault(status, frame, exc_return); })
+				Hooks::fault(status, frame, exc_return);
 		}
 
 		/**

@@ -52,6 +52,7 @@
 #include <mutex>
 #include "opsy_assert.hpp"
 #include <optional>
+#include <utility>
 
 #include "isr_priority.hpp"
 #include "scheduler.hpp"
@@ -218,8 +219,9 @@ inline void isr_lock::lock()
 		}
 		else
 		{
+			bool section = false;
 			if (cortex_m::ipsr() == 0) // ask for critical section only when in task
-				critical_section_ = scheduler::critical_section_begin();
+				section = scheduler::critical_section_begin();
 			else
 				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
 				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
@@ -227,6 +229,9 @@ inline void isr_lock::lock()
 
 			hook::enter_priority_lock(*priority_);
 			previous_lock_ = cortex_m::exchange_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
+			// Written once the level masks the ISRs sharing this lock: their
+			// unlock would otherwise close the task's critical section.
+			critical_section_ = section;
 			assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
@@ -263,6 +268,9 @@ inline void isr_lock::unlock()
 		}
 		else
 		{
+			// Taken while the level still masks the ISRs sharing this lock:
+			// their unlock would otherwise close the task's critical section.
+			const bool section = std::exchange(critical_section_, false);
 #ifndef NDEBUG
 			auto was = cortex_m::exchange_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
@@ -270,7 +278,8 @@ inline void isr_lock::unlock()
 			cortex_m::exchange_basepri(previous_lock_);
 #endif
 			hook::exit_priority_lock();
-			leave_critical_section();
+			if (section)
+				scheduler::critical_section_end();
 		}
 	}
 	else

@@ -1,0 +1,64 @@
+---
+# Every check of these groups runs, and any finding fails the build. A check
+# is left out only for a reason that holds for the whole of OpSy:
+#
+# - modernize-use-trailing-return-type: a style, not a modernisation; the code
+#   writes the return type first, as the standard library does.
+# - portability-avoid-pragma-once: every compiler OpSy supports has it.
+# - portability-no-assembler: context switch, exception entry and the
+#   special registers of the core have no other spelling.
+# - readability-braces-around-statements, hicpp-braces-around-statements:
+#   a single statement goes without braces.
+# - cppcoreguidelines-pro-bounds-constant-array-index,
+#   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access: they ask
+#   for at(), which throws, and OpSy builds without exceptions.
+#
+# Where OpSy must do what a check forbids (a register at a fixed address, a
+# stack frame built by hand), the line says why in a NOLINT comment.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  hicpp-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -portability-avoid-pragma-once,
+  -portability-no-assembler,
+  -readability-braces-around-statements,
+  -hicpp-braces-around-statements,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
+CheckOptions:
+  # Two adjacent words of a kind (a priority and a mask, a pointer and a
+  # size) are common vocabulary; three or more in a row must be a struct.
+  bugprone-easily-swappable-parameters.MinimumLength: 3
+  # 1U << 25: a positive literal is no signed operand.
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  # A cast to void is the explicit discard, the one [[nodiscard]] accepts.
+  bugprone-unused-return-value.AllowCastToVoid: true
+  # Loop indexes, names that are words of the architecture (r0, pc, lr), and
+  # _, the placeholder of C++26.
+  readability-identifier-length.IgnoredVariableNames: '^(_|i|j|k|n|id|r[0-9]|pc|lr|sp)$'
+  readability-identifier-length.IgnoredParameterNames: '^(i|j|k|n|id)$'
+  readability-identifier-length.IgnoredLoopCounterNames: '^(i|j|k|n)$'
+  # OpSy replaces the standard assert: opsy_assert.hpp provides it, and no
+  # header includes <cassert>, whose macro would win over OpSy's.
+  misc-include-cleaner.IgnoreHeaders: '<cassert>'
+  # A struct whose members are all public is a plain record (fault_status), not
+  # a class whose invariant they could break.
+  misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
+WarningsAsErrors: '*'
+# Every header is checked on its own, under the .clang-tidy of its directory
+# (tests/tidy.py --headers); a source file applies its own configuration to
+# what it includes. So scheduler.cpp reports OpSy's headers, and leaves those
+# of utility/, algorithms/ and the tests to their own configuration.
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: '.*[/\\](utility|algorithms|tests)[/\\].*'
+...

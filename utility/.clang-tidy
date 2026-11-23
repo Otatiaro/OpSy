@@ -1,0 +1,11 @@
+---
+# OpSy's checks, less one:
+#
+# - readability-identifier-length: the numerics here write their formulas in
+#   the notation of the literature they come from (a, b, d, e of the
+#   Householder and QL steps, q and v of Hamilton's products); longer names
+#   would make the code harder to hold against its source.
+InheritParentConfig: true
+Checks: >
+  -readability-identifier-length
+...

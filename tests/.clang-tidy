@@ -1,0 +1,59 @@
+---
+# OpSy's checks, less those that do not fit test programs:
+#
+# - readability-magic-numbers, cppcoreguidelines-avoid-magic-numbers: the
+#   literals of a test are its data (sizes, delays, expected values); a name
+#   for each would say nothing the line does not.
+# - cppcoreguidelines-avoid-non-const-global-variables: a test shares its
+#   state with the tasks and interrupt handlers it starts, which take no
+#   arguments.
+# - misc-use-internal-linkage: the debugger scenarios and the bench find
+#   functions and objects of the tests by name in the ELF.
+# - misc-use-anonymous-namespace: OPSY_QEMU_TEST declares a case and its
+#   registration, and the case's body follows the macro. A function an
+#   anonymous namespace declares cannot be defined outside it, so static is
+#   the only internal linkage the macro can give.
+# - cppcoreguidelines-pro-type-reinterpret-cast, performance-no-int-to-ptr,
+#   cppcoreguidelines-pro-bounds-pointer-arithmetic: the QEMU images bring
+#   their own startup and probe the hardware. They copy sections between
+#   linker symbols, fault at chosen addresses and read the frames the core
+#   stacks: addresses are their subject.
+# - readability-identifier-length: the objects of a test live a few lines and
+#   keep the names its statement gives them (a and b, the two items it
+#   orders; f(x), a function and its argument).
+# - bugprone-throwing-static-initialization, cert-err58-cpp: the suites
+#   register their cases, and OpSy builds its objects, with constructors not
+#   marked noexcept; every image builds with -fno-exceptions.
+# - IgnoreMacros: the suites' CHECK is a do-while macro, and negates the
+#   expression it is given.
+# - misc-include-cleaner.MissingIncludes: the tests write durations as
+#   std::chrono literals (2ms), as the README does. include-cleaner looks a
+#   std symbol up by its identifier, which a literal operator does not have,
+#   then falls back to the libstdc++ header that declares it, bits/chrono.h,
+#   and asks for that to be included
+#   (https://github.com/llvm/llvm-project/issues/68213). Unused includes are
+#   still reported; OpSy's own code keeps the full check.
+#
+# OpSy's headers are checked under OpSy's configuration (tests/tidy.py
+# --headers); a test reports only the headers of the tests.
+InheritParentConfig: true
+HeaderFilterRegex: '.*[/\\]tests[/\\].*'
+ExcludeHeaderFilterRegex: '^$'
+Checks: >
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -misc-use-internal-linkage,
+  -misc-use-anonymous-namespace,
+  -readability-identifier-length,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -performance-no-int-to-ptr,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -bugprone-throwing-static-initialization,
+  -cert-err58-cpp
+CheckOptions:
+  cppcoreguidelines-avoid-do-while.IgnoreMacros: true
+  readability-function-cognitive-complexity.IgnoreMacros: true
+  readability-simplify-boolean-expr.IgnoreMacros: true
+  misc-include-cleaner.MissingIncludes: false
+...

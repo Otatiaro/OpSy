@@ -39,14 +39,18 @@
 
 #pragma once
 
-#include "config.hpp"
-#include "task.hpp"
-#include "scheduler.hpp"
-#include "isr_lock.hpp"
-#include "condition_variable.hpp"
-#include "semaphore.hpp"
-#include "queue.hpp"
-#include "fault.hpp"
+#include <chrono> // IWYU pragma: keep (only an assert uses it)
+#include <cstdint>
+
+#include "config.hpp" // IWYU pragma: export
+#include "cortex_m.hpp" // IWYU pragma: export
+#include "task.hpp" // IWYU pragma: export
+#include "scheduler.hpp" // IWYU pragma: export
+#include "isr_lock.hpp" // IWYU pragma: export
+#include "condition_variable.hpp" // IWYU pragma: export
+#include "semaphore.hpp" // IWYU pragma: export
+#include "queue.hpp" // IWYU pragma: export
+#include "fault.hpp" // IWYU pragma: export
 
 namespace opsy
 {
@@ -56,7 +60,7 @@ namespace opsy
  * @warning This should only be called from @c task and never from interrupt service routine
  * @warning Make sure you release all @c mutex before you call @c sleep_for
  */
-void inline sleep_for(duration t)
+void inline sleep_for(duration delay)
 {
 	assert(cortex_m::ipsr() == 0);            // there is no task to put to sleep in an ISR
 	assert(scheduler::is_os_callable());      // ... and an ISR above OpSy must not enter it at all
@@ -69,10 +73,10 @@ void inline sleep_for(duration t)
 	//
 	// Zero is left alone: it still costs one tick, which is the established way
 	// to yield.
-	if (t.count() < 0)
+	if (delay.count() < 0)
 		return;
 
-	const auto count = t.count();
+	const auto count = detail::split_words(static_cast<uint64_t>(delay.count()));
 	// "memory" clobber: see trigger_hard_switch in scheduler.hpp. The SVC may
 	// reschedule, modify the task frame on PSP and the scheduler globals; the
 	// compiler must drop any cached state across the call.
@@ -82,8 +86,8 @@ void inline sleep_for(duration t)
 			"svc %[immediate]"
 			:
 			: [immediate] "I" (scheduler::service_call_number::sleep),
-			  [count_lo] "r" (static_cast<uint32_t>(count)),
-			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
+			  [count_lo] "r" (count.low),
+			  [count_hi] "r" (count.high)
 			: "r0", "r1", "memory");
 }
 
@@ -92,11 +96,11 @@ void inline sleep_for(duration t)
  * @warning This should only be called from @c task and never from interrupt service routine
  * @warning Make sure you release all @c mutex before you call @c sleep_for
  */
-void inline sleep_until(time_point tp)
+void inline sleep_until(time_point deadline)
 {
 	using namespace std::chrono_literals;
-	const auto remaining = tp - scheduler::now();
-	assert(remaining < 1h); // if you sleep for more than 1h you probably are missing something (low power mode)
+	const auto remaining = deadline - scheduler::now();
+	assert(remaining < 1h); // NOLINT(misc-include-cleaner): <chrono> is included; include-cleaner cannot attribute a literal (https://github.com/llvm/llvm-project/issues/68213). If you sleep for more than 1h you probably are missing something (low power mode)
 	sleep_for(remaining);
 }
 

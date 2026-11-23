@@ -60,9 +60,9 @@ namespace opsy
 
 #undef assert
 #ifdef NDEBUG
-#define assert(expr) (static_cast<void>(0))
+#define assert(expr) (static_cast<void>(0)) // NOLINT(cppcoreguidelines-macro-usage): replaces the standard macro
 #else
 // opsy::trap is [[noreturn]], which already tells the compiler the failing
 // branch is cold: it is laid out off the hot path without a hint.
-#define assert(expr) ((expr) ? static_cast<void>(0) : ::opsy::trap())
+#define assert(expr) ((expr) ? static_cast<void>(0) : ::opsy::trap()) // NOLINT(cppcoreguidelines-macro-usage): replaces the standard macro
 #endif

@@ -55,7 +55,7 @@ void report_failure(const char* file, int line, const char* expression);
 [[noreturn]] void run_all_and_exit();
 
 /** @brief Returned by @ref find_usable_irq when the NVIC accepts none. */
-inline constexpr unsigned no_irq = 0xFFFFFFFFu;
+inline constexpr unsigned no_irq = 0xFFFFFFFFU;
 
 /**
  * @brief Finds a peripheral IRQ this board's NVIC actually implements
@@ -93,7 +93,7 @@ opsy::idle_task_control_block& idle();
 
 #define OPSY_QEMU_TEST(name)                                                   \
 	static void name();                                                        \
-	static ::qemu_test::test_case name##_registration{#name, &name};           \
+	static ::qemu_test::test_case name##_registration{#name, &name}; /* NOLINT(bugprone-macro-parentheses): name is an identifier */ \
 	static void name()
 
 #define CHECK(expression)                                                      \

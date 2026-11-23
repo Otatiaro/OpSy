@@ -374,7 +374,7 @@ unsigned                 g_event_irq = qemu_test::no_irq;
 void event_irq_handler()
 {
 	{
-		std::lock_guard guard{g_event_lock};
+		const std::scoped_lock guard{g_event_lock};
 		g_events |= g_event_to_raise;
 	}
 	g_events_changed.notify_one();
@@ -403,12 +403,12 @@ void event_consumer()
 {
 	while (true)
 	{
-		uint32_t got;
+		uint32_t got = 0;
 		{
-			std::lock_guard guard{g_event_lock};
-			while ((g_events & 0x3u) == 0)
+			const std::scoped_lock guard{g_event_lock};
+			while ((g_events & 0x3U) == 0)
 				g_events_changed.wait(g_event_lock);
-			got = std::exchange(g_events, 0u);
+			got = std::exchange(g_events, 0U);
 		}
 		g_events_got.fetch_or(got);
 		++g_rounds;
@@ -427,13 +427,13 @@ OPSY_QEMU_TEST(an_interrupt_handler_wakes_a_task_through_event_bits)
 	opsy::sleep_for(2ms);
 	CHECK(g_rounds == 0);            // nothing raised: waiting
 
-	raise_event(0x1u);
+	raise_event(0x1U);
 	CHECK(g_rounds == 1);
-	CHECK(g_events_got == 0x1u);
+	CHECK(g_events_got == 0x1U);
 
-	raise_event(0x2u);
+	raise_event(0x2U);
 	CHECK(g_rounds == 2);
-	CHECK(g_events_got == 0x3u);
+	CHECK(g_events_got == 0x3U);
 
 	stop_all();
 }
@@ -454,9 +454,9 @@ OPSY_QEMU_TEST(an_interrupt_handler_less_urgent_than_the_lock_wakes_a_task)
 	g_waiter_a.priority(opsy::task_priority::highest);
 	opsy::sleep_for(2ms);
 
-	raise_event(0x1u);
+	raise_event(0x1U);
 	CHECK(g_rounds == 1);
-	CHECK(g_events_got == 0x1u);
+	CHECK(g_events_got == 0x1U);
 
 	opsy::cortex_m::set_priority(g_event_irq, opsy::scheduler::os_callable_priority);
 	stop_all();
@@ -469,13 +469,13 @@ OPSY_QEMU_TEST(an_event_raised_before_the_task_waits_is_not_lost)
 	g_rounds = 0;
 	CHECK(install_event_irq());
 
-	raise_event(0x2u);               // before any task waits for it
+	raise_event(0x2U);               // before any task waits for it
 
 	CHECK(g_waiter_a.start(&event_consumer));
 	g_waiter_a.priority(opsy::task_priority::highest);
 	opsy::sleep_for(2ms);
 	CHECK(g_rounds == 1);            // found it under the lock, did not wait
-	CHECK(g_events_got == 0x2u);
+	CHECK(g_events_got == 0x2U);
 
 	stop_all();
 }

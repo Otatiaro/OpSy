@@ -3,7 +3,7 @@
 OpSy is a small, header-mostly real-time operating system (RTOS) for ARMv7-M
 and ARMv8-M Cortex-M microcontrollers. It is written in modern C++ (C++26)
 and built around the standard library threading primitives (`std::mutex`,
-`std::condition_variable`, `std::lock_guard`, `std::chrono`) so the API feels
+`std::condition_variable`, `std::scoped_lock`, `std::chrono`) so the API feels
 familiar to anyone who has written multi-threaded C++ on a hosted platform.
 
 OpSy does no heap allocation, throws no exceptions, and has no dependency
@@ -236,7 +236,7 @@ opsy::mutex m;
 
 void from_task()
 {
-    std::lock_guard guard{m};
+    const std::scoped_lock guard{m};
     // exclusive against other tasks; interrupts keep running
 }
 ```
@@ -264,14 +264,14 @@ opsy::isr_lock l{opsy::isr_priority{0x80}};
 
 void from_task()
 {
-    std::lock_guard guard{l};
+    const std::scoped_lock guard{l};
     // masks every ISR at priority numerically >= 0x80,
     // and task switching along with it
 }
 
 void from_isr()
 {
-    std::lock_guard guard{l};   // same lock, from the handler side
+    const std::scoped_lock guard{l};   // same lock, from the handler side
 }
 ```
 
@@ -303,7 +303,7 @@ constexpr uint32_t error   = 1u << 1;
 void uart_isr()                           // strictly below OpSy's preemption level
 {
     {
-        std::lock_guard guard{lock};
+        const std::scoped_lock guard{lock};
         events |= rx_done;
     }
     events_changed.notify_one();
@@ -313,9 +313,9 @@ void uart_task()
 {
     while (true)
     {
-        uint32_t got;
+        uint32_t got = 0;
         {
-            std::lock_guard guard{lock};
+            const std::scoped_lock guard{lock};
             while ((events & (rx_done | error)) == 0)
                 events_changed.wait(lock); // releases lock and sleeps in one step,
                                            // takes it back on wake

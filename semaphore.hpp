@@ -38,6 +38,8 @@
 #include <mutex>
 
 #include "opsy_assert.hpp"
+#include "config.hpp"
+#include "cortex_m.hpp" // IWYU pragma: keep (only the asserts use it)
 #include "scheduler.hpp"
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
@@ -104,6 +106,9 @@ public:
 
 	counting_semaphore(const counting_semaphore&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
 	counting_semaphore& operator=(const counting_semaphore&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
+	counting_semaphore(counting_semaphore&&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
+	counting_semaphore& operator=(counting_semaphore&&) = delete("a semaphore is waited on by address: it stays where it is, like std::counting_semaphore");
+	~counting_semaphore() = default;
 
 	/**
 	 * @brief Adds @p update to the count, waking as many waiters as it lets through
@@ -130,7 +135,7 @@ public:
 		// so in the middle of this read. empty() checks the list's two fields
 		// against each other and would see them disagree; size() is one word,
 		// read whole, and a hint only -- wake_one looks again under the mask.
-		for (std::ptrdiff_t i = 0; i < update && available_.waiting_list_.size() != 0; ++i)
+		for (std::ptrdiff_t i = 0; i < update && available_.waiting_list_.size() != 0; ++i) // NOLINT(readability-container-size-empty): see above
 			available_.notify_one();
 	}
 
@@ -145,7 +150,7 @@ public:
 
 		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
-		std::lock_guard<isr_lock> _(lock_);
+		const std::scoped_lock _(lock_);
 		while (!try_acquire())
 			available_.wait(lock_);
 	}
@@ -187,7 +192,7 @@ public:
 
 		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 
-		std::lock_guard<isr_lock> _(lock_);
+		const std::scoped_lock _(lock_);
 		while (!try_acquire())
 			if (available_.wait_until(lock_, deadline) == cv_status::timeout)
 				return try_acquire(); // released at the last moment still counts

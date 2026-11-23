@@ -1,0 +1,11 @@
+---
+# OpSy's checks, less one:
+#
+# - readability-identifier-length: the fits here write their formulas in the
+#   notation of the literature they come from (x, y, z of a sample, m of a
+#   matrix, v of an eigenvector); longer names would make the code harder to
+#   hold against its source.
+InheritParentConfig: true
+Checks: >
+  -readability-identifier-length
+...

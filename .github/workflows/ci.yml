@@ -216,6 +216,50 @@ jobs:
           --machine ${{ matrix.machine }}
           --baseline tests/qemu/bench/baseline-${{ matrix.target }}.json
 
+  # clang-tidy with the .clang-tidy files, over every source as the Arm
+  # toolchain compiles it in the three suites (tests/tidy.py), and over each
+  # header on its own. Per target: the architecture and FPU macros select
+  # code (PMSAv8 on m33, the FPU context on m4 and up) that the others never
+  # see. Pinned, because each clang-tidy release adds checks.
+  tidy:
+    name: clang-tidy (cortex-${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [m3, m4, m7, m33]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the arm-none-eabi toolchain
+        uses: Otatiaro/arm-none-eabi-toolchain@bdf7759e264645bbcf02cfb66596869ff8684821
+        with:
+          version: ${{ env.TOOLCHAIN_VERSION }}
+
+      - name: Install Ninja and clang-tidy
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          pip install clang-tidy==23.1.4
+          clang-tidy --version
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          for suite in sanity qemu codegen; do
+            source=tests/$suite
+            [ "$suite" = sanity ] && source=tests
+            cmake -S "$source" -B "build-tidy/$suite" -G Ninja \
+              -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tests/cortex-m-toolchain.cmake" \
+              -DOPSY_COMPILER=gcc -DOPSY_TARGET=${{ matrix.target }} \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          done
+
+      - name: clang-tidy
+        run: >
+          python3 tests/tidy.py --clang-tidy clang-tidy
+          --build build-tidy/sanity --build build-tidy/qemu --build build-tidy/codegen
+          --headers . --headers utility --headers algorithms
+
   codegen-checks:
     name: Codegen checks (cortex-${{ matrix.target }})
     runs-on: ubuntu-latest

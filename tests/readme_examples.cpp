@@ -84,7 +84,7 @@ opsy::mutex m;
 
 [[gnu::used]] void from_task()
 {
-	std::lock_guard guard{m};
+	const std::scoped_lock guard{m};
 	// exclusive against other tasks; interrupts keep running
 }
 
@@ -99,14 +99,14 @@ opsy::isr_lock l{opsy::isr_priority{0x80}};
 
 [[gnu::used]] void from_task()
 {
-	std::lock_guard guard{l};
+	const std::scoped_lock guard{l};
 	// masks every ISR at priority numerically >= 0x80,
 	// and task switching along with it
 }
 
 [[gnu::used]] void from_isr()
 {
-	std::lock_guard guard{l};   // same lock, from the handler side
+	const std::scoped_lock guard{l};   // same lock, from the handler side
 }
 
 } // namespace isr_lock_example
@@ -120,13 +120,13 @@ opsy::isr_lock           lock{opsy::scheduler::os_callable_priority};
 opsy::condition_variable events_changed{opsy::scheduler::os_callable_priority};
 uint32_t                 events = 0;      // guarded by lock
 
-constexpr uint32_t rx_done = 1u << 0;
-constexpr uint32_t error   = 1u << 1;
+constexpr uint32_t rx_done = 1U << 0;
+constexpr uint32_t error   = 1U << 1;
 
 [[gnu::used]] void uart_isr()             // strictly below OpSy's preemption level
 {
 	{
-		std::lock_guard guard{lock};
+		const std::scoped_lock guard{lock};
 		events |= rx_done;
 	}
 	events_changed.notify_one();
@@ -136,9 +136,9 @@ constexpr uint32_t error   = 1u << 1;
 {
 	while (true)
 	{
-		uint32_t got;
+		uint32_t got = 0;
 		{
-			std::lock_guard guard{lock};
+			const std::scoped_lock guard{lock};
 			while ((events & (rx_done | error)) == 0)
 				events_changed.wait(lock); // releases lock and sleeps in one step,
 				                           // takes it back on wake
@@ -201,7 +201,7 @@ namespace STM32H563
 using isr_handler_t = void (*)();
 
 enum class exception : std::uint8_t { hard_fault = 3, mem_manage = 4, bus_fault = 5, usage_fault = 6, svcall = 11, pendsv = 14, systick = 15 };
-enum IRQn_Type : std::uint8_t { USART3_IRQn = 60 };
+enum IRQn_Type : std::uint8_t { USART3_IRQn = 60 }; // NOLINT(cppcoreguidelines-use-enum-class): stands for the vendor header's enum, which CMSIS leaves unscoped
 
 template<isr_handler_t Unhandled, typename Decoration>
 class vector_table
@@ -209,14 +209,14 @@ class vector_table
 public:
 	using exception_type = exception;
 
-	constexpr vector_table(std::uint32_t*, isr_handler_t)
+	constexpr vector_table(std::uint32_t* /*stack_end*/, isr_handler_t /*reset*/)
 	{
 		for (auto& handler : handlers_)
 			handler = Unhandled;
 	}
 
 	template<exception Exception, isr_handler_t Handler>
-	constexpr auto with() const -> vector_table
+	[[nodiscard]] constexpr auto with() const -> vector_table
 	{
 		auto table = *this;
 		table.handlers_[static_cast<std::size_t>(Exception)] = Handler;
@@ -224,17 +224,17 @@ public:
 	}
 
 	template<IRQn_Type Irq, isr_handler_t Handler>
-	constexpr auto with() const -> vector_table
+	[[nodiscard]] constexpr auto with() const -> vector_table
 	{
 		auto table = *this;
 		table.handlers_[16 + Irq] = Decoration::template wrap<Handler>;
 		return table;
 	}
 
-	constexpr auto with(auto&& install) const { return install(*this); }
+	[[nodiscard]] constexpr auto with(auto&& install) const { return install(*this); }
 
 private:
-	isr_handler_t handlers_[16 + 64]{};
+	std::array<isr_handler_t, 16 + 64> handlers_{};
 };
 
 } // namespace STM32H563
@@ -260,7 +260,7 @@ using namespace vector_table_example::STM32H563;
 
 [[noreturn]] void reset() { while (true) {} }
 
-void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, uint32_t exc_return)
+void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, uint32_t exc_return) // NOLINT(misc-const-correctness): fault_handler_t hands the frame over mutable, for a handler that rewrites it
 {
 	if (status.stack_overflow())
 		reset(); // the stack pointer is below its limit: nothing more can be pushed on it

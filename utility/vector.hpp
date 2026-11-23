@@ -66,7 +66,7 @@ public:
 	 * @param values The remaining values in the list
 	 */
 	template<typename ... Args>
-	constexpr vector(T value, Args&&... values) : values_{{value, values...}}
+	constexpr vector(T value, Args&&... values) : values_{{value, std::forward<Args>(values)...}} // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor): takes N >= 2 values, so it never converts a single one
 	{
 		static_assert(sizeof...(Args) + 1 == N, "Wrong number of values for vector initialization");
 	}
@@ -80,7 +80,7 @@ public:
 	 *         here on return. The conversion is also harmless — the source
 	 *         already has the element type and the exact rank.
 	 */
-	constexpr vector(const std::array<T, N>& items) : values_{items}
+	constexpr vector(const std::array<T, N>& items) : values_{items} // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor): see the remark above
 	{
 
 	}
@@ -96,6 +96,7 @@ public:
 	constexpr vector(vector&&)                 = default;
 	constexpr vector& operator=(const vector&) = default;
 	constexpr vector& operator=(vector&&)      = default;
+	constexpr ~vector()                        = default;
 
 	/**
 	 * Creates a @c vector with a specified value at each rank
@@ -126,7 +127,7 @@ public:
 	 * @param index The index of the value to get by const reference
 	 * @return The n-th value of the @c vector
 	 */
-	constexpr inline const T& operator[](std::size_t index) const
+	constexpr const T& operator[](std::size_t index) const
 	{
 		return values_[index];
 	}
@@ -136,7 +137,7 @@ public:
 	 * @param index The index of the value to get by reference
 	 * @return The n-th value of the @c vector
 	 */
-	constexpr inline T& operator[](std::size_t index)
+	constexpr T& operator[](std::size_t index)
 	{
 		return values_[index];
 	}
@@ -145,7 +146,7 @@ public:
 	 * Gets the size of the @c vector
 	 * @return The size of the @c vector
 	 */
-	[[nodiscard]] constexpr inline std::size_t size() const
+	[[nodiscard]] constexpr std::size_t size() const
 	{
 		return N;
 	}
@@ -441,37 +442,37 @@ private:
 	std::array<T, N> values_;
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<T, N> construct_impl(F func, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, std::index_sequence<Is...> /*indexes*/)
 	{
 		return {func(Is)...};
 	}
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const T& param, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const T& param, std::index_sequence<Is...> /*indexes*/)
 	{
 		return {func(values[Is], param)...};
 	}
 
 	template<typename F, std::size_t... Is>
-	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const std::array<T, N>& param, std::index_sequence<Is...>)
+	static constexpr std::array<T, N> construct_impl(F func, const std::array<T, N>& values, const std::array<T, N>& param, std::index_sequence<Is...> /*indexes*/)
 	{
 		return {func(values[Is], param[Is])...};
 	}
 
 	template<std::size_t... Is>
-	static constexpr std::array<T, N + 1> append_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...>)
+	static constexpr std::array<T, N + 1> append_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...> /*indexes*/)
 	{
 		return {values[Is]..., value};
 	}
 
 	template<std::size_t... Is>
-	static constexpr std::array<T, N + 1> prepend_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...>)
+	static constexpr std::array<T, N + 1> prepend_impl(const T& value, const std::array<T, N>& values, std::index_sequence<Is...> /*indexes*/)
 	{
 		return {value, values[Is]...};
 	}
 
 	template <std::size_t Length, std::size_t Offset, std::size_t... Is>
-	static constexpr vector<Length, T> extract_impl(const std::array<T, N>& values, std::index_sequence<Is...>)
+	static constexpr vector<Length, T> extract_impl(const std::array<T, N>& values, std::index_sequence<Is...> /*indexes*/)
 	{
 		return { values[Is + Offset]... };
 	}
@@ -530,7 +531,7 @@ constexpr auto cross_product(const vector<3, T>& left, const vector<3, T>& right
 	return vector<3, T>{
 		left.y() * right.z() - left.z() * right.y(),
 		left.z() * right.x() - left.x() * right.z(),
-		left.x() * right.y() - left.y() * right.x()
+		left.x() * right.y() - left.y() * right.x(),
 	};
 }
 

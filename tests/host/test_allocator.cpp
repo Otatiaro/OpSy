@@ -80,7 +80,7 @@ OPSY_TEST(allocator_lifo_sequences_always_return_to_empty)
 
 		for (int step = 0; step < 200; ++step)
 		{
-			state = state * 1664525u + 1013904223u; // Numerical Recipes LCG
+			state = state * 1664525U + 1013904223U; // Numerical Recipes LCG
 			const bool allocating = live.empty() || ((state >> 16) % 100) < 60;
 
 			if (allocating)

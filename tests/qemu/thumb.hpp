@@ -19,7 +19,7 @@ namespace qemu_test
 inline uint32_t thumb_instruction_length(uint32_t pc)
 {
 	const auto first = *reinterpret_cast<const volatile uint16_t*>(pc);
-	return (first & 0xF800u) >= 0xE800u ? 4u : 2u;
+	return (first & 0xF800U) >= 0xE800U ? 4U : 2U;
 }
 
 } // namespace qemu_test

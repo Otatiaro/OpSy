@@ -16,8 +16,10 @@
 
 #include <opsy.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <span>
 
 namespace
 {
@@ -42,8 +44,8 @@ opsy::task<1024> g_observer;
 opsy::mutex g_a;
 opsy::mutex g_b;
 
-std::atomic<int> g_order_index = 0;
-std::atomic<int> g_order[6]{};
+std::atomic<std::size_t> g_order_index = 0;
+std::array<std::atomic<int>, 6> g_order{};
 std::atomic<int> g_low_ran     = 0;
 std::atomic<int> g_high_ran    = 0;
 std::atomic<int> g_middle_ran  = 0;
@@ -98,12 +100,20 @@ bool open_gate_when(int expected)
 
 void record(int who)
 {
-	const int index = g_order_index;
+	const std::size_t index = g_order_index;
 	if (index < 6)
 	{
 		g_order[index] = who;
 		g_order_index = index + 1;
 	}
+}
+
+/** @brief Where @p who first ran in the recorded order, or g_order_index if it never did. */
+std::size_t position_of(int who)
+{
+	const auto order = std::span{g_order}.first(g_order_index);
+	const auto found = std::ranges::find_if(order, [who](const std::atomic<int>& entry) { return entry == who; });
+	return static_cast<std::size_t>(found - order.begin());
 }
 
 void stop_all()
@@ -159,7 +169,7 @@ void contend()
 
 OPSY_QEMU_TEST(a_fresh_mutex_is_unlocked)
 {
-	opsy::mutex fresh;
+	const opsy::mutex fresh;
 	CHECK(!fresh.is_locked());
 }
 
@@ -194,7 +204,7 @@ OPSY_QEMU_TEST(try_lock_succeeds_on_a_free_mutex_and_fails_on_a_held_one)
 OPSY_QEMU_TEST(std_lock_guard_works_with_it)
 {
 	{
-		std::lock_guard guard{g_a};
+		const std::scoped_lock guard{g_a};
 		CHECK(g_a.is_locked());
 	}
 	CHECK(!g_a.is_locked());
@@ -408,13 +418,9 @@ OPSY_QEMU_TEST(a_middle_priority_task_cannot_starve_a_raised_holder)
 	CHECK(g_high_ran == 1);
 
 	// The holder released before high ran, which is the point.
-	int holder_at = -1, high_at = -1;
-	for (int i = 0; i < g_order_index; ++i)
-	{
-		if (g_order[i] == 1 && holder_at < 0) holder_at = i;
-		if (g_order[i] == 3 && high_at < 0) high_at = i;
-	}
-	CHECK(holder_at >= 0);
+	const std::size_t holder_at = position_of(1);
+	const std::size_t high_at = position_of(3);
+	CHECK(high_at < g_order_index);
 	CHECK(high_at > holder_at);
 
 	stop_all();
@@ -602,13 +608,9 @@ OPSY_QEMU_TEST(lowering_a_boosted_holder_does_not_drop_its_inherited_priority)
 	CHECK(g_high_ran == 1);
 
 	// And the waiter got the mutex after the holder released it, not before.
-	int holder_at = -1, high_at = -1;
-	for (int i = 0; i < g_order_index; ++i)
-	{
-		if (g_order[i] == 1 && holder_at < 0) holder_at = i;
-		if (g_order[i] == 3 && high_at < 0) high_at = i;
-	}
-	CHECK(holder_at >= 0);
+	const std::size_t holder_at = position_of(1);
+	const std::size_t high_at = position_of(3);
+	CHECK(high_at < g_order_index);
 	CHECK(high_at > holder_at);
 
 	stop_all();

@@ -44,9 +44,13 @@
 #pragma once
 
 #include <array>
-#include <tuple>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <span>
+#include <utility>
 #include <variant>
 
 #include "config.hpp"
@@ -113,10 +117,10 @@ class waiting: public embedded_node<task_control_block>
 /**
  * @brief A pointer to executable code
  */
-using code_pointer = void(*)(void);
+using code_pointer = void(*)();
 
-
-namespace
+// The frames the core and the context switch stack, as laid out in memory.
+namespace detail
 {
 
 struct stack_frame
@@ -195,6 +199,38 @@ struct fp_context
 	float s31;
 };
 
+/**
+ * @brief The alignment of a stack pointer at a public interface (AAPCS)
+ */
+inline constexpr std::size_t stack_alignment = 8;
+
+/**
+ * @brief The Thumb bit of xPSR: the core faults returning through a frame without it
+ */
+inline constexpr uint32_t xpsr_thumb = 1U << 24;
+
+/**
+ * @brief Moves @p stack_pointer down by one @p Frame, and returns that frame
+ * @remark A stack grows down: the frame pushed last is at the lowest address.
+ */
+template<typename Frame>
+Frame* push(uint32_t*& stack_pointer)
+{
+	stack_pointer -= sizeof(Frame) / sizeof(uint32_t); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): a stack pointer moves through its stack
+	return reinterpret_cast<Frame*>(stack_pointer); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the frame is laid out on the stack
+}
+
+/**
+ * @brief Returns the @p Frame at @p stack_pointer , and moves it up past that frame
+ */
+template<typename Frame>
+Frame* pop(uint32_t*& stack_pointer)
+{
+	auto* const frame = reinterpret_cast<Frame*>(stack_pointer); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the frame is laid out on the stack
+	stack_pointer += sizeof(Frame) / sizeof(uint32_t); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): a stack pointer moves through its stack
+	return frame;
+}
+
 }
 
 class condition_variable;
@@ -203,6 +239,7 @@ class condition_variable;
  * @brief A @c task control block, that contains all the necessary data to manipulate it
  * @remark You should normally not manipulate this type, only create and manipulate @c task which inherit from @c task_control_block
  */
+// NOLINTNEXTLINE(misc-multiple-inheritance): each base is the node of one intrusive list
 class task_control_block: private task_lists::timeout, private task_lists::waiting, private task_lists::handle
 {
 	template<typename T, typename I>
@@ -261,6 +298,11 @@ public:
 		assert(!is_started());
 	}
 
+	task_control_block(const task_control_block&) = delete("a task is linked by address into the scheduler's lists");
+	task_control_block(task_control_block&&) = delete("a task is linked by address into the scheduler's lists");
+	task_control_block& operator=(const task_control_block&) = delete("a task is linked by address into the scheduler's lists");
+	task_control_block& operator=(task_control_block&&) = delete("a task is linked by address into the scheduler's lists");
+
 	/**
 	 * @brief Terminates the task immediately, whatever it is doing
 	 * @return @c true if the task was active and has been terminated, @c false if it was not started
@@ -302,14 +344,6 @@ public:
 	void request_stop();
 
 	/**
-	 * @brief Whether a cooperative stop has been requested
-	 * @return @c true once @ref request_stop has been called and the task has
-	 *         not been restarted since
-	 *
-	 * @remark Meant to be polled by the task itself:
-	 *         @code while (!self.stop_requested()) { ... } @endcode
-	 */
-	/**
 	 * @brief Records the lock a condition variable wait must release
 	 * @param lock The lock held by this task, or @c monostate for none
 	 *
@@ -322,6 +356,14 @@ public:
 		released_lock_ = lock;
 	}
 
+	/**
+	 * @brief Whether a cooperative stop has been requested
+	 * @return @c true once @ref request_stop has been called and the task has
+	 *         not been restarted since
+	 *
+	 * @remark Meant to be polled by the task itself:
+	 *         @code while (!self.stop_requested()) { ... } @endcode
+	 */
 	[[nodiscard]] bool stop_requested() const
 	{
 		return stop_requested_.load(std::memory_order_relaxed);
@@ -342,7 +384,7 @@ public:
 	 * @brief Checks if the @c task_control_block is started
 	 * @return @c true if the @c task_control_block is started, @c false otherwise
 	 */
-	bool is_started() const
+	[[nodiscard]] bool is_started() const
 	{
 		return active_.load(std::memory_order_relaxed);
 	}
@@ -375,10 +417,6 @@ public:
 	[[nodiscard]] std::size_t stack_high_water() const;
 
 	/**
-	 * @brief Gets the current @c task_priority of the @c task_control_block
-	 * @return The current @c task_priority of the @c task_control_block
-	 */
-	/**
 	 * @brief The priority this task was given
 	 * @return The requested priority, not the effective one
 	 *
@@ -388,7 +426,7 @@ public:
 	 *         through inheritance, and reporting that would make
 	 *         @c t.priority(p); @c t.priority() @c == @c p fail unpredictably.
 	 */
-	constexpr inline task_priority priority() const
+	[[nodiscard]] constexpr task_priority priority() const
 	{
 		return base_priority_;
 	}
@@ -453,7 +491,7 @@ protected:
 	 *         until the user actually starts the task.
 	 */
 	[[nodiscard]] bool start_impl(stack_item* stack_base, std::size_t stack_size,
-	                              callback<void(void)>&& entry);
+	                              callback<void()>&& entry);
 
 private:
 
@@ -475,7 +513,7 @@ private:
 	task_priority base_priority_ {};              // set to task_priority::lowest by start_impl
 	task_priority priority_ {};                   // effective; base_priority_ unless inherited
 	std::optional<time_point> wait_until_;
-	callback<void(void)> entry_;
+	callback<void()> entry_;
 	condition_variable* waiting_ = nullptr;
 
 	// The mutex this task is blocked on, or nullptr: the other end of its
@@ -500,17 +538,13 @@ private:
 
 	void set_return_value(uint32_t value)
 	{
-		auto ptr = stack_pointer_;
-		context* ctx = reinterpret_cast<context*>(ptr);
+		auto* stack_pointer = stack_pointer_;
+		const auto* const ctx = detail::pop<detail::context>(stack_pointer);
 
 		if ((ctx->lr & cortex_m::exc_return_fp_flag) == 0) // there is a floating point context
-			ptr += (sizeof(context) + sizeof(fp_context)) / sizeof(stack_item);
-		else
-			ptr += sizeof(context) / sizeof(stack_item);
+			detail::pop<detail::fp_context>(stack_pointer);
 
-		stack_frame* frame = reinterpret_cast<stack_frame*>(ptr); // we are at the top of the frame stacked by cortex on exception entry
-
-		frame->r0 = value;
+		detail::pop<detail::stack_frame>(stack_pointer)->r0 = value; // the frame the core stacked on exception entry
 	}
 };
 
@@ -525,7 +559,7 @@ struct stack_storage {
 	// starts executing on this buffer. std::array<uint32_t, N> only carries
 	// alignof 4, which would leave the alignment of a task's stack down to
 	// where the linker happened to place the object.
-	alignas(8) std::array<uint32_t, N> stack_{};
+	alignas(detail::stack_alignment) std::array<uint32_t, N> stack_{};
 };
 
 /**
@@ -537,7 +571,7 @@ class task: private stack_storage<StackSize>, public task_control_block
 {
 public:
 
-	static_assert(StackSize >= 2* (sizeof(stack_frame) + sizeof(context)) / sizeof(task_control_block::stack_item), "Stack too small");
+	static_assert(StackSize >= 2* (sizeof(detail::stack_frame) + sizeof(detail::context)) / sizeof(task_control_block::stack_item), "Stack too small");
 
 	/**
 	 * @brief Constructs a new @c task with all members zero-initialized
@@ -556,7 +590,7 @@ public:
 	 *         to @c task_control_block::start_impl, which performs the actual
 	 *         registration with the scheduler.
 	 */
-	[[nodiscard]] bool start(callback<void(void)>&& entry)
+	[[nodiscard]] bool start(callback<void()>&& entry)
 	{
 		return task_control_block::start_impl(
 			stack_storage<StackSize>::stack_.data(), StackSize,
@@ -618,20 +652,17 @@ protected:
 	{
 		stack_base_ = stack_base;
 		stack_size_ = stack_size;
-		for (std::size_t i = 0; i < stack_size; ++i)
-			stack_base[i] = detail::stack_fill;   // what stack_high_water measures against
-		stack_pointer_ = &stack_base[stack_size];
+		const std::span stack(stack_base, stack_size);
+		for (auto& word : stack)
+			word = detail::stack_fill;   // what stack_high_water measures against
+		stack_pointer_ = std::to_address(stack.end());
 
-		stack_pointer_ -= sizeof(stack_frame) / sizeof(uint32_t);
-		const auto frame = reinterpret_cast<stack_frame*>(stack_pointer_);
-
-		frame->psr = 1 << 24;
+		auto* const frame = detail::push<detail::stack_frame>(stack_pointer_);
+		frame->psr = detail::xpsr_thumb;
 		frame->pc = entry;
-		frame->lr = reinterpret_cast<code_pointer>(&opsy_idle_returned);
+		frame->lr = &opsy_idle_returned;
 
-		stack_pointer_ -= sizeof(context) / sizeof(uint32_t);
-		const auto ctx = reinterpret_cast<context*>(stack_pointer_);
-
+		auto* const ctx = detail::push<detail::context>(stack_pointer_);
 		ctx->lr = cortex_m::exc_return_thread_psp_basic;
 		ctx->control = cortex_m::control_thread_psp_privileged;
 	}
@@ -655,7 +686,7 @@ class idle_task: private stack_storage<StackSize>, public idle_task_control_bloc
 
 public:
 
-	static_assert(StackSize >= 2* (sizeof(stack_frame) + sizeof(context)) / sizeof(uint32_t), "Stack too small");
+	static_assert(StackSize >= 2* (sizeof(detail::stack_frame) + sizeof(detail::context)) / sizeof(uint32_t), "Stack too small");
 
 	/**
 	 * @brief Constructs a new @c idle_task with all members zero-initialized
@@ -684,6 +715,11 @@ public:
 };
 
 /**
+ * @brief The stack of the default idle task, in @c stack_item increments: enough for @c default_idle_loop
+ */
+inline constexpr std::size_t default_idle_stack_size = 64;
+
+/**
  * @brief Default idle behaviour: wait for an interrupt, through @c hook::idle_wait
  * @remark Pulled out of @c default_idle so that the latter can be a plain
  *         zero-initialized variable. @c scheduler::start passes this as the
@@ -697,12 +733,12 @@ public:
 
 /**
  * @brief The default @c idle_task instance used by @c scheduler::start
- * @tparam StackSize The stack size in @c stack_item increment, 64 is enough
+ * @tparam StackSize The stack size in @c stack_item increment
  * @remark Now zero-initialized so it lives in @c .bss. The entry function is
  *         supplied by @c scheduler::start (default @c default_idle_loop).
  */
-template<std::size_t StackSize = 64>
-constinit inline idle_task<StackSize> default_idle{};
+template<std::size_t StackSize = default_idle_stack_size>
+constinit inline idle_task<StackSize> default_idle{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables): the idle task's stack, written as it runs
 
 inline void task_control_block::request_stop()
 {

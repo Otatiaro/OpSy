@@ -23,8 +23,8 @@ opsy::task<1024> g_alpha;
 opsy::task<1024> g_beta;
 opsy::task<1024> g_gamma;
 
-std::atomic<int> g_order_index = 0;
-std::atomic<int> g_order[4]{};
+std::atomic<std::size_t> g_order_index = 0;
+std::array<std::atomic<int>, 4> g_order{};
 std::atomic<int> g_alpha_ran   = 0;
 std::atomic<int> g_beta_ran    = 0;
 std::atomic<int> g_gamma_ran   = 0;
@@ -32,7 +32,7 @@ std::atomic<bool> g_stop       = false;
 
 void record(int who)
 {
-	const int index = g_order_index;
+	const std::size_t index = g_order_index;
 	if (index < 4)
 	{
 		g_order[index] = who;
@@ -68,8 +68,8 @@ OPSY_QEMU_TEST(a_task_reports_started_between_start_and_stop)
 OPSY_QEMU_TEST(higher_priority_tasks_run_first)
 {
 	g_order_index = 0;
-	for (int i = 0; i < 4; ++i)
-		g_order[i] = 0;
+	for (auto& order : g_order)
+		order = 0;
 
 	// All three start below the runner and stay queued; raising them in
 	// reverse order of priority proves the ready list is ordered by priority
@@ -303,14 +303,14 @@ OPSY_QEMU_TEST(a_restarted_task_starts_with_no_stop_pending)
 // writes its chunk before recursing and reads it back after, through
 // volatile, so the frames are all live at the deepest point -- an optimiser
 // cannot turn the recursion into a loop, as it does with a plain accumulator.
-[[gnu::noinline]] uint32_t use_stack(uint32_t bytes)
+[[gnu::noinline]] uint32_t use_stack(uint32_t bytes) // NOLINT(misc-no-recursion): the frames it stacks are the measure
 {
-	volatile uint32_t chunk[48];
-	for (uint32_t i = 0; i < 48; ++i)
+	std::array<volatile uint32_t, 48> chunk; // NOLINT(cppcoreguidelines-pro-type-member-init): the loop below fills it
+	for (uint32_t i = 0; i < chunk.size(); ++i)
 		chunk[i] = i;
 	uint32_t sum = bytes > sizeof(chunk) ? use_stack(bytes - static_cast<uint32_t>(sizeof(chunk))) : 0;
-	for (uint32_t i = 0; i < 48; ++i)
-		sum += chunk[i];
+	for (const uint32_t value : chunk)
+		sum += value;
 	return sum;
 }
 

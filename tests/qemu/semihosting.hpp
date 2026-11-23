@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include <array>
+#include <charconv>
 #include <cstdint>
 
 namespace qemu
@@ -22,7 +24,7 @@ namespace qemu
 /** @brief Issues one semihosting call. */
 inline int semihosting_call(int operation, const void* argument)
 {
-	register int r0 asm("r0") = operation;
+	register int r0 asm("r0") = operation; // NOLINT(misc-const-correctness): the asm statement below writes it
 	register const void* r1 asm("r1") = argument;
 	asm volatile("bkpt 0xAB" : "+r"(r0) : "r"(r1) : "memory");
 	return r0;
@@ -37,17 +39,9 @@ inline void write(const char* text)
 /** @brief Writes an unsigned value in decimal. */
 inline void write_unsigned(uint32_t value)
 {
-	char digits[11];
-	int index = 10;
-	digits[index] = '\0';
-
-	do
-	{
-		digits[--index] = static_cast<char>('0' + (value % 10));
-		value /= 10;
-	} while (value != 0 && index > 0);
-
-	write(&digits[index]);
+	std::array<char, 11> digits{}; // 4294967295, then the NUL
+	std::to_chars(digits.data(), digits.data() + digits.size() - 1, value);
+	write(digits.data());
 }
 
 /**
@@ -66,11 +60,11 @@ inline void write_unsigned(uint32_t value)
  */
 [[noreturn]] inline void exit(int code)
 {
-	constexpr uint32_t application_exit = 0x20026u;   // ADP_Stopped_ApplicationExit
-	constexpr uint32_t run_time_error   = 0x20023u;   // ADP_Stopped_RunTimeError
+	constexpr uint32_t application_exit = 0x20026U;   // ADP_Stopped_ApplicationExit
+	constexpr uint32_t run_time_error   = 0x20023U;   // ADP_Stopped_RunTimeError
 
-	const uint32_t parameters[2] = { application_exit, static_cast<uint32_t>(code) };
-	semihosting_call(0x20, parameters);               // SYS_EXIT_EXTENDED
+	const std::array<uint32_t, 2> parameters = { application_exit, static_cast<uint32_t>(code) };
+	semihosting_call(0x20, parameters.data());        // SYS_EXIT_EXTENDED
 
 	// Only reached if the host does not implement the extended call: fall back
 	// to the plain form, where the reason alone has to carry pass or fail.

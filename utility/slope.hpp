@@ -109,7 +109,7 @@ private:
 
 	static constexpr Coef twelve = static_cast<Coef>(12);
 	static constexpr Coef six = static_cast<Coef>(6);
-	static constexpr Coef denominator = (N * (N * N - 1));
+	static constexpr Coef denominator = (N * ((N * N) - 1));
 
 	/**
 	 * Calculate the i-th coefficient for the slope filter
@@ -118,7 +118,7 @@ private:
 	 */
 	static constexpr Coef coef(std::size_t index)
 	{
-		return (six * (N - 1) - twelve * static_cast<Coef>(index)) / denominator;
+		return ((six * (N - 1)) - (twelve * static_cast<Coef>(index))) / denominator;
 	}
 
 	/**
@@ -132,11 +132,9 @@ private:
 	 *         in-class member to be declared first.
 	 */
 	template<std::size_t ... Is>
-	static constexpr auto coefs(std::index_sequence<Is...>) -> std::array<Coef, sizeof...(Is)>
+	static constexpr auto coefs(std::index_sequence<Is...> /*indexes*/) -> std::array<Coef, sizeof...(Is)>
 	{
-		return
-		{
-			{	coef(Is)...}};
+		return { coef(Is)..., };
 
 	}
 
@@ -173,8 +171,5 @@ private:
 	}
 
 };
-
-template<std::size_t N, typename T, typename Coef>
-constexpr std::array<Coef, N / 2> slope<N, T, Coef>::coefficients;
 
 }

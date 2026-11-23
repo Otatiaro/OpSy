@@ -60,17 +60,17 @@ class hooks
 {
 public:
 	/** @brief Starts the cycle counter: after a reset it does not run unless a debugger started it */
-	static void starting(idle_task_control_block&, uint32_t, callback<void(callback<void(const task_control_block&)>)>)
+	static void starting(idle_task_control_block& /*idle*/, uint32_t /*core_clock*/, callback<void(callback<void(const task_control_block&)>)> /*for_each_task*/)
 	{
 		(void) cortex_m::enable_cycle_count();
 	}
 
 	static void enter_service_call() { service_call_entered_ = cortex_m::cycle_count(); }
-	static void exit_service_call(bool) { latency::record(latency::service_call, service_call_entered_); }
+	static void exit_service_call(bool /*task_switch*/) { latency::record(latency::service_call, service_call_entered_); }
 	static void enter_systick() { systick_entered_ = cortex_m::cycle_count(); }
-	static void exit_systick(bool) { latency::record(latency::systick, systick_entered_); }
+	static void exit_systick(bool /*task_switch*/) { latency::record(latency::systick, systick_entered_); }
 	static void enter_pend_sv() { pend_sv_entered_ = cortex_m::cycle_count(); }
-	static void task_started(task_control_block&) { latency::record(latency::pend_sv, pend_sv_entered_); }
+	static void task_started(task_control_block& /*task*/) { latency::record(latency::pend_sv, pend_sv_entered_); }
 	static void enter_idle() { latency::record(latency::pend_sv, pend_sv_entered_); }
 
 	/** @brief The handler the vector table holds in place of @p Routine: the same, timed */

@@ -48,12 +48,14 @@
 
 #pragma once
 
-#include <atomic>
-#include <mutex>
+#include <cstdint>
 #include "opsy_assert.hpp"
 #include <optional>
 #include <utility>
 
+#include "config.hpp"
+#include "cortex_m.hpp"
+#include "hooks.hpp"
 #include "isr_priority.hpp"
 #include "scheduler.hpp"
 
@@ -88,8 +90,8 @@ public:
 	 * @brief Constructs an @c isr_lock by moving data from another
 	 * @param from The @c isr_lock to move data from
 	 */
-	constexpr isr_lock(isr_lock&& from) :
-			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(std::move(from.critical_section_)), priority_(from.priority_)
+	constexpr isr_lock(isr_lock&& from) noexcept :
+			locked_(from.locked_), previous_lock_(from.previous_lock_), critical_section_(from.critical_section_), priority_(from.priority_)
 	{
 		// As in operator=(isr_lock&&): the lock moved out with the
 		// critical_section handle, so the source no longer holds it. Leaving
@@ -104,22 +106,24 @@ public:
 	 * @return A reference to @c this
 	 * @warning The current @c isr_lock must NOT be locked before being assigned
 	 */
-	constexpr isr_lock& operator=(isr_lock&& from)
+	constexpr isr_lock& operator=(isr_lock&& from) noexcept
 	{
 		assert(!locked_); // trying to override a locked mutex !
 		locked_ = from.locked_;
 		previous_lock_ = from.previous_lock_;
-		critical_section_ = std::move(from.critical_section_);
+		critical_section_ = from.critical_section_;
 		priority_ = from.priority_;
 		from.locked_ = false;
 		return *this;
 	}
 
+	~isr_lock() = default;
+
 	/**
 	 * @brief Gets the @c isr_priority this @c isr_lock holds off, or @c std::nullopt if it is only a @c task exclusion
 	 * @return The @c isr_priority this @c isr_lock locks, or @c std::nullopt if it is only a @c task exclusion
 	 */
-	constexpr std::optional<isr_priority> priority() const
+	[[nodiscard]] constexpr std::optional<isr_priority> priority() const
 	{
 		return priority_;
 	}
@@ -225,7 +229,7 @@ inline void isr_lock::lock()
 			else
 				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
 				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
-				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // in interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // NOLINT(bugprone-unchecked-optional-access): see above. In interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
 			hook::enter_priority_lock(*priority_);
 			previous_lock_ = cortex_m::exchange_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
@@ -272,7 +276,7 @@ inline void isr_lock::unlock()
 			// their unlock would otherwise close the task's critical section.
 			const bool section = std::exchange(critical_section_, false);
 #ifndef NDEBUG
-			auto was = cortex_m::exchange_basepri(previous_lock_);
+			const auto was = cortex_m::exchange_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
 			cortex_m::exchange_basepri(previous_lock_);
@@ -345,7 +349,7 @@ inline void isr_lock::release_from_service_call()
 		else
 		{
 #ifndef NDEBUG
-			auto was = cortex_m::exchange_basepri(previous_lock_);
+			const auto was = cortex_m::exchange_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
 #else
 			cortex_m::exchange_basepri(previous_lock_);

@@ -40,7 +40,7 @@ int opsy_test_main()
 extern "C"
 {
 void notify_check_hard_fault_handler();
-void notify_check_hard_fault(uint32_t* frame);
+void notify_check_hard_fault(const uint32_t* frame);
 }
 
 namespace
@@ -82,15 +82,15 @@ extern "C" [[gnu::naked]] void notify_check_hard_fault_handler()
 			"b notify_check_hard_fault");
 }
 
-extern "C" [[gnu::used]] void notify_check_hard_fault(uint32_t* frame)
+extern "C" [[gnu::used]] void notify_check_hard_fault(const uint32_t* frame)
 {
 	const auto opcode = *reinterpret_cast<const volatile uint16_t*>(frame[6]);
-	const bool trap = (opcode & 0xFF00u) == 0xDE00u   // udf: __builtin_trap
-	               || (opcode & 0xFF00u) == 0xBE00u;  // bkpt: a trap() that halts a debugger
+	const bool trap = (opcode & 0xFF00U) == 0xDE00U   // udf: __builtin_trap
+	               || (opcode & 0xFF00U) == 0xBE00U;  // bkpt: a trap() that halts a debugger
 
 	if (!trap)
 		fail("a fault, not a trap");
-	if ((frame[7] & 0x1FFu) != opsy::cortex_m::system_irqs_count + g_irq) // the exception the trap interrupted, from the stacked xPSR
+	if ((frame[7] & 0x1FFU) != opsy::cortex_m::system_irqs_count + g_irq) // the exception the trap interrupted, from the stacked xPSR
 		fail("a trap outside the urgent handler");
 
 	qemu::write("notify_one stopped in an interrupt more urgent than its lock\nRESULT: PASS\n");

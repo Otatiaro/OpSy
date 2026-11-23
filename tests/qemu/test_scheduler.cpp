@@ -100,7 +100,7 @@ OPSY_QEMU_TEST(wait_until_an_elapsed_deadline_reports_timeout_at_once)
 OPSY_QEMU_TEST(the_standard_wait_until_predicate_loop_terminates)
 {
 	const auto deadline = opsy::scheduler::now() + 5ms;
-	bool predicate = false;
+	const bool predicate = false;
 	int iterations = 0;
 
 	while (!predicate)
@@ -370,11 +370,11 @@ OPSY_QEMU_TEST(starting_an_already_started_task_is_refused)
 OPSY_QEMU_TEST(taking_and_releasing_a_critical_section_leaves_the_scheduler_running)
 {
 	{
-		auto section = opsy::scheduler::try_critical_section();
+		const auto section = opsy::scheduler::try_critical_section();
 		(void) section;
 
 		{
-			auto nested = opsy::scheduler::try_critical_section();
+			const auto nested = opsy::scheduler::try_critical_section();
 			(void) nested;
 		}
 	}

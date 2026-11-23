@@ -98,12 +98,12 @@ public:
 	template<typename... Args>
 		requires (sizeof...(Args) == Rows * Cols)
 		      && (std::convertible_to<Args, T> && ...)
-	constexpr matrix(Args... args) : values_{}
+	constexpr matrix(Args... args) : values_{} // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor): built from its elements, as std::array; explicit would refuse matrix m = { ... }
 	{
-		const T flat[]{ static_cast<T>(args)... };
+		const std::array<T, Rows * Cols> flat{ static_cast<T>(args)... };
 		for (std::size_t i = 0; i < Rows; ++i)
 			for (std::size_t j = 0; j < Cols; ++j)
-				values_[i][j] = flat[i * Cols + j];
+				values_[i][j] = flat[(i * Cols) + j];
 	}
 
 	/** Wrap an existing nested array. */
@@ -320,7 +320,7 @@ public:
 	template<typename F>
 		requires std::invocable<F&, T>
 		      && std::convertible_to<std::invoke_result_t<F&, T>, T>
-	constexpr void apply(F&& f)
+	constexpr void apply(F f)
 	{
 		for (std::size_t i = 0; i < Rows; ++i)
 			for (std::size_t j = 0; j < Cols; ++j)
@@ -339,7 +339,7 @@ public:
 	 */
 	constexpr T determinant() const requires (Rows == Cols)
 	{
-		static_assert(Rows < 5, "determinant only implemented for 1x1 through 4x4 matrices");
+		static_assert(Rows <= 4, "determinant only implemented for 1x1 through 4x4 matrices");
 
 		if constexpr (Rows == 1)
 		{
@@ -403,7 +403,7 @@ public:
 	 *        check @ref determinant first (closed-form sizes) or guard
 	 *        the input some other way.
 	 */
-	[[nodiscard]] constexpr matrix inverse() const requires (Rows == Cols)
+	[[nodiscard]] constexpr matrix inverse() const requires (Rows == Cols) // NOLINT(readability-function-cognitive-complexity): one closed formula per size, each read on its own
 	{
 		if constexpr (Rows == 1)
 		{
@@ -414,7 +414,7 @@ public:
 			const T inv_det = T{1} / determinant();
 			return matrix{
 				 values_[1][1] * inv_det, -values_[0][1] * inv_det,
-				-values_[1][0] * inv_det,  values_[0][0] * inv_det
+				-values_[1][0] * inv_det,  values_[0][0] * inv_det,
 			};
 		}
 		else if constexpr (Rows == 3)
@@ -440,7 +440,7 @@ public:
 			return matrix{
 				cof00 * inv_det, cof10 * inv_det, cof20 * inv_det,
 				cof01 * inv_det, cof11 * inv_det, cof21 * inv_det,
-				cof02 * inv_det, cof12 * inv_det, cof22 * inv_det
+				cof02 * inv_det, cof12 * inv_det, cof22 * inv_det,
 			};
 		}
 		else if constexpr (Rows == 4)
@@ -505,7 +505,7 @@ public:
 				adj00 * inv_det, adj01 * inv_det, adj02 * inv_det, adj03 * inv_det,
 				adj10 * inv_det, adj11 * inv_det, adj12 * inv_det, adj13 * inv_det,
 				adj20 * inv_det, adj21 * inv_det, adj22 * inv_det, adj23 * inv_det,
-				adj30 * inv_det, adj31 * inv_det, adj32 * inv_det, adj33 * inv_det
+				adj30 * inv_det, adj31 * inv_det, adj32 * inv_det, adj33 * inv_det,
 			};
 		}
 		else
@@ -731,15 +731,14 @@ constexpr vector<R, T> operator*(const matrix<R, C, T>& m, const vector<C, T>& v
 //      the matching eigenvectors. A final pass sorts both ascending.
 //
 // The algorithm is iterative (QL converges quadratically near the
-// eigenvalues) and uses @c std::sqrt / @c std::hypot, so neither helper
-// can be @c constexpr in C++23 — @c std::sqrt only became @c constexpr in
-// C++26. Both helpers are therefore plain functions, exercised at
-// runtime by the sanity test.
+// eigenvalues) and uses @c std::sqrt / @c std::hypot, which are constexpr
+// only from C++26 (P1383) and not yet in every standard library: the sanity
+// test exercises both helpers at run time.
 namespace detail
 {
 
 template<std::size_t N, typename T>
-constexpr void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+constexpr void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e) // NOLINT(readability-function-cognitive-complexity): EISPACK's routine step for step; split, it no longer reads against its source
 {
 	for (std::size_t j = 0; j < N; ++j)
 		d[j] = V(N - 1, j);
@@ -847,7 +846,7 @@ constexpr void tred2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 }
 
 template<std::size_t N, typename T>
-constexpr void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
+constexpr void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e) // NOLINT(readability-function-cognitive-complexity): EISPACK's routine step for step; split, it no longer reads against its source
 {
 	// Shift e so e[i] holds the off-diagonal between rows i and i+1.
 	for (std::size_t i = 1; i < N; ++i)
@@ -876,7 +875,7 @@ constexpr void tql2(matrix<N, N, T>& V, vector<N, T>& d, vector<N, T>& e)
 		// If m == l, d[l] is an eigenvalue. Otherwise iterate.
 		if (m > l)
 		{
-			do
+			do // NOLINT(cppcoreguidelines-avoid-do-while): the loop of EISPACK's routine, as written there
 			{
 				// Implicit Wilkinson shift.
 				T g       = d[l];
@@ -976,7 +975,7 @@ constexpr vector<Rows, T> matrix<Rows, Cols, T>::eigenvalues() const requires (R
 }
 
 template<std::size_t Rows, std::size_t Cols, typename T>
-constexpr typename matrix<Rows, Cols, T>::eigen_decomposition_t
+constexpr matrix<Rows, Cols, T>::eigen_decomposition_t
 matrix<Rows, Cols, T>::symmetric_eigen_decomposition() const requires (Rows == Cols && Rows >= 2)
 {
 	assert(*this == this->transposed());

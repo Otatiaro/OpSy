@@ -45,7 +45,7 @@
 extern "C"
 {
 extern uint32_t _estack;
-extern uint32_t SystemCoreClock;
+
 void Reset_Handler();
 }
 
@@ -64,7 +64,7 @@ enum class scenario : uint8_t
 	isr_lock_round_trip,         ///< lock() and unlock() of an isr_lock from a task
 	release_no_switch,           ///< driver releases what a lower task waits on: it becomes ready, nobody switches
 	release_past_eight,          ///< the same, with eight tasks above the woken one already ready: the insertion walks past them
-	count
+	count,
 };
 
 constexpr const char* name(scenario s)
@@ -134,12 +134,12 @@ template<scenario S>
 	g_measuring = false;
 }
 
-void mark(point p)
+void mark(point reached)
 {
 	// The semaphores that drive the scenarios go through notify_one too, and
 	// their wake-ups are not the measured ones.
 	if (g_measuring)
-		points[static_cast<std::size_t>(p)] = cycles() - g_begin;
+		points[static_cast<std::size_t>(reached)] = cycles() - g_begin;
 }
 
 // ─── The two tasks and what they share ──────────────────────────────────────
@@ -153,7 +153,7 @@ opsy::binary_semaphore g_driver_go{0}; ///< other → driver: done
 
 /** @brief Eight tasks with nothing to do but be ready, for the scenario that walks the ready list past them */
 constexpr std::size_t          fillers = 8;
-opsy::task<256>                g_fillers[fillers];
+std::array<opsy::task<256>, fillers> g_fillers;
 opsy::counting_semaphore<fillers> g_filler_go{0}; ///< driver → fillers: all of you, be ready
 
 opsy::binary_semaphore   g_semaphore{0};
@@ -193,15 +193,15 @@ void bench_isr()
 	case scenario::condition_variable_from_isr:
 		begin<scenario::condition_variable_from_isr>();
 		{
-			std::lock_guard guard{g_lock};
-			g_events |= 1u;
+			const std::scoped_lock guard{g_lock};
+			g_events |= 1U;
 		}
 		g_condition.notify_one();
 		break;
 
 	case scenario::queue_from_isr:
 		begin<scenario::queue_from_isr>();
-		(void) g_queue.push(1u);
+		(void) g_queue.push(1U);
 		break;
 
 	default:
@@ -272,7 +272,7 @@ void driver()
 	run<scenario::condition_variable_from_isr>([] {
 		g_other_go.release();
 		{
-			std::lock_guard guard{g_lock};
+			const std::scoped_lock guard{g_lock};
 			while (g_events == 0)
 				g_condition.wait(g_lock);
 			g_events = 0;
@@ -290,7 +290,7 @@ void driver()
 	run<scenario::mutex_free>([] {
 		begin<scenario::mutex_free>();
 		{
-			std::lock_guard guard{g_mutex};
+			const std::scoped_lock guard{g_mutex};
 		}
 		end<scenario::mutex_free>();
 	});
@@ -313,7 +313,7 @@ void driver()
 	run<scenario::isr_lock_round_trip>([] {
 		begin<scenario::isr_lock_round_trip>();
 		{
-			std::lock_guard guard{g_lock};
+			const std::scoped_lock guard{g_lock};
 		}
 		end<scenario::isr_lock_round_trip>();
 	});
@@ -345,7 +345,7 @@ void driver()
 	for (std::size_t s = 0; s < static_cast<std::size_t>(scenario::count); ++s)
 	{
 		auto& samples = results[s];
-		std::sort(samples.begin(), samples.end());
+		std::ranges::sort(samples);
 		qemu::write("BENCH ");
 		qemu::write(name(static_cast<scenario>(s)));
 		qemu::write(" min=");
@@ -404,7 +404,7 @@ struct alignas(512) vector_table
 	}
 
 	template<exception Exception, handler_t Handler>
-	constexpr auto with() const -> vector_table
+	[[nodiscard]] constexpr auto with() const -> vector_table
 	{
 		auto copy = *this;
 		copy.handlers[static_cast<std::size_t>(Exception) - 1] = Handler;
@@ -412,24 +412,24 @@ struct alignas(512) vector_table
 	}
 
 	template<uint32_t Irq, handler_t Handler>
-	constexpr auto with() const -> vector_table
+	[[nodiscard]] constexpr auto with() const -> vector_table
 	{
 		auto copy = *this;
 		copy.handlers[15 + Irq] = opsy::hooked_isr::wrap<Handler>;
 		return copy;
 	}
 
-	constexpr auto with(auto&& install) const { return install(*this); }
+	[[nodiscard]] constexpr auto with(auto&& install) const { return install(*this); }
 
 	uint32_t* initial_sp;
-	handler_t handlers[15 + 64];
+	std::array<handler_t, 15 + 64> handlers{};
 };
 
 constexpr auto g_table = vector_table(&_estack, Reset_Handler)
 	.with(opsy::scheduler::isrs)
 	.with<irq, bench_isr>();
 
-constexpr uint32_t vtor = 0xE000ED08u;
+constexpr uint32_t vtor = 0xE000ED08U;
 
 #ifdef OPSY_BENCH_BOARD
 namespace
@@ -445,27 +445,27 @@ void board_clock()
 {
 	auto reg = [](uint32_t address) -> volatile uint32_t& { return *reinterpret_cast<volatile uint32_t*>(address); };
 
-	constexpr uint32_t pwr_voscr    = 0x44020810u, pwr_vossr = 0x44020814u;
-	constexpr uint32_t flash_acr    = 0x40022000u;
-	constexpr uint32_t rcc_cr       = 0x44020C00u, rcc_cfgr1 = 0x44020C1Cu, rcc_cfgr2 = 0x44020C20u;
-	constexpr uint32_t rcc_pll1cfgr = 0x44020C28u, rcc_pll1divr = 0x44020C34u;
-	constexpr uint32_t icache_cr    = 0x40030400u, icache_sr = 0x40030404u;
+	constexpr uint32_t pwr_voscr    = 0x44020810U, pwr_vossr = 0x44020814U;
+	constexpr uint32_t flash_acr    = 0x40022000U;
+	constexpr uint32_t rcc_cr       = 0x44020C00U, rcc_cfgr1 = 0x44020C1CU, rcc_cfgr2 = 0x44020C20U;
+	constexpr uint32_t rcc_pll1cfgr = 0x44020C28U, rcc_pll1divr = 0x44020C34U;
+	constexpr uint32_t icache_cr    = 0x40030400U, icache_sr = 0x40030404U;
 
-	reg(pwr_voscr) = 3u << 4;                              // VOS0
-	while ((reg(pwr_vossr) & (1u << 3)) == 0) {}           // VOSRDY
-	reg(flash_acr) = 5u | (2u << 4) | (1u << 8);           // LATENCY 5, WRHIGHFREQ 2, PRFTEN
-	while ((reg(flash_acr) & 0xFu) != 5u) {}               // the write lands before the clock rises
-	reg(rcc_pll1cfgr) = 0b01u | (0b10u << 2) | (8u << 8) | (1u << 16); // HSI, 4-8 MHz in, M 8, P out
-	reg(rcc_pll1divr) = 124u | (1u << 9);                  // N 125, P 2: 32 / 8 * 125 / 2 = 250 MHz
-	reg(rcc_cr) |= 1u << 24;                               // PLL1ON
-	while ((reg(rcc_cr) & (1u << 25)) == 0) {}             // PLL1RDY
+	reg(pwr_voscr) = 3U << 4;                              // VOS0
+	while ((reg(pwr_vossr) & (1U << 3)) == 0) {}           // VOSRDY
+	reg(flash_acr) = 5U | (2U << 4) | (1U << 8);           // LATENCY 5, WRHIGHFREQ 2, PRFTEN
+	while ((reg(flash_acr) & 0xFU) != 5U) {}               // the write lands before the clock rises
+	reg(rcc_pll1cfgr) = 0b01U | (0b10U << 2) | (8U << 8) | (1U << 16); // HSI, 4-8 MHz in, M 8, P out
+	reg(rcc_pll1divr) = 124U | (1U << 9);                  // N 125, P 2: 32 / 8 * 125 / 2 = 250 MHz
+	reg(rcc_cr) |= 1U << 24;                               // PLL1ON
+	while ((reg(rcc_cr) & (1U << 25)) == 0) {}             // PLL1RDY
 	reg(rcc_cfgr2) = 0;                                    // every prescaler at 1
-	reg(rcc_cfgr1) = 0b011u;                               // SW: PLL1
-	while (((reg(rcc_cfgr1) >> 3) & 0b11u) != 0b011u) {}   // SWS
-	while (reg(icache_sr) & 1u) {}                         // BUSYF
-	reg(icache_cr) |= 1u;                                  // EN
+	reg(rcc_cfgr1) = 0b011U;                               // SW: PLL1
+	while (((reg(rcc_cfgr1) >> 3) & 0b11U) != 0b011U) {}   // SWS
+	while (reg(icache_sr) & 1U) {}                         // BUSYF
+	reg(icache_cr) |= 1U;                                  // EN
 
-	SystemCoreClock = 250'000'000u;
+	SystemCoreClock = 250'000'000U;
 	(void) opsy::cortex_m::enable_cycle_count();
 }
 

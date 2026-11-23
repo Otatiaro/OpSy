@@ -49,6 +49,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <type_traits>
 #include <cstdint>
 #include <iterator>
@@ -65,7 +66,7 @@ namespace opsy
  * @remark It has no public interface, it only contains two pointer (forward and backward) to @c Item, that are used by @c embedded_list
  */
 template<typename Item>
-class embedded_node
+class embedded_node // NOLINT(bugprone-crtp-constructor-accessibility): an interface class may inherit it on Item's behalf (task_lists::timeout), so Item cannot be its only friend
 {
 	template<typename I, typename N>
 	friend class embedded_iterator;
@@ -84,8 +85,8 @@ private:
 template<typename Item, typename Interface = Item>
 class embedded_iterator
 {
-	static_assert(std::is_base_of<Interface, Item>::value, "Item must inherit from Interface");
-	static_assert(std::is_base_of<embedded_node<Item>, Interface>::value, "Interface must inherit (CRTP) from embedded_iterator<Item>");
+	static_assert(std::is_base_of_v<Interface, Item>, "Item must inherit from Interface");
+	static_assert(std::is_base_of_v<embedded_node<Item>, Interface>, "Interface must inherit (CRTP) from embedded_iterator<Item>");
 
 	template<typename I, typename If>
 	friend class embedded_list;
@@ -178,7 +179,7 @@ public:
 	 * @brief Dereference the @c embedded_iterator
 	 * @return The @c Item the @c embedded_iterator points to
 	 */
-	constexpr inline reference operator*() const
+	constexpr reference operator*() const
 	{
 		return *ptr_;
 	}
@@ -232,19 +233,19 @@ private:
 		ptr_->Interface::previous_ = ptr;
 	}
 
-	constexpr pointer next() const
+	[[nodiscard]] constexpr pointer next() const
 	{
 		assert(ptr_ != nullptr);
 		return ptr_->Interface::next_;
 	}
 
-	constexpr pointer previous() const
+	[[nodiscard]] constexpr pointer previous() const
 	{
 		assert(ptr_ != nullptr);
 		return ptr_->Interface::previous_;
 	}
 
-	constexpr bool is_free() const
+	[[nodiscard]] constexpr bool is_free() const
 	{
 		assert(ptr_ != nullptr);
 		return previous() == nullptr && next() == nullptr;
@@ -265,8 +266,8 @@ template<typename Item, typename Interface = Item>
 class embedded_const_iterator
 {
 
-	static_assert(std::is_base_of<Interface, Item>::value, "Item must inherit from Interface");
-	static_assert(std::is_base_of<embedded_node<Item>, Interface>::value, "Interface must inherit (CRTP) from embedded_iterator<Item>");
+	static_assert(std::is_base_of_v<Interface, Item>, "Item must inherit from Interface");
+	static_assert(std::is_base_of_v<embedded_node<Item>, Interface>, "Interface must inherit (CRTP) from embedded_iterator<Item>");
 
 	template<typename I, typename If>
 	friend class embedded_list;
@@ -411,8 +412,8 @@ private:
 template<class Item, class Interface = Item>
 class embedded_list
 {
-	static_assert(std::is_base_of<Interface, Item>::value, "Item must inherit from Interface");
-	static_assert(std::is_base_of<embedded_node<Item>, Interface>::value, "Interface must inherit (CRTP) from embedded_iterator<Item>");
+	static_assert(std::is_base_of_v<Interface, Item>, "Item must inherit from Interface");
+	static_assert(std::is_base_of_v<embedded_node<Item>, Interface>, "Interface must inherit (CRTP) from embedded_iterator<Item>");
 
 public:
 
@@ -444,7 +445,7 @@ public:
 	/**
 	 * @brief The iterator difference type
 	 */
-	using difference_type = typename embedded_iterator<Item, Interface>::difference_type;
+	using difference_type = embedded_iterator<Item, Interface>::difference_type;
 
 	/**
 	 * @brief The type of the @c size
@@ -463,7 +464,7 @@ public:
 	 * @brief Move construct a @c embedded_list from another
 	 * @param other The other @c embedded_list to move data from
 	 */
-	constexpr embedded_list(embedded_list&& other) :
+	constexpr embedded_list(embedded_list&& other) noexcept :
 			first_(other.first_), size_(other.size_)
 	{
 		other.first_ = nullptr;
@@ -475,7 +476,7 @@ public:
 	 * @param other The other @c embedded_list to move data from
 	 * @return This @c embedded_list
 	 */
-	constexpr embedded_list& operator=(embedded_list&& other)
+	constexpr embedded_list& operator=(embedded_list&& other) noexcept
 	{
 		first_ = other.first_;
 		size_ = other.size_;
@@ -484,6 +485,8 @@ public:
 		return *this;
 	}
 
+	~embedded_list() = default;
+
 	/**
 	 * @brief Checks if this @c embedded_list is empty
 	 * @return @c true if the list holds no @c Item
@@ -491,7 +494,7 @@ public:
 	 *         excludes every writer. A reader racing a writer -- a hint read
 	 *         without the lock -- compares @ref size to zero instead: one word.
 	 */
-	[[nodiscard]] constexpr inline bool empty() const
+	[[nodiscard]] constexpr bool empty() const
 	{
 		assert((first_ == nullptr) ^ (size_ != 0));
 		return first_ == nullptr;
@@ -519,7 +522,7 @@ public:
 	 * @brief Gets an @c embedded_iterator to the beginning of this @c embedded_list
 	 * @return An @c embedded_iterator to the beginning of this @c embedded_list
 	 */
-	constexpr inline iterator begin()
+	constexpr iterator begin()
 	{
 		return iterator(first_);
 	}
@@ -528,7 +531,7 @@ public:
 	 * @brief Gets an @c embedded_const_iterator to the beginning of this @c embedded_list
 	 * @return An @c embedded_const_iterator to the beginning of this @c embedded_list
 	 */
-	constexpr inline const_iterator begin() const
+	[[nodiscard]] constexpr const_iterator begin() const
 	{
 		return const_iterator(first_);
 	}
@@ -537,7 +540,7 @@ public:
 	 * @brief Gets an @c embedded_iterator to the end of this @c embedded_list
 	 * @return An @c embedded_iterator to the end of this @c embedded_list
 	 */
-	constexpr inline iterator end()
+	constexpr iterator end()
 	{
 		return iterator();
 	}
@@ -551,7 +554,7 @@ public:
 	 * @brief Gets an @c embedded_const_iterator to the end of this @c embedded_list
 	 * @return An @c embedded_const_iterator to the end of this @c embedded_list
 	 */
-	constexpr inline const_iterator end() const
+	[[nodiscard]] constexpr const_iterator end() const
 	{
 		return const_iterator();
 	}
@@ -560,7 +563,7 @@ public:
 	 * @brief Gets an @c embedded_iterator to the end of this @c embedded_list
 	 * @return An @c embedded_iterator to the end of this @c embedded_list
 	 */
-	constexpr inline const_iterator cbegin() const
+	[[nodiscard]] constexpr const_iterator cbegin() const
 	{
 		return const_iterator(first_);
 	}
@@ -569,7 +572,7 @@ public:
 	 * @brief Gets an @c embedded_const_iterator to the end of this @c embedded_list
 	 * @return An @c embedded_const_iterator to the end of this @c embedded_list
 	 */
-	constexpr inline const_iterator cend() const
+	[[nodiscard]] constexpr const_iterator cend() const
 	{
 		return const_iterator();
 	}
@@ -589,7 +592,7 @@ public:
 	 * @brief Gets the max @c size this list can hold
 	 * @return The max @c size this list can hold
 	 */
-	constexpr size_type max_size() const
+	[[nodiscard]] constexpr size_type max_size() const
 	{
 		return std::numeric_limits<difference_type>::max();
 	}
@@ -628,7 +631,7 @@ public:
 		assert(!empty());
 		assert(iterator(first_).previous() == nullptr);
 
-		auto i = begin();
+		const auto i = begin();
 
 		first_ = i.next();
 		i.reset();
@@ -653,7 +656,7 @@ public:
 	 * @brief Gets the first @c Item in the @c embedded_list
 	 * @return The first @c Item in the @c embedded_list
 	 */
-	constexpr const Item& front() const
+	[[nodiscard]] constexpr const Item& front() const
 	{
 		assert(!empty());
 		return *first_;
@@ -682,33 +685,31 @@ public:
 				}
 				return end();
 			}
-			else // first but not last element in the list
-			{
-				// ... of *some* list. Without this guard, erasing an item that heads
-				// another list splices that list's nodes into this one: this->first_
-				// would be set to a node this list never owned, the other list would
-				// keep a size_ it no longer backs, and the tail of the current list
-				// would be dropped. The sibling branch above already checks this.
-				if (first_ != i.ptr())
-					return end();
 
-				first_ = i.next();
-				i.next(nullptr);
-				iterator(first_).previous(nullptr);
-				--size_;
-				return begin();
-			}
-		}
-		else // previous is not null, assume element is "somewhere" in the list not in front, problem will appear later if we removed an item from another list ...
-		{
-			auto next = i.next();
-			iterator(i.previous()).next(next); // stitch first side
-			if (next != nullptr)
-				iterator(next).previous(i.previous()); // stitch other side
-			i.reset();
+			// first but not last element in the list ... of *some* list. Without
+			// this guard, erasing an item that heads another list splices that
+			// list's nodes into this one: this->first_ would be set to a node this
+			// list never owned, the other list would keep a size_ it no longer
+			// backs, and the tail of the current list would be dropped. The sibling
+			// branch above already checks this.
+			if (first_ != i.ptr())
+				return end();
+
+			first_ = i.next();
+			i.next(nullptr);
+			iterator(first_).previous(nullptr);
 			--size_;
-			return iterator(next);
+			return begin();
 		}
+
+		// previous is not null, assume element is "somewhere" in the list not in front, problem will appear later if we removed an item from another list ...
+		auto next = i.next();
+		iterator(i.previous()).next(next); // stitch first side
+		if (next != nullptr)
+			iterator(next).previous(i.previous()); // stitch other side
+		i.reset();
+		--size_;
+		return iterator(next);
 	}
 
 	/**
@@ -760,27 +761,24 @@ public:
 	 * @return An @c embedded_iterator pointing to the @c Item inserted
 	 */
 	template<std::invocable<const_reference, const_reference> Comparator>
-	constexpr iterator insert_when(Comparator&& predicate, Item& item)
+	constexpr iterator insert_when(const Comparator& predicate, Item& item)
 	{
 		if (empty() || predicate(item, *first_))
 		{
 			push_front(item);
 			return begin();
 		}
-		else
+
+		iterator previous = begin();
+		auto current = iterator(previous.next());
+
+		while ((current != end()) && !predicate(item, *current))
 		{
-			iterator previous = begin();
-			iterator current = iterator(previous.next());
-
-			while ((current != end()) && (predicate(item, *current) == false))
-			{
-				previous = current;
-				++current;
-			}
-
-			return insert_after(previous, item);
+			previous = current;
+			++current;
 		}
 
+		return insert_after(previous, item);
 	}
 
 private:

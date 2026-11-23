@@ -45,10 +45,10 @@
 
 #pragma once
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <functional>
-#include <memory>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -88,7 +88,7 @@ template<typename R, typename... A>
 struct callback_operations
 {
 	R (*invoke)(void* storage, A&&... arguments);
-	void (*relocate)(void* from, void* to) noexcept; ///< move-constructs at @p to, then destroys at @p from
+	void (*relocate)(void* from, void* into) noexcept; ///< move-constructs at @p into, then destroys at @p from
 	void (*destroy)(void* storage) noexcept;         ///< @c nullptr when the target is trivially destructible
 };
 
@@ -101,7 +101,9 @@ struct callback_signature;
 
 // One specialization per cv / ref combination; noexcept is deduced. INV is the
 // reference the target is called through: an unqualified signature calls it as
-// an lvalue, as std::move_only_function does.
+// an lvalue, as std::move_only_function does. The six combinations can only be
+// spelled out, which is what the standard library does too.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): see above
 #define OPSY_CALLBACK_SIGNATURE(CV, REF, INV)                                              \
 	template<typename R, typename... A, bool Noexcept>                                     \
 	struct callback_signature<R(A...) CV REF noexcept(Noexcept)>                           \
@@ -154,6 +156,9 @@ struct callback_operations_for;
 template<typename Derived, typename Signature>
 struct callback_call;
 
+// The analyzer follows a call on an empty callback, which is the precondition violation documented below.
+// NOLINTBEGIN(clang-analyzer-core.NullDereference)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): the six qualifier combinations, as above
 #define OPSY_CALLBACK_CALL(CV, REF)                                                        \
 	template<typename Derived, typename R, typename... A, bool Noexcept>                   \
 	struct callback_call<Derived, R(A...) CV REF noexcept(Noexcept)>                       \
@@ -162,20 +167,9 @@ struct callback_call;
 		 *       violation, as for @c std::move_only_function , asserted. */               \
 		constexpr R operator()(A... arguments) CV REF noexcept(Noexcept)                   \
 		{                                                                                  \
-			using signature = R(A...) CV REF noexcept(Noexcept);                           \
-			using pointer = typename callback_signature<signature>::function_pointer;      \
-			auto& self = static_cast<Derived CV &>(*this);                                 \
+			const auto& self = static_cast<const Derived&>(*this);                         \
 			assert(self.operations_ != nullptr);                                           \
-			/* A constant expression reads a function pointer target through the           \
-			   union member that holds it: the only way to read it as itself. */           \
-			CV void* storage = self.storage_.bytes;                                        \
-			if consteval                                                                   \
-			{                                                                              \
-				using held = callback_operations_for<pointer, signature>;                  \
-				if (self.operations_ == &held::table)                                      \
-					storage = &self.storage_.function;                                     \
-			}                                                                              \
-			return self.operations_->invoke(const_cast<void*>(storage),                    \
+			return self.operations_->invoke(self.target_address(),                         \
 				std::forward<A>(arguments)...);                                            \
 		}                                                                                  \
 	};
@@ -188,6 +182,7 @@ OPSY_CALLBACK_CALL(const, &)
 OPSY_CALLBACK_CALL(const, &&)
 
 #undef OPSY_CALLBACK_CALL
+// NOLINTEND(clang-analyzer-core.NullDereference)
 
 /**
  * @brief The operations for one target type under one signature
@@ -206,10 +201,10 @@ struct callback_operations_for
 	// static_cast and a destructor call rather than std::move and
 	// std::destroy_at: the same thing, without one more function per target
 	// type in a build that does not inline.
-	static void relocate(void* from, void* to) noexcept
+	static void relocate(void* from, void* into) noexcept
 	{
 		F& source = get(from);
-		::new (to) F(static_cast<F&&>(source));
+		::new (into) F(static_cast<F&&>(source));
 		source.~F();
 	}
 
@@ -218,13 +213,15 @@ struct callback_operations_for
 		get(storage).~F();
 	}
 
-	static constexpr typename callback_signature<Signature>::operations table{
-		&callback_signature<Signature>::template invoke<F>, &relocate,
-		std::is_trivially_destructible_v<F> ? nullptr : &destroy };
+	static constexpr callback_signature<Signature>::operations table{
+		&callback_signature<Signature>::template invoke<F>,
+		&relocate,
+		std::is_trivially_destructible_v<F> ? nullptr : &destroy,
+	};
 };
 
 /** @brief Relocates a stateless target: there is nothing to move */
-constexpr void relocate_nothing(void*, void*) noexcept {}
+constexpr void relocate_nothing(void* /*from*/, void* /*into*/) noexcept {}
 
 /**
  * @brief The operations for a stateless target (a lambda without capture, a
@@ -234,8 +231,11 @@ constexpr void relocate_nothing(void*, void*) noexcept {}
 template<typename F, typename Signature>
 struct callback_stateless_operations_for
 {
-	static constexpr typename callback_signature<Signature>::operations table{
-		&callback_signature<Signature>::template invoke_stateless<F>, &relocate_nothing, nullptr };
+	static constexpr callback_signature<Signature>::operations table{
+		&callback_signature<Signature>::template invoke_stateless<F>,
+		&relocate_nothing,
+		nullptr,
+	};
 };
 
 template<typename T>
@@ -269,15 +269,15 @@ inline constexpr bool is_in_place_type<std::in_place_type_t<T>> = true;
  *         than @c &handler . Each such target has its own operations table.
  */
 template<typename Signature, std::size_t StorageSize>
-class callback : public detail::callback_call<callback<Signature, StorageSize>, Signature>
+class callback : public detail::callback_call<callback<Signature, StorageSize>, Signature> // NOLINT(cppcoreguidelines-special-member-functions): its moves are the templates below, which also take a callback with less storage
 {
 	template<typename, std::size_t>
 	friend class callback;
 	friend struct detail::callback_call<callback, Signature>;
 
 	using traits = detail::callback_signature<Signature>;
-	using operations = typename traits::operations;
-	using function_pointer = typename traits::function_pointer;
+	using operations = traits::operations;
+	using function_pointer = traits::function_pointer;
 
 	template<typename F>
 	static constexpr bool accepts = traits::template invocable<F>;
@@ -288,7 +288,7 @@ public:
 	constexpr callback() noexcept = default;
 
 	/** @brief Creates an empty callback */
-	constexpr callback(std::nullptr_t) noexcept {}
+	constexpr callback(std::nullptr_t) noexcept {} // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor): implicit, as std::move_only_function's
 
 	/**
 	 * @brief Creates a callback calling @p function
@@ -302,7 +302,7 @@ public:
 		      && (!detail::is_in_place_type<std::remove_cvref_t<F>>)
 		      && std::is_constructible_v<std::decay_t<F>, F>
 		      && accepts<std::decay_t<F>>
-	constexpr callback(F&& function)
+	constexpr callback(F&& function) // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor): implicit, as std::move_only_function's
 	{
 		using given = std::remove_cvref_t<F>;
 		if constexpr (std::is_pointer_v<given> || std::is_member_pointer_v<given>)
@@ -335,7 +335,7 @@ public:
 	/** @brief Creates a callback calling a @p T constructed in place from @p arguments */
 	template<typename T, typename... Arguments>
 		requires std::is_constructible_v<T, Arguments...> && accepts<T>
-	explicit callback(std::in_place_type_t<T>, Arguments&&... arguments)
+	explicit callback(std::in_place_type_t<T> /*type*/, Arguments&&... arguments)
 	{
 		emplace<T>(std::forward<Arguments>(arguments)...);
 	}
@@ -348,7 +348,7 @@ public:
 	 * @remark Also from a callback with less storage, never more.
 	 */
 	template<std::size_t FromSize>
-	callback(callback<Signature, FromSize>&& from) noexcept
+	callback(callback<Signature, FromSize>&& from) noexcept // NOLINT(misc-explicit-constructor,cppcoreguidelines-explicit-constructor,cppcoreguidelines-rvalue-reference-param-not-moved): a move, implicit as any; take() relocates the target out of it
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 		take(from);
@@ -356,7 +356,7 @@ public:
 
 	/** @copydoc callback(callback<Signature, FromSize>&&) */
 	template<std::size_t FromSize>
-	callback& operator=(callback<Signature, FromSize>&& from) noexcept
+	callback& operator=(callback<Signature, FromSize>&& from) noexcept // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved): take() relocates the target out of it
 	{
 		static_assert(StorageSize >= FromSize, "You can only increase the storage size, not decrease it");
 
@@ -421,12 +421,12 @@ private:
 	template<typename T, typename... Arguments>
 	void emplace(Arguments&&... arguments)
 	{
-		static_assert(sizeof(T) <= sizeof(storage_.bytes), "Cannot store the invokable in the callback");
+		static_assert(sizeof(T) <= capacity, "Cannot store the invokable in the callback");
 		static_assert(alignof(T) <= alignof(void*), "The invokable needs more alignment than the callback storage provides");
 		static_assert(std::is_nothrow_move_constructible_v<T> && std::is_nothrow_destructible_v<T>,
 			"The invokable is moved and destroyed by a callback's noexcept move and destructor");
 
-		::new (static_cast<void*>(storage_.bytes)) T(std::forward<Arguments>(arguments)...);
+		::new (target_address()) T(std::forward<Arguments>(arguments)...);
 		operations_ = &detail::callback_operations_for<T, Signature>::table;
 	}
 
@@ -436,7 +436,7 @@ private:
 		if (from.operations_ == nullptr)
 			return;
 
-		from.operations_->relocate(from.storage_.bytes, storage_.bytes);
+		from.operations_->relocate(from.target_address(), target_address());
 		operations_ = from.operations_;
 		from.operations_ = nullptr;
 	}
@@ -444,14 +444,34 @@ private:
 	constexpr void reset() noexcept
 	{
 		if (operations_ != nullptr && operations_->destroy != nullptr)
-			operations_->destroy(storage_.bytes);
+			operations_->destroy(target_address());
 		operations_ = nullptr;
 	}
+
+	/**
+	 * @brief Where the operations find the target
+	 * @remark A constant expression reads a function pointer target through the
+	 *         union member that holds it: the only way to read it as itself.
+	 *         Not const: the operations call through a const signature as const.
+	 */
+	[[nodiscard]] constexpr void* target_address() const noexcept
+	{
+		// NOLINTBEGIN(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-type-const-cast): the storage is a union, and the operations restore the signature's const
+		if consteval
+		{
+			if (operations_ == &detail::callback_operations_for<function_pointer, Signature>::table)
+				return const_cast<void*>(static_cast<const void*>(&storage_.function));
+		}
+		return const_cast<std::byte*>(storage_.bytes.data());
+		// NOLINTEND(cppcoreguidelines-pro-type-union-access,cppcoreguidelines-pro-type-const-cast)
+	}
+
+	static constexpr std::size_t capacity = StorageSize * sizeof(void*);
 
 	const operations* operations_ = nullptr;
 	union storage
 	{
-		alignas(void*) std::byte bytes[StorageSize * sizeof(void*)];
+		alignas(void*) std::array<std::byte, capacity> bytes;
 		function_pointer function; ///< only ever written at compile time, see the constructor
 	};
 	storage storage_{};

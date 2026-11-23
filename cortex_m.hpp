@@ -43,6 +43,9 @@
 #pragma once
 
 #include "opsy_assert.hpp"
+#include <cstddef>
+#include <cstdint>
+#include <memory> // IWYU pragma: keep
 #include <optional>
 
 #include "config.hpp"
@@ -65,17 +68,25 @@ public:
 
 	}
 
-	constexpr uint32_t address() const
+	// A copy names the same register. Assigning one would only change which
+	// register this names, which is never what `reg = other` means.
+	memory_register(const memory_register&) = default;
+	memory_register(memory_register&&) = default;
+	memory_register& operator=(const memory_register&) = delete("a memory_register names a hardware address: set() writes the register");
+	memory_register& operator=(memory_register&&) = delete("a memory_register names a hardware address: set() writes the register");
+	~memory_register() = default;
+
+	[[nodiscard]] constexpr uint32_t address() const
 	{
 		return address_;
 	}
 
-	Type inline get() const
+	[[nodiscard]] Type get() const
 	{
 		return ref();
 	}
 
-	inline void set(Type value) const
+	void set(Type value) const
 	{
 		ref() = value;
 	}
@@ -104,14 +115,13 @@ private:
 	 *         access width or about a store whose only purpose is its effect on
 	 *         hardware.
 	 */
-	volatile Type& ref() const
+	[[nodiscard]] volatile Type& ref() const
 	{
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr): a register is at a fixed address
 		return *reinterpret_cast<volatile Type*>(address_);
 	}
 
-	const uint32_t address_;
-	memory_register& operator=(const memory_register& other) = delete("a memory_register names a hardware address: assign to ref() to write the register");
-
+	uint32_t address_;
 };
 
 }
@@ -145,26 +155,52 @@ struct fault_status
 	uint32_t mmfar; ///< MemManage Fault Address Register, meaningful when @ref memory_fault_address has a value
 	uint32_t bfar; ///< BusFault Address Register, meaningful when @ref bus_fault_address has a value
 
+	// The bits, by their names in the architecture reference manuals: HFSR's,
+	// then CFSR's.
+	static constexpr uint32_t vecttbl = 1U << 1;
+	static constexpr uint32_t forced = 1U << 30;
+
+	static constexpr uint32_t iaccviol = 1U << 0;
+	static constexpr uint32_t daccviol = 1U << 1;
+	static constexpr uint32_t munstkerr = 1U << 3;
+	static constexpr uint32_t mstkerr = 1U << 4;
+	static constexpr uint32_t mlsperr = 1U << 5;
+	static constexpr uint32_t mmarvalid = 1U << 7;
+	static constexpr uint32_t ibuserr = 1U << 8;
+	static constexpr uint32_t preciserr = 1U << 9;
+	static constexpr uint32_t impreciserr = 1U << 10;
+	static constexpr uint32_t unstkerr = 1U << 11;
+	static constexpr uint32_t stkerr = 1U << 12;
+	static constexpr uint32_t lsperr = 1U << 13;
+	static constexpr uint32_t bfarvalid = 1U << 15;
+	static constexpr uint32_t undefinstr = 1U << 16;
+	static constexpr uint32_t invstate = 1U << 17;
+	static constexpr uint32_t invpc = 1U << 18;
+	static constexpr uint32_t nocp = 1U << 19;
+	static constexpr uint32_t stkof = 1U << 20;
+	static constexpr uint32_t unaligned = 1U << 24;
+	static constexpr uint32_t divbyzero = 1U << 25;
+
 	// HFSR: why HardFault was taken.
 
 	/** @brief A configurable fault was taken as HardFault because its own exception could not be: disabled, or not allowed to preempt (@c FORCED). Its bits are in @c cfsr too. */
-	constexpr bool escalated() const { return (hfsr & (1u << 30)) != 0; }
+	[[nodiscard]] constexpr bool escalated() const { return (hfsr & forced) != 0; }
 
 	/** @brief The core could not read the vector table entry of an exception (@c VECTTBL). */
-	constexpr bool vector_table_read() const { return (hfsr & (1u << 1)) != 0; }
+	[[nodiscard]] constexpr bool vector_table_read() const { return (hfsr & vecttbl) != 0; }
 
 	// MMFSR: MemManage, from the MPU or from executing from a region that forbids it.
 
 	/** @brief An instruction fetch the MPU refused (@c IACCVIOL). */
-	constexpr bool instruction_access_violation() const { return (cfsr & (1u << 0)) != 0; }
+	[[nodiscard]] constexpr bool instruction_access_violation() const { return (cfsr & iaccviol) != 0; }
 
 	/** @brief A data access the MPU refused (@c DACCVIOL); @ref memory_fault_address holds its address. */
-	constexpr bool data_access_violation() const { return (cfsr & (1u << 1)) != 0; }
+	[[nodiscard]] constexpr bool data_access_violation() const { return (cfsr & daccviol) != 0; }
 
 	/** @brief The address a MemManage fault was taken on, when the core recorded one (@c MMARVALID). */
-	constexpr std::optional<uint32_t> memory_fault_address() const
+	[[nodiscard]] constexpr std::optional<uint32_t> memory_fault_address() const
 	{
-		if ((cfsr & (1u << 7)) != 0)
+		if ((cfsr & mmarvalid) != 0)
 			return mmfar;
 		return std::nullopt;
 	}
@@ -172,18 +208,18 @@ struct fault_status
 	// BFSR: a bus error, from the memory system.
 
 	/** @brief An instruction fetch the bus answered with an error (@c IBUSERR). */
-	constexpr bool instruction_bus_fault() const { return (cfsr & (1u << 8)) != 0; }
+	[[nodiscard]] constexpr bool instruction_bus_fault() const { return (cfsr & ibuserr) != 0; }
 
 	/** @brief A data access the bus answered with an error, taken on the instruction that made it (@c PRECISERR); @ref bus_fault_address holds its address. */
-	constexpr bool precise_bus_fault() const { return (cfsr & (1u << 9)) != 0; }
+	[[nodiscard]] constexpr bool precise_bus_fault() const { return (cfsr & preciserr) != 0; }
 
 	/** @brief A buffered write the bus answered with an error, taken after the instruction that made it (@c IMPRECISERR): the frame points past it, and no address is recorded. */
-	constexpr bool imprecise_bus_fault() const { return (cfsr & (1u << 10)) != 0; }
+	[[nodiscard]] constexpr bool imprecise_bus_fault() const { return (cfsr & impreciserr) != 0; }
 
 	/** @brief The address a BusFault was taken on, when the core recorded one (@c BFARVALID). */
-	constexpr std::optional<uint32_t> bus_fault_address() const
+	[[nodiscard]] constexpr std::optional<uint32_t> bus_fault_address() const
 	{
-		if ((cfsr & (1u << 15)) != 0)
+		if ((cfsr & bfarvalid) != 0)
 			return bfar;
 		return std::nullopt;
 	}
@@ -191,36 +227,36 @@ struct fault_status
 	// Stacking: faults on the frame the core pushes or pops itself. From either the MPU or the bus.
 
 	/** @brief Pushing the exception frame faulted (@c MSTKERR or @c STKERR): the stack was outside the memory it may use, so the frame is not to be trusted. */
-	constexpr bool stacking_error() const { return (cfsr & ((1u << 4) | (1u << 12))) != 0; }
+	[[nodiscard]] constexpr bool stacking_error() const { return (cfsr & (mstkerr | stkerr)) != 0; }
 
 	/** @brief Popping the exception frame faulted (@c MUNSTKERR or @c UNSTKERR). */
-	constexpr bool unstacking_error() const { return (cfsr & ((1u << 3) | (1u << 11))) != 0; }
+	[[nodiscard]] constexpr bool unstacking_error() const { return (cfsr & (munstkerr | unstkerr)) != 0; }
 
 	/** @brief Saving the floating-point state the core had put off faulted (@c MLSPERR or @c LSPERR). */
-	constexpr bool lazy_fp_state_error() const { return (cfsr & ((1u << 5) | (1u << 13))) != 0; }
+	[[nodiscard]] constexpr bool lazy_fp_state_error() const { return (cfsr & (mlsperr | lsperr)) != 0; }
 
 	// UFSR: UsageFault, from the instruction itself.
 
 	/** @brief The instruction at the frame's @c pc is not one (@c UNDEFINSTR): a @c udf, which is what @c __builtin_trap emits, or a jump into data. */
-	constexpr bool undefined_instruction() const { return (cfsr & (1u << 16)) != 0; }
+	[[nodiscard]] constexpr bool undefined_instruction() const { return (cfsr & undefinstr) != 0; }
 
 	/** @brief An instruction ran with @c EPSR.T clear (@c INVSTATE): a branch to an address whose bit 0 is not set, as a function pointer read from a corrupted memory. */
-	constexpr bool invalid_state() const { return (cfsr & (1u << 17)) != 0; }
+	[[nodiscard]] constexpr bool invalid_state() const { return (cfsr & invstate) != 0; }
 
 	/** @brief An exception return with an @c EXC_RETURN the core rejects (@c INVPC): a corrupted @c lr in a handler, or a frame built by hand with the wrong value. */
-	constexpr bool invalid_pc() const { return (cfsr & (1u << 18)) != 0; }
+	[[nodiscard]] constexpr bool invalid_pc() const { return (cfsr & invpc) != 0; }
 
 	/** @brief A coprocessor instruction with the coprocessor disabled or absent (@c NOCP): a floating-point instruction before @ref cortex_m::enable_fpu, most often. */
-	constexpr bool no_coprocessor() const { return (cfsr & (1u << 19)) != 0; }
+	[[nodiscard]] constexpr bool no_coprocessor() const { return (cfsr & nocp) != 0; }
 
 	/** @brief A stack pointer went below its limit register (@c STKOF, ARMv8-M only): the task whose stack ran out is the one the frame belongs to. The stack pointer itself is no longer to be trusted. */
-	constexpr bool stack_overflow() const { return (cfsr & (1u << 20)) != 0; }
+	[[nodiscard]] constexpr bool stack_overflow() const { return (cfsr & stkof) != 0; }
 
 	/** @brief An unaligned access the core does not allow (@c UNALIGNED): a multi-word load or store, or any access with @c CCR.UNALIGN_TRP set. */
-	constexpr bool unaligned_access() const { return (cfsr & (1u << 24)) != 0; }
+	[[nodiscard]] constexpr bool unaligned_access() const { return (cfsr & unaligned) != 0; }
 
 	/** @brief An @c sdiv or @c udiv by zero, with the trap enabled by @ref cortex_m::enable_divide_by_zero_trap (@c DIVBYZERO). */
-	constexpr bool divide_by_zero() const { return (cfsr & (1u << 25)) != 0; }
+	[[nodiscard]] constexpr bool divide_by_zero() const { return (cfsr & divbyzero) != 0; }
 };
 
 /**
@@ -233,7 +269,7 @@ public:
 	/**
 	 * @brief An Interrupt Service Routine (ISR) entry point definition, ISR are static or global methods with no return type and no arguments
 	 */
-	using isr_handler_t = void(*)(void);
+	using isr_handler_t = void(*)();
 
 	/**
 	 * @brief Number of system interrupt requests in the Cortex-M
@@ -249,9 +285,9 @@ public:
 	 * @brief System interrupt requests
 	 */
 	enum class system_irq
-		: uint32_t
+		: uint8_t
 		{
-			initial_sp = 0, ///< Value set to MSP at startup (it is not an isr_handler_t but a memory pointer)
+		initial_sp = 0, ///< Value set to MSP at startup (it is not an isr_handler_t but a memory pointer)
 		reset = 1, ///< First code to be executed at system reset
 		non_maskable_interrupt = 2, ///< Non maskable interrupt
 		hard_fault = 3, ///< Hard Fault
@@ -307,19 +343,19 @@ public:
 	 *        the extended (FP) stack frame in addition to the basic frame; when @b set, only
 	 *        the basic frame is on the stack and the FPU was inactive.
 	 */
-	static constexpr uint32_t exc_return_fp_flag = 1u << 4;
+	static constexpr uint32_t exc_return_fp_flag = 1U << 4;
 
 	/**
 	 * @brief Bit 3 of @c EXC_RETURN. @b Set = the exception will return to Thread mode;
 	 *        @b cleared = it will return to Handler mode.
 	 */
-	static constexpr uint32_t exc_return_thread_flag = 1u << 3;
+	static constexpr uint32_t exc_return_thread_flag = 1U << 3;
 
 	/**
 	 * @brief Bit 2 of @c EXC_RETURN. @b Set = the entry stack pointer was @c PSP (Thread mode
 	 *        was running); @b cleared = it was @c MSP (Handler mode was running).
 	 */
-	static constexpr uint32_t exc_return_psp_flag = 1u << 2;
+	static constexpr uint32_t exc_return_psp_flag = 1U << 2;
 
 	/**
 	 * @brief @c EXC_RETURN value used to initialise a fresh task context: return to Thread
@@ -327,13 +363,13 @@ public:
 	 *        @c 0xFFFFFFFD on ARMv7-M, and on ARMv8-M Mainline without the Security
 	 *        Extension; with it, this is the Secure-state value (@c S and @c ES set).
 	 */
-	static constexpr uint32_t exc_return_thread_psp_basic = 0xFFFFFFFDu;
+	static constexpr uint32_t exc_return_thread_psp_basic = 0xFFFFFFFDU;
 
 	/**
 	 * @brief @c CONTROL register value used to initialise a task: privileged Thread mode
 	 *        using @c PSP (@c SPSEL=1, @c nPRIV=0). Equivalent to @c 0b10.
 	 */
-	static constexpr uint32_t control_thread_psp_privileged = 0b10u;
+	static constexpr uint32_t control_thread_psp_privileged = 0b10U;
 
 	/**
 	 * @brief Indicates whether the running target has a hardware Floating Point Unit.
@@ -344,7 +380,7 @@ public:
 	 *        skips FP register save / restore so no clock cycle is spent on an absent feature.
 	 */
 	static constexpr bool has_fpu =
-#if defined(__ARM_FP)
+#ifdef __ARM_FP
 		true;
 #else
 		false;
@@ -413,7 +449,7 @@ public:
 	static void enable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		detail::memory_register<uint32_t>(NvicIserAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIserAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).set(1U << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -426,7 +462,7 @@ public:
 	static void disable_interrupt(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		detail::memory_register<uint32_t>(NvicIcerAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIcerAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).set(1U << (irq & NvicIrqRegisterMask));
 		data_barrier();
 		instruction_barrier();
 	}
@@ -439,7 +475,7 @@ public:
 	static bool is_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (detail::memory_register<uint32_t>(NvicIsprAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).get() & (1U << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -449,7 +485,7 @@ public:
 	static void set_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		detail::memory_register<uint32_t>(NvicIsprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIsprAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).set(1U << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
@@ -459,13 +495,13 @@ public:
 	static void clear_pending(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		detail::memory_register<uint32_t>(NvicIcprAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).set(1u << (irq & NvicIrqRegisterMask));
+		detail::memory_register<uint32_t>(NvicIcprAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).set(1U << (irq & NvicIrqRegisterMask));
 	}
 
 	/**
 	 * @brief Triggers an instruction synchronization barrier
 	 */
-	static inline void instruction_barrier()
+	static void instruction_barrier()
 	{
 		asm volatile("isb" : : : "memory");
 	}
@@ -473,7 +509,7 @@ public:
 	/**
 	 * @brief  Triggers a data synchronization barrier
 	 */
-	static inline void data_barrier()
+	static void data_barrier()
 	{
 		asm volatile("dsb" : : : "memory");
 	}
@@ -486,7 +522,7 @@ public:
 	static bool is_active(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return (detail::memory_register<uint32_t>(NvicIabrAddress + sizeof(uint32_t) * (irq >> NvicIrqRegisterBits)).get() & (1u << (irq & NvicIrqRegisterMask))) != 0;
+		return (detail::memory_register<uint32_t>(NvicIabrAddress + (sizeof(uint32_t) * (irq >> NvicIrqRegisterBits))).get() & (1U << (irq & NvicIrqRegisterMask))) != 0;
 	}
 
 	/**
@@ -618,7 +654,7 @@ public:
 	 */
 	static isr_handler_t volatile* vtor()
 	{
-		return reinterpret_cast<isr_handler_t volatile*>(detail::memory_register<uint32_t>(ScbVtorAddress).get());
+		return vtor_register().get();
 	}
 
 	/**
@@ -629,14 +665,14 @@ public:
 	 */
 	static void move_vtor(isr_handler_t* new_vtor, std::size_t copy_size = 0)
 	{
-		assert((new_vtor != nullptr) && (reinterpret_cast<uint32_t>(new_vtor) % vtor_alignment == 0)); // check vtor is not null and correctly aligned
+		assert((new_vtor != nullptr) && std::is_sufficiently_aligned<vtor_alignment>(new_vtor)); // NOLINT(misc-include-cleaner): <memory> provides it, which clang-tidy 23 does not know yet
 		assert(copy_size <= MaxIrq + system_irqs_count);
 
-		for (auto i = 0u; i < copy_size; ++i)
-			new_vtor[i] = vtor()[i];
+		for (auto i = 0U; i < copy_size; ++i)
+			new_vtor[i] = vector(i); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): the caller gives the table's size
 
 		data_barrier(); // the copied entries are in memory before the table is used
-		detail::memory_register<uint32_t>(ScbVtorAddress).set(reinterpret_cast<uint32_t>(new_vtor));
+		vtor_register().set(new_vtor);
 		data_barrier(); // the next exception is vectored through the new table
 	}
 
@@ -656,7 +692,7 @@ public:
 		case system_irq::systick:
 		case system_irq::reset:
 		{
-			return vtor()[static_cast<std::size_t>(irq)];
+			return vector(static_cast<std::size_t>(irq));
 		}
 		case system_irq::initial_sp:
 		default:
@@ -673,7 +709,7 @@ public:
 	static isr_handler_t isr_handler(uint32_t irq)
 	{
 		assert(irq <= MaxIrq);
-		return vtor()[irq + system_irqs_count];
+		return vector(irq + system_irqs_count);
 	}
 
 	/**
@@ -682,7 +718,8 @@ public:
 	 */
 	static uint32_t* msp_at_reset()
 	{
-		return reinterpret_cast<uint32_t*>(*vtor());
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): entry 0 of the table is the initial stack pointer, not a handler
+		return reinterpret_cast<uint32_t*>(vector(0));
 	}
 
 	/**
@@ -696,7 +733,7 @@ public:
 	{
 		if (isr_handler(irq) != handler)
 		{
-			vtor()[static_cast<std::size_t>(irq)] = handler;
+			vector(static_cast<std::size_t>(irq)) = handler;
 			data_barrier(); // written before the exception can be taken through it
 		}
 	}
@@ -713,7 +750,7 @@ public:
 		assert(irq <= MaxIrq);
 		if (isr_handler(irq) != handler)
 		{
-			vtor()[irq + system_irqs_count] = handler;
+			vector(irq + system_irqs_count) = handler;
 			data_barrier(); // written before the exception can be taken through it
 		}
 	}
@@ -724,15 +761,14 @@ public:
 	 */
 	static std::optional<isr_priority> current_priority()
 	{
-		auto ipsrValue = ipsr();
+		const auto ipsrValue = ipsr();
 
 		if (ipsrValue == 0)
 			return std::nullopt;
 
 		if (ipsrValue < system_irqs_count)
 			return priority(static_cast<system_irq>(ipsrValue));
-		else
-			return priority(ipsrValue - system_irqs_count);
+		return priority(ipsrValue - system_irqs_count);
 	}
 
 	/**
@@ -741,7 +777,7 @@ public:
 	 */
 	static uint32_t ipsr() __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile("mrs %0, ipsr" : "=r"(result));
 		return result;
 	}
@@ -776,15 +812,16 @@ public:
 	 */
 	static uint32_t* msp() __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t* result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile("mrs %0, msp" : "=r" (result));
-		return reinterpret_cast<uint32_t*>(result);
+		return result;
 	}
 
 	/**
 	 * @brief Sets the @c MSP (Main Stack Pointer) value
 	 * @param msp The value to set @c MSP to
 	 */
+	// NOLINTNEXTLINE(readability-non-const-parameter): the core writes the stack through it
 	static void set_msp(uint32_t* msp) __attribute__((always_inline))
 	{
 		asm volatile("msr msp, %0" : : "r"(msp));
@@ -795,6 +832,7 @@ public:
 	 * @param limit The lower bound of the main stack — UsageFault fires if MSP goes below this address.
 	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
 	 */
+	// NOLINTNEXTLINE(readability-non-const-parameter): the core writes the stack through it
 	static void set_msplim(uint32_t* limit) __attribute__((always_inline))
 	{
 		if constexpr (has_stack_limit_regs)
@@ -807,15 +845,16 @@ public:
 	 */
 	static uint32_t* psp() __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t* result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile("mrs %0, psp" : "=r" (result));
-		return reinterpret_cast<uint32_t*>(result);
+		return result;
 	}
 
 	/**
 	 * @brief Sets the @c PSP (Process Stack Pointer) value
 	 * @param psp The value to set @c PSP to
 	 */
+	// NOLINTNEXTLINE(readability-non-const-parameter): the core writes the stack through it
 	static void set_psp(uint32_t* psp) __attribute__((always_inline))
 	{
 		asm volatile("msr psp, %0" : : "r"(psp));
@@ -826,6 +865,7 @@ public:
 	 * @param limit The lower bound of the process stack — UsageFault fires if PSP goes below this address.
 	 * @remark No-op at compile time on architectures without stack-limit registers (ARMv7-M and earlier).
 	 */
+	// NOLINTNEXTLINE(readability-non-const-parameter): the core writes the stack through it
 	static void set_psplim(uint32_t* limit) __attribute__((always_inline))
 	{
 		if constexpr (has_stack_limit_regs)
@@ -852,7 +892,7 @@ public:
 	 */
 	static uint32_t control() __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile("mrs %0, control" : "=r" (result));
 		return result;
 	}
@@ -892,10 +932,10 @@ public:
 	static fault_status read_fault_status()
 	{
 		return {
-			detail::memory_register<uint32_t>(ScbCfsrAddress).get(),
-			detail::memory_register<uint32_t>(ScbHfsrAddress).get(),
-			detail::memory_register<uint32_t>(ScbMmfarAddress).get(),
-			detail::memory_register<uint32_t>(ScbBfarAddress).get(),
+			.cfsr = detail::memory_register<uint32_t>(ScbCfsrAddress).get(),
+			.hfsr = detail::memory_register<uint32_t>(ScbHfsrAddress).get(),
+			.mmfar = detail::memory_register<uint32_t>(ScbMmfarAddress).get(),
+			.bfar = detail::memory_register<uint32_t>(ScbBfarAddress).get(),
 		};
 	}
 
@@ -909,8 +949,8 @@ public:
 	 */
 	static void clear_fault_status()
 	{
-		detail::memory_register<uint32_t>(ScbCfsrAddress).set(0xFFFFFFFFu);
-		detail::memory_register<uint32_t>(ScbHfsrAddress).set(0xFFFFFFFFu);
+		detail::memory_register<uint32_t>(ScbCfsrAddress).set(ScbAllFaultBits);
+		detail::memory_register<uint32_t>(ScbHfsrAddress).set(ScbAllFaultBits);
 	}
 
 	/**
@@ -920,7 +960,7 @@ public:
 	 *         instruction further. The architecture guarantees that only after
 	 *         a @c dsb completes the write and an @c isb refetches.
 	 */
-	static inline void trigger_pend_sv()
+	static void trigger_pend_sv()
 	{
 		detail::memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvSet);
 		data_barrier();
@@ -930,7 +970,7 @@ public:
 	/**
 	 * @brief Clears the pending state for system interrupt @c PendSV
 	 */
-	static inline void clear_pend_sv()
+	static void clear_pend_sv()
 	{
 		detail::memory_register<uint32_t>(IcsrAddress).set(IcsrPendSvClr);
 	}
@@ -944,9 +984,9 @@ public:
 	 *         where the next instruction must see a pending interrupt served;
 	 *         everywhere else, @ref exchange_basepri .
 	 */
-	static inline isr_priority set_basepri(isr_priority priority = isr_priority(0)) __attribute__((always_inline))
+	static isr_priority set_basepri(isr_priority priority = isr_priority(0)) __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile(
 				"mrs %[output], basepri \n\t" // get previous value of basepri
 				"msr basepri, %[input] \n\t"// set the new value
@@ -972,9 +1012,9 @@ public:
 	 *         suspended itself and resumes owning something, or spins on what
 	 *         the interrupt changes -- lower with @ref set_basepri instead.
 	 */
-	static inline isr_priority exchange_basepri(isr_priority priority) __attribute__((always_inline))
+	static isr_priority exchange_basepri(isr_priority priority) __attribute__((always_inline))
 	{
-		uint32_t result;
+		uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile(
 				"mrs %[output], basepri \n\t"
 				"msr basepri, %[input]"
@@ -987,7 +1027,7 @@ public:
 	/**
 	 * @brief Disables all interrupts by setting @c PRIMASK register to 1
 	 */
-	static inline void disable_interrupts() __attribute__((always_inline))
+	static void disable_interrupts() __attribute__((always_inline))
 	{
 		asm volatile(
 				"cpsid i \n\t"
@@ -999,7 +1039,7 @@ public:
 	 * @brief Enables all interrupts by setting @c PRIMASK to 0
 	 * @warning This does not mean all peripheral interrupts are enabled, it means they are not masked by @c PRIMASK anymore
 	 */
-	static inline void enable_interrupts() __attribute__((always_inline))
+	static void enable_interrupts() __attribute__((always_inline))
 	{
 		asm volatile(
 				"cpsie i \n\t"
@@ -1011,9 +1051,9 @@ public:
 	 * @brief Checks if PRIMASK register is set to @c 1
 	 * @return @c true if @c PRIMASK is set to @c 1 (all interrupts disabled), @c false otherwise
 	 */
-	static inline bool is_primask() __attribute__((always_inline))
+	static bool is_primask() __attribute__((always_inline))
 	{
-		uint32_t value;
+		uint32_t value; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 		asm volatile("mrs %[output], primask" : [output] "=r" (value));
 		return value != 0;
 	}
@@ -1043,9 +1083,9 @@ public:
 	 * @remark It is possible only for a size of 1, 2 or 4 bytes
 	 */
 	template<typename T>
-	static inline T load_exclusive(T* ptr)
+	static T load_exclusive(T* ptr)
 	{
-	    T result;
+	    T result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 
 		if constexpr(sizeof(T) == 1)
 		{
@@ -1080,9 +1120,9 @@ public:
 	 * @return @c 0 if the store is effective, @c 1 otherwise
 	 */
 	template<typename T>
-	static inline uint32_t store_exclusive(T* ptr, T value)
+	static uint32_t store_exclusive(T* ptr, T value)
 	{
-	    uint32_t result;
+	    uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 
 	    if constexpr(sizeof(T) == 1)
 	    {
@@ -1130,7 +1170,7 @@ public:
 	 * @brief Gets the DWT cycle counter: core clock cycles, wrapping at 2^32
 	 * @remark Counts only once started, by @c enable_cycle_count() or a debugger
 	 */
-	static inline uint32_t cycle_count()
+	static uint32_t cycle_count()
 	{
 		return detail::memory_register<uint32_t>(CycCntAddress).get();
 	}
@@ -1139,12 +1179,30 @@ public:
 	 * @brief Sets the DWT cycle counter
 	 * @param value The value it counts on from
 	 */
-	static inline void cycle_count(uint32_t value)
+	static void cycle_count(uint32_t value)
 	{
 		detail::memory_register<uint32_t>(CycCntAddress).set(value);
 	}
 
 private:
+
+	/**
+	 * @brief The @c VTOR register: the address of the vector table
+	 */
+	static detail::memory_register<isr_handler_t volatile*> vtor_register()
+	{
+		return detail::memory_register<isr_handler_t volatile*>(ScbVtorAddress);
+	}
+
+	/**
+	 * @brief Entry @p index of the vector table, the system entries first
+	 * @remark The table is as long as the device makes it, which the core does
+	 *         not tell: the callers bound @p index by @c MaxIrq.
+	 */
+	static isr_handler_t volatile& vector(std::size_t index)
+	{
+		return vtor()[index]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): see the remark
+	}
 
 	static constexpr const uint32_t DwtAddress = 0xE0001000;
 
@@ -1177,8 +1235,9 @@ private:
 	static constexpr uint32_t ScbMmfarAddress = ScbAddress + 0x34;
 	static constexpr uint32_t ScbBfarAddress = ScbAddress + 0x38;
 
-	static constexpr uint32_t ScbCcrDivideByZeroTrap = 1u << 4;
-	static constexpr uint32_t ScbShcsrFaultEnables = (1u << 16) | (1u << 17) | (1u << 18); // MEMFAULTENA, BUSFAULTENA, USGFAULTENA
+	static constexpr uint32_t ScbAllFaultBits = 0xFFFFFFFFU; // CFSR and HFSR are write-one-to-clear
+	static constexpr uint32_t ScbCcrDivideByZeroTrap = 1U << 4;
+	static constexpr uint32_t ScbShcsrFaultEnables = (1U << 16) | (1U << 17) | (1U << 18); // MEMFAULTENA, BUSFAULTENA, USGFAULTENA
 
 	static constexpr uint32_t SystickCtrlAddress = SystickAddress;
 	static constexpr uint32_t SystickLoadAddress = SystickAddress + 0x04;
@@ -1197,7 +1256,7 @@ private:
 	static constexpr std::size_t AircrPrigroupPos = 8;
 	static constexpr uint32_t AircrPrigroupMsk = prigroup_max << AircrPrigroupPos;
 	static constexpr std::size_t AircrVectkeyPos = 16;
-	static constexpr uint32_t AircrVectkeyMsk = 0xFFFFu << AircrVectkeyPos;
+	static constexpr uint32_t AircrVectkeyMsk = 0xFFFFU << AircrVectkeyPos;
 	static constexpr uint32_t AircrVectkeyValue = 0x5FA << AircrVectkeyPos;
 	static constexpr std::size_t AircrSysresetPos = 2;
 	static constexpr std::size_t AircrSysreset = 1 << AircrSysresetPos;

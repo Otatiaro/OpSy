@@ -12,6 +12,7 @@
 #include "qemu_test.hpp"
 #include "semihosting.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -29,7 +30,7 @@ void Reset_Handler();
 void Default_Handler();
 
 /** @brief newlib: runs everything in .init_array (static constructors). */
-void __libc_init_array();
+void __libc_init_array(); // NOLINT(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the name newlib gives it
 
 // Defined by OpSy in scheduler.cpp; scheduler::start_impl installs them
 // through set_isr_handler, but the table has to name them from reset so a
@@ -46,24 +47,24 @@ void SVC_Handler();
  *        evenly by 1000, which start_impl asserts when converting to the 1 ms
  *        tick. 25 MHz is the MPS2's nominal rate.
  */
-uint32_t SystemCoreClock = 25'000'000u;
+uint32_t SystemCoreClock = 25'000'000U;
 
 // What newlib and the C++ ABI expect the image to provide, defined further
 // down. Nothing calls them by name from here.
-void __aeabi_unwind_cpp_pr0();
+void __aeabi_unwind_cpp_pr0(); // NOLINT(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the name the ARM C++ ABI gives it
 void _init();
 void _fini();
-void* _sbrk(int);
-int _close(int);
-int _fstat(int, void*);
-int _isatty(int);
-int _lseek(int, int, int);
-int _read(int, char*, int);
-int _write(int, const char*, int);
+void* _sbrk(int /*increment*/);
+int _close(int /*file*/);
+int _fstat(int /*file*/, void* /*status*/);
+int _isatty(int /*file*/);
+int _lseek(int /*file*/, int /*offset*/, int /*whence*/);
+int _read(int /*file*/, char* /*buffer*/, int /*length*/);
+int _write(int /*file*/, const char* /*buffer*/, int length);
 int _getpid();
-int _kill(int, int);
-[[noreturn]] void _exit(int);
-int __aeabi_atexit(void*, void (*)(void*), void*);
+int _kill(int /*process*/, int /*signal*/);
+[[noreturn]] void _exit(int code);
+int __aeabi_atexit(void* /*object*/, void (* /*destructor*/)(void*), void* /*dso_handle*/); // NOLINT(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the name the ARM C++ ABI gives it
 
 } // extern "C"
 
@@ -82,7 +83,7 @@ using handler_t = void (*)();
  *        take, or fault. Alignment must cover the table size rounded up to a
  *        power of two, and 128 entries * 4 bytes is the ARMv7-M minimum.
  */
-alignas(512) handler_t g_vectors[16 + 64];
+alignas(512) std::array<handler_t, 16 + 64> g_vectors;
 
 [[noreturn]] void fault_handler()
 {
@@ -125,7 +126,7 @@ extern "C" void Default_Handler()
 
 /** @brief The boot table: only the first two entries are read by the core. */
 __attribute__((section(".isr_vector"), used))
-const void* const g_boot_vectors[] = {
+const std::array<const void*, 16> g_boot_vectors = {
 	&_estack,
 	reinterpret_cast<const void*>(&Reset_Handler),
 	reinterpret_cast<const void*>(&Default_Handler),   // NMI
@@ -147,30 +148,30 @@ extern "C" void Reset_Handler()
 	// the compiler nor QEMU does this for us.
 	const uint32_t* source = &_sidata;
 	for (uint32_t* destination = &_sdata; destination < &_edata; ++destination, ++source)
-		*destination = *source;
+		*destination = *source; // NOLINT(clang-analyzer-security.ArrayBound): the linker symbol marks where the section starts, not a single word
 
 	for (uint32_t* destination = &_sbss; destination < &_ebss; ++destination)
-		*destination = 0;
+		*destination = 0; // NOLINT(clang-analyzer-security.ArrayBound): see above
 
 	// Relocate the vector table into RAM and point VTOR at it. The first
 	// entry stays the initial MSP: OpSy reads it back through
 	// cortex_m::msp_at_reset() when it hands the main stack to the handlers.
 	g_vectors[0] = reinterpret_cast<handler_t>(&_estack);
 	g_vectors[1] = &Reset_Handler;
-	for (std::size_t i = 2; i < sizeof(g_vectors) / sizeof(g_vectors[0]); ++i)
+	for (std::size_t i = 2; i < g_vectors.size(); ++i)
 		g_vectors[i] = &Default_Handler;
 
 	g_vectors[11] = &SVC_Handler;
 	g_vectors[14] = &PendSV_Handler;
 	g_vectors[15] = &SysTick_Handler;
 
-	*reinterpret_cast<volatile uint32_t*>(0xE000ED08u) = reinterpret_cast<uint32_t>(&g_vectors[0]);
+	*reinterpret_cast<volatile uint32_t*>(0xE000ED08U) = reinterpret_cast<uint32_t>(g_vectors.data());
 
-#if defined(__ARM_FP)
+#ifdef __ARM_FP
 	// CPACR: full access to CP10/CP11. The images are built -mfloat-abi=hard
 	// on every target that has an FPU, so the first floating-point
 	// instruction would otherwise take a UsageFault.
-	*reinterpret_cast<volatile uint32_t*>(0xE000ED88u) |= (0xFu << 20);
+	*reinterpret_cast<volatile uint32_t*>(0xE000ED88U) |= (0xFU << 20);
 	asm volatile("dsb" ::: "memory");
 	asm volatile("isb" ::: "memory");
 #endif
@@ -195,7 +196,7 @@ extern "C" void Reset_Handler()
 extern "C"
 {
 
-void* __dso_handle = nullptr;
+void* __dso_handle = nullptr; // NOLINT(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp): the name the C++ ABI gives it
 
 void _init() {}
 void _fini() {}
@@ -217,21 +218,21 @@ void _fini() {}
 extern "C"
 {
 
-void* _sbrk(int)
+void* _sbrk(int /*increment*/)
 {
 	qemu::write("\n*** _sbrk called: the image must not allocate ***\n");
 	qemu::write("RESULT: FAIL\n");
 	qemu::exit(1);
 }
 
-int _close(int)                       { return -1; }
-int _fstat(int, void*)                { return -1; }
-int _isatty(int)                      { return 0; }
-int _lseek(int, int, int)             { return -1; }
-int _read(int, char*, int)            { return -1; }
-int _write(int, const char*, int len) { return len; }
-int _getpid()                         { return 1; }
-int _kill(int, int)                   { return -1; }
+int _close(int /*file*/)                                     { return -1; }
+int _fstat(int /*file*/, void* /*status*/)                   { return -1; }
+int _isatty(int /*file*/)                                    { return 0; }
+int _lseek(int /*file*/, int /*offset*/, int /*whence*/)     { return -1; }
+int _read(int /*file*/, char* /*buffer*/, int /*length*/)    { return -1; }
+int _write(int /*file*/, const char* /*buffer*/, int length) { return length; }
+int _getpid()                                                { return 1; }
+int _kill(int /*process*/, int /*signal*/)                   { return -1; }
 
 [[noreturn]] void _exit(int code)
 {
@@ -247,7 +248,7 @@ int _kill(int, int)                   { return -1; }
  *        semihosting — so registration is a no-op rather than a dependency on
  *        a full C++ runtime.
  */
-extern "C" int __aeabi_atexit(void*, void (*)(void*), void*)
+extern "C" int __aeabi_atexit(void* /*object*/, void (* /*destructor*/)(void*), void* /*dso_handle*/)
 {
 	return 0;
 }

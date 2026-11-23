@@ -224,13 +224,17 @@ OPSY_QEMU_TEST(a_release_of_several_lets_as_many_waiters_through)
 	opsy::sleep_for(5ms);
 	CHECK(g_order_index == 0);
 
+	// Waits on the waiters in steps of several ticks: on the slow core at
+	// -O0, waking every tick would leave them no time to run.
 	g_semaphore.release(2);
-	opsy::sleep_for(5ms);
+	for (int guard = 0; guard < 20 && g_order_index < 2; ++guard)
+		opsy::sleep_for(5ms);
 	CHECK(g_order_index == 2);     // two through, one still waiting
 	CHECK(!g_semaphore.try_acquire());
 
 	g_semaphore.release();
-	opsy::sleep_for(5ms);
+	for (int guard = 0; guard < 20 && g_order_index < 3; ++guard)
+		opsy::sleep_for(5ms);
 	CHECK(g_order_index == 3);
 
 	stop_all();

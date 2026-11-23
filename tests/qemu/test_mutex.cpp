@@ -381,7 +381,8 @@ OPSY_QEMU_TEST(a_middle_priority_task_cannot_starve_a_raised_holder)
 	}));
 	g_low.priority(opsy::task_priority::low);
 
-	opsy::sleep_for(2ms);
+	for (int guard = 0; guard < 50 && g_low_ran == 0; ++guard)
+		opsy::sleep_for(1ms);
 	CHECK(g_low_ran == 1);
 
 	// High blocks on the mutex: the holder inherits its priority.

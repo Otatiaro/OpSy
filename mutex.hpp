@@ -31,8 +31,10 @@
 #pragma once
 
 #include "opsy_assert.hpp"
+#include "cortex_m.hpp"
 #include "embedded_list.hpp"
 #include "scheduler.hpp"
+#include "task.hpp"
 
 namespace opsy
 {

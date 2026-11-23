@@ -17,7 +17,7 @@
 
 #include <opsy.hpp>
 
-#include <chrono>
+#include <chrono> // IWYU pragma: keep (the duration literals; https://github.com/llvm/llvm-project/issues/68213)
 #include <concepts>
 #include <utility>
 
@@ -145,10 +145,10 @@ static_assert(decltype(g_queue)::capacity() == 8);
 
 [[gnu::used]] void use_queue()
 {
-	(void) g_queue.try_push(1u);
-	(void) g_queue.try_emplace(2u);
-	(void) g_queue.push(3u);
-	(void) g_queue.push_for(4u, 10ms);
+	(void) g_queue.try_push(1U);
+	(void) g_queue.try_emplace(2U);
+	(void) g_queue.push(3U);
+	(void) g_queue.push_for(4U, 10ms);
 	(void) g_queue.try_pop();
 	(void) g_queue.pop();
 	(void) g_queue.pop_for(10ms);
@@ -169,7 +169,7 @@ static_assert(decltype(g_queue)::capacity() == 8);
 {
 	(void) opsy::scheduler::all_tasks();
 	(void) opsy::scheduler::now();
-	auto cs = opsy::scheduler::try_critical_section();
+	const auto cs = opsy::scheduler::try_critical_section();
 	(void) cs;
 }
 
@@ -191,7 +191,7 @@ static_assert(decltype(g_queue)::capacity() == 8);
 {
 	(void) opsy::cortex_m::ipsr();
 	(void) opsy::cortex_m::current_priority();
-	auto previous = opsy::cortex_m::set_basepri(opsy::isr_priority{ 0x80 });
+	const auto previous = opsy::cortex_m::set_basepri(opsy::isr_priority{ 0x80 });
 	(void) previous;
 	opsy::cortex_m::wfi();
 	opsy::cortex_m::nop();
@@ -218,7 +218,7 @@ void fake_handler() {}
 constinit opsy::callback<void()> g_by_address = &fake_handler;
 constinit opsy::callback<void()> g_by_name = fake_handler;
 constinit opsy::callback<void()> g_stateless = [] { fake_handler(); };
-#if defined(__cpp_lib_constant_wrapper)
+#ifdef __cpp_lib_constant_wrapper
 constinit opsy::callback<void()> g_wrapped = std::cw<&fake_handler>;
 #endif
 
@@ -257,7 +257,7 @@ public:
 	using irq_type = fake_irq;
 
 	template<fake_exception E, handler_t H>
-	constexpr auto with() const -> fake_vector_table
+	[[nodiscard]] constexpr auto with() const -> fake_vector_table
 	{
 		auto copy = *this;
 		copy.slots_[static_cast<std::size_t>(E)] = H;
@@ -265,19 +265,19 @@ public:
 	}
 
 	template<fake_irq I, handler_t H>
-	constexpr auto with() const -> fake_vector_table
+	[[nodiscard]] constexpr auto with() const -> fake_vector_table
 	{
 		auto copy = *this;
 		copy.slots_[16 + static_cast<std::size_t>(I)] = Decoration::template wrap<H>;
 		return copy;
 	}
 
-	constexpr auto with(auto&& install) const { return install(*this); }
+	[[nodiscard]] constexpr auto with(auto&& install) const { return install(*this); }
 
-	constexpr auto handler(std::size_t slot) const -> handler_t { return slots_[slot]; }
+	[[nodiscard]] constexpr auto handler(std::size_t slot) const -> handler_t { return slots_[slot]; }
 
 private:
-	handler_t slots_[18]{};
+	std::array<handler_t, 18> slots_{};
 };
 
 void fake_uart_isr() {}
@@ -359,7 +359,7 @@ struct no_pendsv_table
 	using exception_type = no_pendsv_exception;
 
 	template<no_pendsv_exception, handler_t>
-	constexpr auto with() const -> no_pendsv_table { return *this; }
+	[[nodiscard]] constexpr auto with() const -> no_pendsv_table { return *this; }
 };
 
 static_assert(!opsy::vector_table<no_pendsv_table>);
@@ -378,7 +378,7 @@ static_assert(!opsy::vector_table<no_chaining_table>);
 // ─────────────────────────── opsy::fault_isrs ──────────────────────────────
 // One entry behind the four fault exceptions, next to the scheduler's three.
 
-void fake_on_fault(const opsy::fault_status&, opsy::exception_frame&, uint32_t) {}
+void fake_on_fault(const opsy::fault_status& /*status*/, opsy::exception_frame& /*frame*/, uint32_t /*exc_return*/) {}
 
 constexpr auto g_fake_fault_vectors = fake_vector_table<opsy::hooked_isr>{}
 	.with(opsy::scheduler::isrs)
@@ -401,7 +401,7 @@ struct no_usage_fault_table
 	using exception_type = no_usage_fault_exception;
 
 	template<no_usage_fault_exception, handler_t>
-	constexpr auto with() const -> no_usage_fault_table { return *this; }
+	[[nodiscard]] constexpr auto with() const -> no_usage_fault_table { return *this; }
 };
 
 static_assert(!opsy::fault_vector_table<no_usage_fault_table, fake_on_fault>);
@@ -426,7 +426,10 @@ constexpr bool by_priority(const item& a, const item& b) { return a.priority < b
 // Sorted insertion, iteration, erase and pop, as the scheduler uses them.
 constexpr int sorted_insertion()
 {
-	item a{ 3 }, b{ 1 }, c{ 4 }, d{ 2 };
+	item a{ 3 };
+	item b{ 1 };
+	item c{ 4 };
+	item d{ 2 };
 	opsy::embedded_list<item> list;
 	list.insert_when(by_priority, a);
 	list.insert_when(by_priority, b);
@@ -434,10 +437,10 @@ constexpr int sorted_insertion()
 	list.insert_when(by_priority, d);
 	int order = 0;
 	for (const item& i : list)
-		order = order * 10 + i.priority;
+		order = (order * 10) + i.priority;
 	list.erase(a);
 	list.pop_front();
-	order = order * 100 + static_cast<int>(list.size()) * 10 + list.front().priority;
+	order = (order * 100) + (static_cast<int>(list.size()) * 10) + list.front().priority;
 	list.clear();
 	return order;
 }
@@ -446,7 +449,8 @@ static_assert(sorted_insertion() == 123422);
 // The const iterator and the move constructor.
 constexpr int moved_list()
 {
-	item a{ 3 }, b{ 1 };
+	item a{ 3 };
+	item b{ 1 };
 	opsy::embedded_list<item> list;
 	list.push_front(a);
 	list.push_front(b);
@@ -463,7 +467,7 @@ static_assert(moved_list() == 204);
 
 constexpr bool empty_callback()
 {
-	opsy::callback<void()> unset;
+	const opsy::callback<void()> unset;
 	opsy::callback<void()> null = nullptr;
 	null = nullptr;
 	return !unset && null == nullptr;
@@ -479,7 +483,7 @@ static_assert(apply_twice([](int y) { return y + 1; }, 5) == 7);
 static_assert(apply_twice(&twice, 5) == 20);
 static_assert(apply_twice(twice, 5) == 20);
 #endif
-#if defined(__cpp_lib_constant_wrapper)
+#ifdef __cpp_lib_constant_wrapper
 static_assert(apply_twice(std::cw<&twice>, 5) == 20);
 #endif
 
@@ -515,54 +519,54 @@ static_assert(fresh_mutex_is_free());
 namespace fault_status_decoding
 {
 
-constexpr opsy::fault_status nothing{0, 0, 0, 0};
+constexpr opsy::fault_status nothing{.cfsr = 0, .hfsr = 0, .mmfar = 0, .bfar = 0};
 static_assert(!nothing.escalated() && !nothing.vector_table_read());
 static_assert(!nothing.undefined_instruction() && !nothing.divide_by_zero() && !nothing.stack_overflow());
 static_assert(!nothing.memory_fault_address().has_value() && !nothing.bus_fault_address().has_value());
 
 // UFSR, escalated: __builtin_trap with the configurable faults disabled.
-constexpr opsy::fault_status trap{1u << 16, 1u << 30, 0, 0};
+constexpr opsy::fault_status trap{.cfsr = 1U << 16, .hfsr = 1U << 30, .mmfar = 0, .bfar = 0};
 static_assert(trap.escalated() && trap.undefined_instruction());
 static_assert(!trap.invalid_state() && !trap.invalid_pc() && !trap.no_coprocessor());
 static_assert(!trap.unaligned_access() && !trap.divide_by_zero() && !trap.stack_overflow());
 
-constexpr opsy::fault_status usage{(1u << 17) | (1u << 18) | (1u << 19) | (1u << 20) | (1u << 24) | (1u << 25), 0, 0, 0};
+constexpr opsy::fault_status usage{.cfsr = (1U << 17) | (1U << 18) | (1U << 19) | (1U << 20) | (1U << 24) | (1U << 25), .hfsr = 0, .mmfar = 0, .bfar = 0};
 static_assert(usage.invalid_state() && usage.invalid_pc() && usage.no_coprocessor());
 static_assert(usage.stack_overflow() && usage.unaligned_access() && usage.divide_by_zero());
 static_assert(!usage.undefined_instruction() && !usage.escalated());
 
 // MMFSR: a data access violation with its address; the bus side untouched.
-constexpr opsy::fault_status mem_manage{(1u << 1) | (1u << 7), 0, 0x20001000u, 0xDEADBEEFu};
+constexpr opsy::fault_status mem_manage{.cfsr = (1U << 1) | (1U << 7), .hfsr = 0, .mmfar = 0x20001000U, .bfar = 0xDEADBEEFU};
 static_assert(mem_manage.data_access_violation() && !mem_manage.instruction_access_violation());
-static_assert(mem_manage.memory_fault_address() == 0x20001000u);
+static_assert(mem_manage.memory_fault_address() == 0x20001000U);
 static_assert(!mem_manage.bus_fault_address().has_value());
 static_assert(!mem_manage.precise_bus_fault() && !mem_manage.stacking_error());
 
 // Without MMARVALID the address register means nothing, whatever it holds.
-constexpr opsy::fault_status mem_manage_no_address{1u << 1, 0, 0x20001000u, 0};
+constexpr opsy::fault_status mem_manage_no_address{.cfsr = 1U << 1, .hfsr = 0, .mmfar = 0x20001000U, .bfar = 0};
 static_assert(!mem_manage_no_address.memory_fault_address().has_value());
 
 // BFSR: precise, with its address.
-constexpr opsy::fault_status bus{(1u << 9) | (1u << 15), 0, 0, 0x40000000u};
+constexpr opsy::fault_status bus{.cfsr = (1U << 9) | (1U << 15), .hfsr = 0, .mmfar = 0, .bfar = 0x40000000U};
 static_assert(bus.precise_bus_fault() && !bus.imprecise_bus_fault() && !bus.instruction_bus_fault());
-static_assert(bus.bus_fault_address() == 0x40000000u);
+static_assert(bus.bus_fault_address() == 0x40000000U);
 static_assert(!bus.memory_fault_address().has_value());
 
-constexpr opsy::fault_status imprecise{(1u << 8) | (1u << 10), 0, 0, 0};
+constexpr opsy::fault_status imprecise{.cfsr = (1U << 8) | (1U << 10), .hfsr = 0, .mmfar = 0, .bfar = 0};
 static_assert(imprecise.imprecise_bus_fault() && imprecise.instruction_bus_fault() && !imprecise.precise_bus_fault());
 
 // Stacking, from either side.
-static_assert(opsy::fault_status{1u << 4, 0, 0, 0}.stacking_error());
-static_assert(opsy::fault_status{1u << 12, 0, 0, 0}.stacking_error());
-static_assert(opsy::fault_status{1u << 3, 0, 0, 0}.unstacking_error());
-static_assert(opsy::fault_status{1u << 11, 0, 0, 0}.unstacking_error());
-static_assert(opsy::fault_status{1u << 5, 0, 0, 0}.lazy_fp_state_error());
-static_assert(opsy::fault_status{1u << 13, 0, 0, 0}.lazy_fp_state_error());
-static_assert(!opsy::fault_status{1u << 4, 0, 0, 0}.unstacking_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 4, .hfsr = 0, .mmfar = 0, .bfar = 0}.stacking_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 12, .hfsr = 0, .mmfar = 0, .bfar = 0}.stacking_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 3, .hfsr = 0, .mmfar = 0, .bfar = 0}.unstacking_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 11, .hfsr = 0, .mmfar = 0, .bfar = 0}.unstacking_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 5, .hfsr = 0, .mmfar = 0, .bfar = 0}.lazy_fp_state_error());
+static_assert(opsy::fault_status{.cfsr = 1U << 13, .hfsr = 0, .mmfar = 0, .bfar = 0}.lazy_fp_state_error());
+static_assert(!opsy::fault_status{.cfsr = 1U << 4, .hfsr = 0, .mmfar = 0, .bfar = 0}.unstacking_error());
 
 // HFSR on its own: a vector table the core could not read.
-static_assert(opsy::fault_status{0, 1u << 1, 0, 0}.vector_table_read());
-static_assert(!opsy::fault_status{0, 1u << 1, 0, 0}.escalated());
+static_assert(opsy::fault_status{.cfsr = 0, .hfsr = 1U << 1, .mmfar = 0, .bfar = 0}.vector_table_read());
+static_assert(!opsy::fault_status{.cfsr = 0, .hfsr = 1U << 1, .mmfar = 0, .bfar = 0}.escalated());
 
 } // namespace fault_status_decoding
 

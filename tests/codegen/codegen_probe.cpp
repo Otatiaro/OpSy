@@ -169,7 +169,7 @@ void probe_handler_write_is_synchronised(opsy::cortex_m::isr_handler_t handler);
  */
 [[gnu::noinline, gnu::used]] void probe_handler_write_is_synchronised(opsy::cortex_m::isr_handler_t handler)
 {
-	opsy::cortex_m::set_isr_handler(27u, handler);
+	opsy::cortex_m::set_isr_handler(27U, handler);
 }
 
 } // extern "C"

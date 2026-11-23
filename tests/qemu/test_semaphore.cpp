@@ -27,13 +27,13 @@ opsy::task<1024> g_third;
 
 opsy::counting_semaphore<8> g_semaphore{ 0 };
 
-std::atomic<int> g_order_index = 0;
-std::atomic<int> g_order[4]{};
+std::atomic<std::size_t> g_order_index = 0;
+std::array<std::atomic<int>, 4> g_order{};
 std::atomic<int> g_acquired = 0;
 
 void record(int who)
 {
-	const int index = g_order_index;
+	const std::size_t index = g_order_index;
 	if (index < 4)
 	{
 		g_order[index] = who;

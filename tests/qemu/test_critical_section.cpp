@@ -41,7 +41,7 @@ std::atomic<bool> g_stop       = false;
  */
 void contend_once()
 {
-	auto section = opsy::scheduler::try_critical_section();
+	const auto section = opsy::scheduler::try_critical_section();
 	if (!section)
 		return;
 
@@ -59,18 +59,18 @@ void contend_once()
 
 OPSY_QEMU_TEST(a_second_request_while_held_comes_back_invalid)
 {
-	auto outer = opsy::scheduler::try_critical_section();
+	const auto outer = opsy::scheduler::try_critical_section();
 	CHECK(static_cast<bool>(outer));
 
 	{
-		auto inner = opsy::scheduler::try_critical_section();
+		const auto inner = opsy::scheduler::try_critical_section();
 		CHECK(!static_cast<bool>(inner));   // already held: must not claim it
 	}
 
 	// The invalid inner handle going out of scope must not have released the
 	// section the outer one still holds.
 	{
-		auto another = opsy::scheduler::try_critical_section();
+		const auto another = opsy::scheduler::try_critical_section();
 		CHECK(!static_cast<bool>(another));
 	}
 }
@@ -78,11 +78,11 @@ OPSY_QEMU_TEST(a_second_request_while_held_comes_back_invalid)
 OPSY_QEMU_TEST(the_section_is_available_again_after_release)
 {
 	{
-		auto section = opsy::scheduler::try_critical_section();
+		const auto section = opsy::scheduler::try_critical_section();
 		CHECK(static_cast<bool>(section));
 	}
 
-	auto again = opsy::scheduler::try_critical_section();
+	const auto again = opsy::scheduler::try_critical_section();
 	CHECK(static_cast<bool>(again));
 }
 
@@ -92,13 +92,13 @@ OPSY_QEMU_TEST(a_moved_from_handle_does_not_release_the_section)
 	CHECK(static_cast<bool>(original));
 
 	{
-		auto moved = std::move(original);
+		const auto moved = std::move(original);
 		CHECK(static_cast<bool>(moved));
-		CHECK(!static_cast<bool>(original));   // ownership transferred out
+		CHECK(!static_cast<bool>(original));   // NOLINT(bugprone-use-after-move): the moved-from state is what is checked. Ownership transferred out
 	}
 
 	// `moved` released it at scope exit, so it is free again.
-	auto again = opsy::scheduler::try_critical_section();
+	const auto again = opsy::scheduler::try_critical_section();
 	CHECK(static_cast<bool>(again));
 }
 

@@ -89,7 +89,7 @@ struct magnetometer_calibration
 	utility::matrix<3, 3, T>  soft_iron{};   ///< transform that maps the bias-corrected sample back onto a sphere
 
 	/** Apply the calibration to a raw magnetometer reading. */
-	constexpr utility::vector<3, T> correct(const utility::vector<3, T>& raw) const
+	[[nodiscard]] constexpr utility::vector<3, T> correct(const utility::vector<3, T>& raw) const
 	{
 		return soft_iron * (raw - hard_iron);
 	}
@@ -115,6 +115,9 @@ struct magnetometer_calibration
 template<typename T = float>
 class ellipsoid_fit
 {
+	// The nine parameters A to I of the quadric the fit solves for
+	static constexpr std::size_t terms = 9;
+
 public:
 
 	/**
@@ -136,21 +139,21 @@ public:
 
 		// Quadric design row: each sample contributes one row to the
 		// design matrix D, and we accumulate DᵀD and Dᵀ·1 directly.
-		const std::array<T, 9> coefs{
+		const std::array<T, terms> coefs{
 			x * x, y * y, z * z,
 			T{2} * x * y, T{2} * x * z, T{2} * y * z,
-			T{2} * x,     T{2} * y,     T{2} * z
+			T{2} * x,     T{2} * y,     T{2} * z,
 		};
 
 		// Symmetric outer product accumulation. Diagonal first, then the
 		// strict upper triangle mirrored across — saves one multiply per
 		// off-diagonal pair while keeping the matrix symmetric exactly.
-		for (std::size_t i = 0; i < 9; ++i)
+		for (std::size_t i = 0; i < terms; ++i)
 		{
 			sums_[i]     += coefs[i];
 			dtd_(i, i)   += coefs[i] * coefs[i];
 		}
-		for (std::size_t i = 0; i < 9; ++i)
+		for (std::size_t i = 0; i < terms; ++i)
 			for (std::size_t j = 0; j < i; ++j)
 			{
 				const T value = coefs[i] * coefs[j];
@@ -179,7 +182,7 @@ public:
 	 *        parameters. Necessary, never sufficient: nine coplanar samples
 	 *        still give a singular system, which @ref fit rejects.
 	 */
-	static constexpr std::size_t minimum_samples = 9;
+	static constexpr std::size_t minimum_samples = terms;
 
 	/**
 	 * @brief Solve the accumulated normal equations and return the
@@ -223,7 +226,7 @@ public:
 			return std::nullopt;
 
 		// 1. Solve the normal equations: DᵀD · v = sums.
-		const utility::vector<9, T> v = dtd_.solve(sums_);
+		const utility::vector<terms, T> v = dtd_.solve(sums_);
 		if (!all_finite(v)) // singular DᵀD: not enough independent samples
 			return std::nullopt;
 
@@ -233,12 +236,14 @@ public:
 		//    Q = | D  B  F  H |   with v = (A, B, C, D, E, F, G, H, I)
 		//        | E  F  C  I |
 		//        | G  H  I  -1|
+		// NOLINTBEGIN(readability-magic-numbers,cppcoreguidelines-avoid-magic-numbers): the indexes of v, laid out as Q above
 		utility::matrix<4, 4, T> algebraic{
 			v[0], v[3], v[4], v[6],
 			v[3], v[1], v[5], v[7],
 			v[4], v[5], v[2], v[8],
-			v[6], v[7], v[8], T{-1}
+			v[6], v[7], v[8], T{-1},
 		};
+		// NOLINTEND(readability-magic-numbers,cppcoreguidelines-avoid-magic-numbers)
 
 		// 3. Find the ellipsoid centre: solve A·c = -b where A is the
 		//    upper-left 3x3 of the quadric and b is the linear part
@@ -255,7 +260,7 @@ public:
 			T{1}, T{0}, T{0}, T{0},
 			T{0}, T{1}, T{0}, T{0},
 			T{0}, T{0}, T{1}, T{0},
-			hard_iron.x(), hard_iron.y(), hard_iron.z(), T{1}
+			hard_iron.x(), hard_iron.y(), hard_iron.z(), T{1},
 		};
 		const utility::matrix<4, 4, T> centred = translation * algebraic * translation.transposed();
 
@@ -292,7 +297,7 @@ public:
 		utility::vector<3, T> sqrt_lambda{
 			std::sqrt(eigen.values[0]),
 			std::sqrt(eigen.values[1]),
-			std::sqrt(eigen.values[2])
+			std::sqrt(eigen.values[2]),
 		};
 		utility::matrix<3, 3, T> soft_iron;
 		for (std::size_t i = 0; i < 3; ++i)
@@ -315,8 +320,8 @@ public:
 	 */
 	constexpr void reset()
 	{
-		dtd_   = utility::matrix<9, 9, T>{};
-		sums_  = utility::vector<9, T>{};
+		dtd_   = utility::matrix<terms, terms, T>{};
+		sums_  = utility::vector<terms, T>{};
 		count_ = 0;
 	}
 
@@ -336,13 +341,13 @@ private:
 	constexpr void rescale_if_saturating()
 	{
 		T max_abs = T{0};
-		for (std::size_t i = 0; i < 9; ++i)
+		for (std::size_t i = 0; i < terms; ++i)
 		{
 			const T a = sums_[i] < T{0} ? -sums_[i] : sums_[i];
 			if (a > max_abs) max_abs = a;
 		}
-		for (std::size_t i = 0; i < 9; ++i)
-			for (std::size_t j = 0; j < 9; ++j)
+		for (std::size_t i = 0; i < terms; ++i)
+			for (std::size_t j = 0; j < terms; ++j)
 			{
 				const T a = dtd_(i, j) < T{0} ? -dtd_(i, j) : dtd_(i, j);
 				if (a > max_abs) max_abs = a;
@@ -389,9 +394,9 @@ private:
 		return true;
 	}
 
-	utility::matrix<9, 9, T> dtd_{};
-	utility::vector<9, T>    sums_{};
-	std::size_t              count_{};
+	utility::matrix<terms, terms, T> dtd_{};
+	utility::vector<terms, T>        sums_{};
+	std::size_t                      count_{};
 };
 
 // Magnetometer calibration must round-trip through EEPROM via memcpy, so

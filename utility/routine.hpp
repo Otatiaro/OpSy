@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <array>
 #include <coroutine>
 #include <cstddef>
 #include <utility>
@@ -94,7 +95,7 @@ struct routine_storage
 	static_assert(reserved >= sizeof(void*), "no room in front of the frame for the back-pointer");
 	static_assert(Size > reserved, "Size leaves no room for a frame at all");
 
-	alignas(std::max_align_t) std::byte bytes[Size]{};
+	alignas(std::max_align_t) std::array<std::byte, Size> bytes{};
 
 	/**
 	 * @brief How many bytes the routine living here took, or 0 if it is free
@@ -146,12 +147,12 @@ public:
 		 *         a system that has neither.
 		 */
 		template<std::size_t Size, typename... Arguments>
-		[[gnu::always_inline]] static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&...) noexcept
+		[[gnu::always_inline]] static void* operator new(std::size_t size, routine_storage<Size>& storage, Arguments&&... /*arguments*/) noexcept
 		{
 			constexpr std::size_t reserved = routine_storage<Size>::reserved;
 			constexpr std::size_t available = Size - reserved;
 
-#if defined(__OPTIMIZE__)
+#ifdef __OPTIMIZE__
 			// Fails the build rather than the run. See the declaration for why
 			// this is the only place the frame size can be checked, and why it
 			// takes an optimised build.
@@ -179,9 +180,9 @@ public:
 			// to refuse under -Wcast-align. memcpy of a pointer compiles to
 			// the same single store.
 			std::size_t* const slot = &storage.used;
-			std::memcpy(storage.bytes, &slot, sizeof(slot));
+			std::memcpy(storage.bytes.data(), &slot, sizeof(slot)); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): it copies the pointer itself
 
-			return storage.bytes + reserved;
+			return &storage.bytes[reserved];
 		}
 
 		/**
@@ -190,12 +191,12 @@ public:
 		 *         What this releases is the storage's claim on it, so another
 		 *         routine can be built there.
 		 */
-		static void operator delete(void* frame, std::size_t) noexcept
+		static void operator delete(void* frame, std::size_t /*size*/) noexcept // NOLINT(misc-new-delete-overloads,cert-dcl54-cpp): the only new is the placement form on a storage, on purpose (see above); this is the delete the frame calls
 		{
-			const auto* const front = static_cast<std::byte*>(frame) - alignof(std::max_align_t);
+			const auto* const front = static_cast<std::byte*>(frame) - alignof(std::max_align_t); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic): the frame starts that far into its storage
 
 			std::size_t* slot = nullptr;
-			std::memcpy(&slot, front, sizeof(slot));
+			std::memcpy(&slot, front, sizeof(slot)); // NOLINT(bugprone-multi-level-implicit-pointer-conversion): it copies the pointer itself
 
 			*slot = 0;
 		}
@@ -210,7 +211,8 @@ public:
 			return routine{std::coroutine_handle<promise_type>::from_promise(*this)};
 		}
 
-		std::suspend_always initial_suspend() const noexcept { return {}; }
+		// NOLINTNEXTLINE(readability-convert-member-functions-to-static): the coroutine calls it on its promise; static, each coroutine would access a static member through an instance
+		[[nodiscard]] std::suspend_always initial_suspend() const noexcept { return {}; }
 
 		/**
 		 * @brief Leaves the routine suspended at its end rather than ending it
@@ -218,7 +220,7 @@ public:
 		 *         so @c done() would read freed storage. @ref routine
 		 *         destroys it instead.
 		 */
-		std::suspend_always final_suspend() const noexcept { return {}; }
+		[[nodiscard]] std::suspend_always final_suspend() const noexcept { return {}; } // NOLINT(readability-convert-member-functions-to-static): see initial_suspend
 
 		void return_void() const noexcept {}
 
@@ -309,7 +311,7 @@ public:
 
 private:
 
-	std::coroutine_handle<promise_type> handle_{};
+	std::coroutine_handle<promise_type> handle_;
 };
 
 /**
@@ -339,7 +341,7 @@ struct suspended
 	const volatile Value* source;
 
 	[[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
-	constexpr void await_suspend(std::coroutine_handle<>) const noexcept {}
+	constexpr void await_suspend(std::coroutine_handle<> /*caller*/) const noexcept {}
 	[[nodiscard]] Value await_resume() const noexcept { return *source; }
 };
 

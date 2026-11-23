@@ -26,12 +26,12 @@ namespace
 {
 using namespace std::chrono_literals;
 /** @brief How many steps a driven routine runs through. */
-constexpr int step_count = 4;
+constexpr std::size_t step_count = 4;
 /** @brief Marks a step the routine never reached, distinct from thread mode. */
-constexpr uint32_t never_ran = 0xFFFFFFFFu;
+constexpr uint32_t never_ran = 0xFFFFFFFFU;
 uint32_t g_irq = qemu_test::no_irq;
 /** @brief How far the routine has got. */
-std::atomic<int> g_step = 0;
+std::atomic<std::size_t> g_step = 0;
 /**
  * @brief The @c IPSR the routine saw at each of its steps
  *
@@ -40,13 +40,13 @@ std::atomic<int> g_step = 0;
  *        than asserted on the spot, so each case can say which of its steps
  *        it expected to be which.
  */
-std::atomic<uint32_t> g_context[step_count] {};
+std::array<std::atomic<uint32_t>, step_count> g_context{};
 /**
  * @brief The stack the routine ran on at each of its steps
  * @remark A routine has no stack of its own: it runs on whichever one resumed
  *         it. These values are what shows that.
  */
-std::atomic<uint32_t> g_stack[step_count] {};
+std::array<std::atomic<uint32_t>, step_count> g_stack{};
 opsy::utility::routine_storage<192> g_storage;
 opsy::utility::routine_storage<192> g_other_storage;
 /**
@@ -61,9 +61,9 @@ opsy::utility::routine_storage<192> g_other_storage;
 	return reinterpret_cast<uint32_t>(__builtin_frame_address(0));
 }
 /** @brief Records, at every step, where it ran and on which stack. */
-opsy::utility::routine driven(opsy::utility::routine_storage<192>&, std::atomic<int>* step)
+opsy::utility::routine driven(opsy::utility::routine_storage<192>& /*storage*/, std::atomic<std::size_t>* step) // NOLINT(cppcoreguidelines-avoid-reference-coroutine-parameters): the frame's storage, which routine's operator new takes by reference
 {
-	for (int i = 0; i < step_count; ++i)
+	for (std::size_t i = 0; i < step_count; ++i)
 	{
 		g_context[i] = opsy::cortex_m::ipsr();
 		g_stack[i] = current_stack_pointer();
@@ -117,16 +117,16 @@ void reset_state()
 	g_first = opsy::utility::routine{};
 	g_second = opsy::utility::routine{};
 	g_step = 0;
-	for (int i = 0; i < step_count; ++i)
+	for (std::size_t i = 0; i < step_count; ++i)
 	{
 		g_context[i] = never_ran;
 		g_stack[i] = 0;
 	}
 }
 /** @brief Whether every step from @p from onwards ran in handler mode. */
-bool ran_in_handler_from(int from)
+bool ran_in_handler_from(std::size_t from)
 {
-	for (int i = from; i < step_count; ++i)
+	for (std::size_t i = from; i < step_count; ++i)
 		if (g_context[i] == 0 || g_context[i] == never_ran)
 			return false;
 	return true;
@@ -143,7 +143,7 @@ OPSY_QEMU_TEST(a_routine_advances_one_step_per_interrupt)
 	g_first.resume();
 	CHECK(g_step == 1);
 	CHECK(g_context[0] == 0);                 // that first step ran on a task
-	for (int i = 2; i <= step_count; ++i)
+	for (std::size_t i = 2; i <= step_count; ++i)
 	{
 		fire();
 		CHECK(g_step == i);
@@ -165,7 +165,7 @@ OPSY_QEMU_TEST(a_routine_driven_by_interrupts_stays_finished)
 	CHECK(install_handler());
 	g_first = driven(g_storage, &g_step);
 	g_first.resume();
-	for (int i = 0; i < step_count + 5; ++i)
+	for (std::size_t i = 0; i < step_count + 5; ++i)
 		fire();
 	// The handler went on calling resume() long after the routine ended,
 	// which is what lets a driver's handler be one unconditional line.
@@ -179,7 +179,7 @@ OPSY_QEMU_TEST(the_scheduler_keeps_running_while_a_routine_is_driven)
 	const auto started = opsy::scheduler::now();
 	g_first = driven(g_storage, &g_step);
 	g_first.resume();
-	for (int i = 1; i < step_count; ++i)
+	for (std::size_t i = 1; i < step_count; ++i)
 		fire();
 	CHECK(g_step == step_count);
 	// A routine is not a task and never enters the scheduler: time kept
@@ -191,7 +191,7 @@ OPSY_QEMU_TEST(two_routines_on_one_interrupt_advance_independently)
 {
 	reset_state();
 	CHECK(install_handler());
-	std::atomic<int> second_step = 0;
+	std::atomic<std::size_t> second_step = 0;
 	g_first = driven(g_storage, &g_step);
 	g_second = driven(g_other_storage, &second_step);
 	CHECK(static_cast<bool>(g_first));
@@ -260,7 +260,7 @@ opsy::utility::routine_storage<256> g_probe_storage;
 // A routine that calls into the OS. Legal only because a task is what resumes
 // it: it runs on the task's stack, in thread mode, so sleep_for suspends the
 // task in the middle of resume().
-opsy::utility::routine sleeps_inside(opsy::utility::routine_storage<256>&)
+opsy::utility::routine sleeps_inside(opsy::utility::routine_storage<256>& /*storage*/) // NOLINT(cppcoreguidelines-avoid-reference-coroutine-parameters): see driven
 {
 	g_probe_step = 1;
 	opsy::sleep_for(5ms);
@@ -275,7 +275,7 @@ OPSY_QEMU_TEST(probe_a_routine_resumed_by_a_task_may_call_the_os)
 {
 	g_probe_step = 0;
 	const auto started = opsy::scheduler::now();
-	auto r = sleeps_inside(g_probe_storage);
+	const auto r = sleeps_inside(g_probe_storage);
 	r.resume();
 	CHECK(g_probe_step == 2);
 	CHECK(opsy::scheduler::now() >= started + 5ms);

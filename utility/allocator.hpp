@@ -45,9 +45,8 @@
 #include <array>
 #include "../opsy_assert.hpp"
 #include <cstddef>
-#include <cstdint>
+#include <cstdint> // IWYU pragma: keep (only an assert uses it)
 #include <cstdlib>
-#include <limits>
 
 namespace opsy::utility
 {
@@ -89,7 +88,7 @@ namespace opsy::utility
  * @tparam Dummy    The sentinel pattern used by @c UseDummy (default
  *                  @c 0xBAADF00D).
  */
-template<std::size_t N, bool UseDummy = false, int Dummy = static_cast<int>(0xBAADF00D)>
+template<std::size_t N, bool UseDummy = false, int Dummy = static_cast<int>(0xBAADF00D)> // NOLINT(readability-magic-numbers,cppcoreguidelines-avoid-magic-numbers): the customary fill pattern, named above
 class allocator
 {
 public:
@@ -125,7 +124,7 @@ public:
 			return nullptr;
 
 		const auto available_slots = data_[N - 1]; // the available slots
-		const auto needed_slots = static_cast<element_type>((bytes - 1) / sizeof(element_type) + 1); // the number of slots needed to allocate
+		const auto needed_slots = static_cast<element_type>(((bytes - 1) / sizeof(element_type)) + 1); // the number of slots needed to allocate
 
 		// Splitting the trailing free chunk creates a new (smaller) free chunk
 		// after the allocation, which itself needs 2 indicator slots — so the
@@ -139,7 +138,7 @@ public:
 		const auto new_index = previous_index + static_cast<size_type>(needed_slots) + 2; // this is the index of the end of the new allocation
 		data_[previous_index] = data_[new_index - 1] = -needed_slots; // creates the new allocation
 		data_[new_index] = data_[N - 1] = available_slots - needed_slots - 2; // and update the remaining slots
-		return reinterpret_cast<void*>(&data_[previous_index + 1]);
+		return static_cast<void*>(&data_[previous_index + 1]);
 	}
 
 	/**
@@ -164,7 +163,7 @@ public:
 	{
 		static_assert(alignof(T) <= alignof(element_type),
 			"allocator hands out element_type-aligned blocks; T needs stricter alignment than that");
-		return reinterpret_cast<T*>(allocate(count * sizeof(T)));
+		return static_cast<T*>(allocate(count * sizeof(T)));
 	}
 
 	/**
@@ -174,7 +173,7 @@ public:
 	void deallocate(const void* ptr)
 	{
 		assert(owns(ptr)); // to deallocate, the ptr must be handled by the allocator
-		auto ptr_index = static_cast<size_type>(reinterpret_cast<const element_type*>(ptr) - data_.data()); // ptr_index is the slot index of the pointer
+		auto ptr_index = static_cast<size_type>(static_cast<const element_type*>(ptr) - data_.data()); // ptr_index is the slot index of the pointer
 		auto allocated_slots = -data_[ptr_index - 1]; // the size of the allocation
 		assert(allocated_slots > 0 && (data_[ptr_index + static_cast<size_type>(allocated_slots)] == -allocated_slots)); // check the indicators are coherent
 		data_[ptr_index - 1] = data_[ptr_index + static_cast<size_type>(allocated_slots)] = allocated_slots; // release the allocation
@@ -226,8 +225,8 @@ public:
 	 */
 	bool owns(const void* ptr) const
 	{
-		assert(reinterpret_cast<std::uintptr_t>(ptr) % alignof(element_type) == 0); // the pointer is necessary aligned with the slots
-		const auto index = reinterpret_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
+		assert(reinterpret_cast<std::uintptr_t>(ptr) % alignof(element_type) == 0); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): alignment is a property of the address. The pointer must be aligned with the slots
+		const auto index = static_cast<const element_type*>(ptr) - data_.data(); // gets the pointer difference between data start and ptr
 		return index > 0 && index < static_cast<std::ptrdiff_t>(N - 1); // ptr in owned if between the allocator boundaries minus indicators
 	}
 
@@ -235,7 +234,7 @@ public:
 	 * Gets the size of the allocator, which is the size of the biggest slot that can be allocated
 	 * @return The size of the allocator, which is the size of the biggest slot that can be allocated
 	 */
-	constexpr size_type size() const
+	[[nodiscard]] constexpr size_type size() const
 	{
 		return (N - 2) * sizeof(element_type);
 	}
@@ -255,7 +254,7 @@ public:
 	 * @return The currently allocatable size in bytes (0 if the trailing
 	 *         chunk is too small to host any allocation).
 	 */
-	constexpr size_type available() const
+	[[nodiscard]] constexpr size_type available() const
 	{
 		const auto last_slot = data_[N - 1];
 		return last_slot > 2 ? static_cast<size_type>(last_slot - 2) * sizeof(element_type) : 0;
@@ -266,7 +265,7 @@ public:
 	 *
 	 * @return @c true if the allocator is empty, @c false otherwise
 	 */
-	constexpr bool empty() const
+	[[nodiscard]] constexpr bool empty() const
 	{
 		// The trailing free chunk spans the whole buffer minus its own 2
 		// indicators (start at data_[0], end at data_[N-1]) iff there is no
@@ -278,7 +277,7 @@ public:
 	 * Runs some coherence checks on the allocator and its content
 	 * @return @c true if the memory is coherent (no error found), @c false otherwise
 	 */
-	constexpr bool run_check() const
+	[[nodiscard]] constexpr bool run_check() const
 	{
 		size_type start_indicator = 0; // start at the beginning of the data
 

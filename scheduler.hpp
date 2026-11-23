@@ -50,16 +50,20 @@
 
 #pragma once
 
+#include <climits>
+#include <cstddef>
 #include <cstdint>
-#include <ratio>
 #include "opsy_assert.hpp"
 #include <atomic>
 #include <concepts>
 #include <type_traits>
 
 #include "config.hpp"
+#include "cortex_m.hpp"
+#include "embedded_list.hpp"
+#include "isr_priority.hpp"
 #include "task.hpp"
-#include "critical_section.hpp"
+#include "critical_section.hpp" // NOLINT(misc-header-include-cycle): it includes this header back, after its class, for its destructor
 #include "hooks.hpp"
 
 // Declared, not included: the scheduler names them in signatures and lists
@@ -107,6 +111,31 @@ namespace detail
 {
 
 /**
+ * @brief The two words of a 64-bit service call argument, as the AAPCS passes it in a register pair
+ */
+struct word_pair
+{
+	uint32_t low;
+	uint32_t high;
+};
+
+/**
+ * @brief Splits a 64-bit value into the register pair it travels in, low word first
+ */
+constexpr word_pair split_words(uint64_t value)
+{
+	return {.low = static_cast<uint32_t>(value), .high = static_cast<uint32_t>(value >> (sizeof(uint32_t) * CHAR_BIT))};
+}
+
+/**
+ * @brief Joins a register pair back into the 64-bit value it carries, low word first
+ */
+constexpr uint64_t join_words(uint32_t low, uint32_t high)
+{
+	return low | (uint64_t{high} << (sizeof(low) * CHAR_BIT));
+}
+
+/**
  * @brief A flag read through @c std::atomic_ref , so the read is generated in place
  * @remark The scheduler's flags are read on every task switch and wake-up,
  *         from a dozen places. At @c -Os GCC takes an inline function that
@@ -120,10 +149,13 @@ template<typename T>
 class inline_atomic
 {
 public:
-	constexpr inline_atomic(T value) : value_(value) {}
+	constexpr explicit inline_atomic(T value) noexcept : value_(value) {}
 
 	inline_atomic(const inline_atomic&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
 	inline_atomic& operator=(const inline_atomic&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
+	inline_atomic(inline_atomic&&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
+	inline_atomic& operator=(inline_atomic&&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
+	~inline_atomic() = default;
 
 	T load(std::memory_order order) const { return std::atomic_ref<T>(value_).load(order); }
 	void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }
@@ -147,7 +179,7 @@ class scheduler
 	friend void ::SysTick_Handler();
 	friend void ::PendSV_Handler();
 	friend void ::SVC_Handler();
-	friend void sleep_for(duration t);
+	friend void sleep_for(duration delay);
 	friend class task_control_block;
 	friend class critical_section;
 	friend class isr_lock;
@@ -197,7 +229,7 @@ public:
 	 *         Never returns: takes control of the CPU and runs the highest-priority @c task or the idle loop.
 	 *         Trying to start the scheduler twice trips an assert.
 	 */
-	template<std::size_t IdleStackSize = 64>
+	template<std::size_t IdleStackSize = default_idle_stack_size>
 	[[noreturn]] static void start(idle_task<IdleStackSize>& idle = default_idle<IdleStackSize>,
 	                               code_pointer entry = default_idle_loop)
 	{
@@ -225,7 +257,7 @@ public:
 	 */
 	static constexpr auto isrs = []<vector_table Table>(const Table& table) -> Table
 	{
-		using exception = typename Table::exception_type;
+		using exception = Table::exception_type;
 		return table.template with<exception::svcall, ::SVC_Handler>()
 		            .template with<exception::pendsv, ::PendSV_Handler>()
 		            .template with<exception::systick, ::SysTick_Handler>();
@@ -258,7 +290,7 @@ public:
 	 * @brief Gets the current @c time_point
 	 * @return The current @c time_point
 	 */
-	static inline time_point now()
+	static time_point now()
 	{
 		assert(is_started()
 			&& cortex_m::current_priority().value_or(cortex_m::lowest_priority).value() >= systick_priority.value());
@@ -288,7 +320,7 @@ public:
 	 * @brief The task currently running, or @c nullptr between tasks
 	 * @remark Exposed for @c mutex , which needs to know who is acquiring.
 	 */
-	[[nodiscard]] static inline task_control_block* current_task()
+	[[nodiscard]] static task_control_block* current_task()
 	{
 		return state_.current_task_.load(std::memory_order_relaxed);
 	}
@@ -299,7 +331,7 @@ public:
 	 *         all — neither @c ready_ nor running. Anything reasoning about
 	 *         where a task lives has to account for that window.
 	 */
-	[[nodiscard]] static inline task_control_block* next_task()
+	[[nodiscard]] static task_control_block* next_task()
 	{
 		return state_.next_task_.load(std::memory_order_relaxed);
 	}
@@ -327,7 +359,7 @@ public:
 	 * @remark Thread mode reports no priority at all, which is the lowest
 	 *         there is, so a task always passes.
 	 */
-	[[nodiscard]] static inline bool is_os_callable()
+	[[nodiscard]] static bool is_os_callable()
 	{
 		return cortex_m::current_priority()
 			.value_or(cortex_m::lowest_priority)
@@ -344,7 +376,7 @@ public:
 	 *         task to switch from, and the service call a @c kill or a sleep
 	 *         issues has no handler of OpSy's to land in.
 	 */
-	[[nodiscard]] static inline bool is_started()
+	[[nodiscard]] static bool is_started()
 	{
 		return state_.is_started_.load(std::memory_order_relaxed);
 	}
@@ -354,7 +386,7 @@ public:
 	 * @return A @c critical_section with state @c true if possible, @c false otherwise (already in critical section)
 	 * @remark Use this only for @c task to @c task synchronization, prefer @c mutex for a more generic synchronization (uses @c isr_priority to sychronize with interrupt service routines)
 	 */
-	[[nodiscard]] static inline opsy::critical_section try_critical_section()
+	[[nodiscard]] static opsy::critical_section try_critical_section()
 	{
 		return opsy::critical_section(critical_section_begin());
 	}
@@ -365,7 +397,7 @@ public:
 	 * @remark The pair behind @ref try_critical_section , for a holder that keeps
 	 *         the state itself: @c isr_lock . Prefer the object.
 	 */
-	[[nodiscard]] static inline bool critical_section_begin()
+	[[nodiscard]] static bool critical_section_begin()
 	{
 		assert(is_os_callable()); // an ISR above OpSy must not touch the scheduler
 
@@ -469,7 +501,7 @@ private:
 
 	static void trigger_soft_switch()
 	{
-		auto previous = cortex_m::exchange_basepri(service_call_priority);
+		const auto previous = cortex_m::exchange_basepri(service_call_priority);
 		state_.may_need_switch_.store(false, std::memory_order_relaxed);
 		assert(previous.value() == 0); // there is no reason to call this being in a mutex
 		do_switch(); // do the actual switch
@@ -502,38 +534,46 @@ private:
 	static void __attribute__((always_inline)) systick_handler();
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
-	static void service_call_handler(stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
+	static void service_call_handler(detail::stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
+
+	// The service calls that take arguments, one each, decoded from the
+	// registers by service_call_handler. Each returns whether it pended a switch.
+	// Inline: service_call_handler is their only caller, which takes them in
+	// rather than call them on the way to a switch.
+	static inline bool terminate_call(task_control_block& task);
+	static inline bool sleep_call(duration delay);
+	static inline bool wait_call(condition_variable& condition, duration timeout, detail::stack_frame* frame, uint32_t exc_return);
 	/**
-	 * @brief Records @p task as the owner of @p m
+	 * @brief Records @p task as the owner of @p target
 	 * @remark The two sides of taking a mutex, in one place so they cannot
 	 *         drift: the owner pointer, and membership of locked_mutexes_.
 	 *         Must be called with the critical section held.
 	 */
-	static void take_mutex(mutex& m, task_control_block& task);
+	static void take_mutex(mutex& target, task_control_block& task);
 
 	/**
-	 * @brief Records @p task as blocked on @p m and pays the priority donation
+	 * @brief Records @p task as blocked on @p target and pays the priority donation
 	 * @remark One place for the three steps, so the two callers — a contended
 	 *         lock, and waking to a mutex someone else took — cannot drift on
 	 *         the order they fire the hook and the inheritance in.
 	 */
-	static void block_on(mutex& m, task_control_block& task);
+	static void block_on(mutex& target, task_control_block& task);
 
 	/** @brief Clears @c state_.current_task_ so @c do_switch leaves the caller out of @c ready_ */
-	static inline void clear_current_task()
+	static void clear_current_task()
 	{
 		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 	}
 
 	/**
-	 * @brief Releases @p m , handing it straight to its highest-priority waiter
+	 * @brief Releases @p target , handing it straight to its highest-priority waiter
 	 * @remark Shared by the unlock service call and by a condition variable
 	 *         wait, which has to release the mutex it was given so another
 	 *         task can take it while this one sleeps. The waiter is made the
 	 *         owner here rather than left to race for it, so a task woken from
 	 *         a mutex owns it the moment it runs.
 	 */
-	static void release_mutex(mutex& m, task_control_block& owner);
+	static void release_mutex(mutex& target, task_control_block& owner);
 
 	/**
 	 * @brief Puts a task woken from a condition variable back where it belongs,
@@ -572,13 +612,13 @@ private:
 	static void wake(task_control_block& task, condition_variable& condition);
 
 	/**
-	 * @brief Highest-priority task currently blocked on @p m , or @c nullptr
+	 * @brief Highest-priority task currently blocked on @p target , or @c nullptr
 	 * @remark Derived by walking all_tasks_ rather than kept in a per-mutex
 	 *         list, so the relation lives in exactly one place
 	 *         (@c task::blocked_on_ ). all_tasks_ is a handful of entries on
 	 *         any real system, and this only runs on unlock with contention.
 	 */
-	static const task_control_block* highest_waiter(const mutex& m);
+	static const task_control_block* highest_waiter(const mutex& target);
 
 	/**
 	 * @brief Moves @p task to where its current priority belongs in whichever
@@ -619,7 +659,7 @@ private:
 	 * @brief Gives a just-released mutex to its highest-priority waiter
 	 * @return @c true if a task was made runnable
 	 */
-	static bool hand_over(mutex& m);
+	static bool hand_over(mutex& released);
 	static void update_priority(task_control_block& task, task_priority new_priority);
 };
 

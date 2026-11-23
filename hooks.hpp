@@ -89,7 +89,7 @@ enum class wake_reason : uint8_t
 }
 
 #if __has_include(<opsy_hooks.hpp>)
-#include <opsy_hooks.hpp>
+#include <opsy_hooks.hpp> // IWYU pragma: export
 #else
 
 namespace opsy
@@ -146,7 +146,9 @@ namespace opsy
 		static void idle_wait()
 		{
 			if constexpr(requires { Hooks::idle_wait(); })
+			{
 				Hooks::idle_wait();
+			}
 			else
 			{
 #ifndef NDEBUG
@@ -275,26 +277,26 @@ namespace opsy
 		/**
 		 * @brief A task starts waiting on a @c condition_variable
 		 * @param task The task
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 */
 		template<class Hooks = hooks>
-		static constexpr void task_wait(task_control_block& task, condition_variable& cv)
+		static constexpr void task_wait(task_control_block& task, condition_variable& condition)
 		{
-			if constexpr(requires { Hooks::task_wait(task, cv); })
-				Hooks::task_wait(task, cv);
+			if constexpr(requires { Hooks::task_wait(task, condition); })
+				Hooks::task_wait(task, condition);
 		}
 
 		/**
 		 * @brief A task starts waiting on a @c condition_variable with a deadline
 		 * @param task The task
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 * @param until When the wait times out
 		 */
 		template<class Hooks = hooks>
-		static constexpr void task_wait_timeout(task_control_block& task, condition_variable& cv, time_point until)
+		static constexpr void task_wait_timeout(task_control_block& task, condition_variable& condition, time_point until)
 		{
-			if constexpr(requires { Hooks::task_wait_timeout(task, cv, until); })
-				Hooks::task_wait_timeout(task, cv, until);
+			if constexpr(requires { Hooks::task_wait_timeout(task, condition, until); })
+				Hooks::task_wait_timeout(task, condition, until);
 		}
 
 		/**
@@ -446,49 +448,49 @@ namespace opsy
 
 		/**
 		 * @brief A @c condition_variable gains a waiter
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 * @param task The task that starts waiting
 		 */
 		template<class Hooks = hooks>
-		static constexpr void condition_variable_start_waiting(condition_variable& cv, task_control_block& task)
+		static constexpr void condition_variable_start_waiting(condition_variable& condition, task_control_block& task)
 		{
-			if constexpr(requires { Hooks::condition_variable_start_waiting(cv, task); })
-				Hooks::condition_variable_start_waiting(cv, task);
+			if constexpr(requires { Hooks::condition_variable_start_waiting(condition, task); })
+				Hooks::condition_variable_start_waiting(condition, task);
 		}
 
 		/**
 		 * @brief A @c condition_variable gains a waiter with a timeout
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 * @param task The task that starts waiting
 		 * @param timeout How long it waits at most
 		 */
 		template<class Hooks = hooks>
-		static constexpr void condition_variable_start_waiting(condition_variable& cv, task_control_block& task, duration timeout)
+		static constexpr void condition_variable_start_waiting(condition_variable& condition, task_control_block& task, duration timeout)
 		{
-			if constexpr(requires { Hooks::condition_variable_start_waiting(cv, task, timeout); })
-				Hooks::condition_variable_start_waiting(cv, task, timeout);
+			if constexpr(requires { Hooks::condition_variable_start_waiting(condition, task, timeout); })
+				Hooks::condition_variable_start_waiting(condition, task, timeout);
 		}
 
 		/**
 		 * @brief A @c condition_variable is notified once
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 */
 		template<class Hooks = hooks>
-		static constexpr void condition_variable_notify_one(condition_variable& cv)
+		static constexpr void condition_variable_notify_one(condition_variable& condition)
 		{
-			if constexpr(requires { Hooks::condition_variable_notify_one(cv); })
-				Hooks::condition_variable_notify_one(cv);
+			if constexpr(requires { Hooks::condition_variable_notify_one(condition); })
+				Hooks::condition_variable_notify_one(condition);
 		}
 
 		/**
 		 * @brief A @c condition_variable is notified for all its waiters
-		 * @param cv The condition variable
+		 * @param condition The condition variable
 		 */
 		template<class Hooks = hooks>
-		static constexpr void condition_variable_notify_all(condition_variable& cv)
+		static constexpr void condition_variable_notify_all(condition_variable& condition)
 		{
-			if constexpr(requires { Hooks::condition_variable_notify_all(cv); })
-				Hooks::condition_variable_notify_all(cv);
+			if constexpr(requires { Hooks::condition_variable_notify_all(condition); })
+				Hooks::condition_variable_notify_all(condition);
 		}
 
 		/**

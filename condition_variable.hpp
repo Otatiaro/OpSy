@@ -45,12 +45,16 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <mutex>
 #include <optional>
 
 #include "config.hpp"
 #include "embedded_list.hpp"
 #include "task.hpp"
-#include "cortex_m.hpp"
+#include "cortex_m.hpp" // IWYU pragma: keep (only the asserts use it)
+#include "hooks.hpp"
+#include "isr_priority.hpp"
 #include "mutex.hpp"
 #include "isr_lock.hpp"
 #include "scheduler.hpp"
@@ -68,10 +72,10 @@ namespace opsy
  *         and adding new types to @c namespace @c std is undefined behaviour
  *         per [namespace.std].
  */
-enum class cv_status
+enum class cv_status // NOLINT(performance-enum-size): the underlying type of std::cv_status
 {
 	no_timeout = 0, ///< The condition variable was notified before the timeout
-	timeout    = 1  ///< The timeout elapsed before the condition variable was notified
+	timeout    = 1, ///< The timeout elapsed before the condition variable was notified
 };
 
 template<std::ptrdiff_t LeastMaxValue>
@@ -264,10 +268,10 @@ private:
  */
 inline void condition_variable::notify_one()
 {
-	assert(!cortex_m::current_priority().has_value() || cortex_m::current_priority()->masked_value<preemption_bits>() >= notify_lock_.priority().value_or(isr_priority(0)).masked_value<preemption_bits>()); // an interrupt more urgent than the lock may not notify: the lock does not mask it, so it would break into a wait or a notification in progress
+	assert(!cortex_m::current_priority().has_value() || cortex_m::current_priority()->masked_value<preemption_bits>() >= notify_lock_.priority().value_or(isr_priority(0)).masked_value<preemption_bits>()); // NOLINT(bugprone-unchecked-optional-access): both calls read the same IPSR. An interrupt more urgent than the lock may not notify: the lock does not mask it, so it would break into a wait or a notification in progress
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	std::lock_guard<isr_lock> _(notify_lock_);
+	const std::scoped_lock _(notify_lock_);
 
 	hook::condition_variable_notify_one(*this);
 	scheduler::wake_one(*this);
@@ -279,10 +283,10 @@ inline void condition_variable::notify_one()
  */
 inline void condition_variable::notify_all()
 {
-	assert(!cortex_m::current_priority().has_value() || cortex_m::current_priority()->masked_value<preemption_bits>() >= notify_lock_.priority().value_or(isr_priority(0)).masked_value<preemption_bits>()); // an interrupt more urgent than the lock may not notify: the lock does not mask it, so it would break into a wait or a notification in progress
+	assert(!cortex_m::current_priority().has_value() || cortex_m::current_priority()->masked_value<preemption_bits>() >= notify_lock_.priority().value_or(isr_priority(0)).masked_value<preemption_bits>()); // NOLINT(bugprone-unchecked-optional-access): both calls read the same IPSR. An interrupt more urgent than the lock may not notify: the lock does not mask it, so it would break into a wait or a notification in progress
 	assert(notify_lock_.priority().value_or(scheduler::os_callable_priority).masked_value<preemption_bits>() >= scheduler::os_callable_priority.masked_value<preemption_bits>()); // the lock may not mask OpSy's own level: nothing could be notified from there, and a wait under it could not take its service call
 
-	std::lock_guard<isr_lock> _(notify_lock_);
+	const std::scoped_lock _(notify_lock_);
 
 	hook::condition_variable_notify_all(*this);
 	scheduler::wake_all(*this);
@@ -303,8 +307,8 @@ static inline void record_lock(std::variant<std::monostate, mutex*, isr_lock*> l
 
 inline cv_status condition_variable::do_wait(duration timeout)
 {
-	const auto count = timeout.count();
-	uint32_t result;
+	const auto count = detail::split_words(static_cast<uint64_t>(timeout.count()));
+	uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 
 	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
@@ -316,8 +320,8 @@ inline cv_status condition_variable::do_wait(duration timeout)
 			: [result] "=r" (result)
 			: [immediate] "I" (scheduler::service_call_number::wait),
 			  [this_ptr] "r" (this),
-			  [count_lo] "r" (static_cast<uint32_t>(count)),
-			  [count_hi] "r" (static_cast<uint32_t>(count >> 32))
+			  [count_lo] "r" (count.low),
+			  [count_hi] "r" (count.high)
 			: "r0", "r1", "r2", "memory");
 
 	assert(result == 0 || result == 1);

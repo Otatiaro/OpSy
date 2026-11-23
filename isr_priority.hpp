@@ -40,6 +40,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace opsy
@@ -58,6 +59,11 @@ public:
 	static constexpr uint8_t max_preemption_bits = 8;
 
 	/**
+	 * @brief The raw value of the lowest priority of the Cortex-M
+	 */
+	static constexpr uint8_t lowest = 0xFF;
+
+	/**
 	 * @brief Constructs the @c isr_priority from preemption priority and sub-priority based on number of preemption bits
 	 * @param preempt The preemption priority
 	 * @param sub The sub-priority
@@ -66,7 +72,7 @@ public:
 	template<std::size_t PreemptBits>
 	static constexpr isr_priority from_preempt_sub(uint8_t preempt, uint8_t sub)
 	{
-		return isr_priority(static_cast<uint8_t>(((preempt & ((1u << PreemptBits) - 1u)) << (max_preemption_bits - PreemptBits)) | (sub & (((1u << (max_preemption_bits - PreemptBits)) - 1u)))));
+		return isr_priority(static_cast<uint8_t>(((preempt & ((1U << PreemptBits) - 1U)) << (max_preemption_bits - PreemptBits)) | (sub & ((1U << (max_preemption_bits - PreemptBits)) - 1U))));
 	}
 
 	/**
@@ -74,30 +80,10 @@ public:
 	 * @param value The raw value of the priority (with no distinction between preemption and sub-priority)
 	 * @remark The default value is @c 0xFF which is the lowest priority available in the Cortex-M
 	 */
-	constexpr explicit isr_priority(uint8_t value = 0xFF) :
+	constexpr explicit isr_priority(uint8_t value = lowest) :
 			value_(value)
 	{
 
-	}
-
-	/**
-	 * @brief Constructs an @c isr_priority based on another one.
-	 * @param other The other @c isr_priority
-	 */
-	constexpr isr_priority(const isr_priority& other) :
-			value_(other.value_)
-	{
-	}
-
-	/**
-	 * @brief Copies the data from another @c isr_priority.
-	 * @param other The other @c isr_priority
-	 * @return A reference to this instance
-	 */
-	constexpr isr_priority& operator=(const isr_priority& other)
-	{
-		value_ = other.value_;
-		return *this;
 	}
 
 	/**
@@ -106,7 +92,7 @@ public:
 	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PreemptBits>
-	constexpr uint8_t preempt() const
+	[[nodiscard]] constexpr uint8_t preempt() const
 	{
 		return value_ >> (max_preemption_bits - PreemptBits);
 	}
@@ -117,9 +103,9 @@ public:
 	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PreemptBits>
-	constexpr uint8_t sub() const
+	[[nodiscard]] constexpr uint8_t sub() const
 	{
-		return value_ & ((1 << (max_preemption_bits - PreemptBits)) - 1);
+		return value_ & ((1U << (max_preemption_bits - PreemptBits)) - 1U);
 	}
 
 	/**
@@ -127,7 +113,7 @@ public:
 	 * @return The raw value
 	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
-	constexpr uint8_t value() const
+	[[nodiscard]] constexpr uint8_t value() const
 	{
 		return value_;
 	}
@@ -138,9 +124,9 @@ public:
 	 * @remark Like all @c isr_priority a lower value means a higher priority. @c 0 is the system highest priority, when @c 0xFF is the lowest priority.
 	 */
 	template<std::size_t PriorityBits>
-	constexpr uint8_t masked_value() const
+	[[nodiscard]] constexpr uint8_t masked_value() const
 	{
-		constexpr uint8_t mask = static_cast<uint8_t>(((1 << PriorityBits) - 1) << (max_preemption_bits - PriorityBits));
+		constexpr auto mask = static_cast<uint8_t>(((1U << PriorityBits) - 1U) << (max_preemption_bits - PriorityBits));
 		return value() & mask;
 	}
 

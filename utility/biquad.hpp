@@ -45,6 +45,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <numbers>
 #include <array>
 
@@ -54,7 +55,7 @@ namespace opsy::utility
 /**
  * Defines the type of a filter
  */
-enum class filter_type
+enum class filter_type : uint8_t
 {
 	low_pass, /// Filter high frequencies, allow low frequencies
 	high_pass, /// Filter low frequencies, allow high frequencies
@@ -98,9 +99,9 @@ public:
 	/**
 	 * The Butterworth Q value (1/sqrt(2)).
 	 * @remark Uses @c std::numbers::sqrt2_v rather than @c 1.0/std::sqrt(2.0) :
-	 *         @c std::sqrt is constexpr in libstdc++ as a GCC extension but not
-	 *         in libc++ / newlib, so the explicit form fails under clang.
-	 *         @c std::numbers (C++20) gives a portable constexpr.
+	 *         @c std::sqrt is constexpr only from C++26 (P1383), which not every
+	 *         standard library implements yet. @c std::numbers (C++20) is a
+	 *         constant everywhere.
 	 */
 	static constexpr Coef butterworth_q = Coef{1} / std::numbers::sqrt2_v<Coef>;
 
@@ -121,14 +122,17 @@ public:
 					b_({
 							make<coeff::b0>(sampling_frequency, cut_frequency, type, q),
 							make<coeff::b1>(sampling_frequency, cut_frequency, type, q),
-							make<coeff::b2>(sampling_frequency, cut_frequency, type, q)}),
+							make<coeff::b2>(sampling_frequency, cut_frequency, type, q),
+					}),
 					a_({
 							make<coeff::a1>(sampling_frequency, cut_frequency, type, q),
-							make<coeff::a2>(sampling_frequency, cut_frequency, type, q)}),
+							make<coeff::a2>(sampling_frequency, cut_frequency, type, q),
+					}),
 					delay_({
 							init(initial_value),
 							init(initial_value),
-							init(initial_value)})
+							init(initial_value),
+					})
 	{
 
 	}
@@ -139,7 +143,7 @@ public:
 	 */
 	constexpr void feed(const T& value)
 	{
-		auto w = value - delay_[0] * a_[0] - delay_[1] * a_[1];
+		auto w = value - (delay_[0] * a_[0]) - (delay_[1] * a_[1]);
 		delay_[2] = delay_[1];
 		delay_[1] = delay_[0];
 		delay_[0] = w;
@@ -151,7 +155,7 @@ public:
 	 */
 	constexpr T value() const
 	{
-		return delay_[0] * b_[0] + delay_[1] * b_[1] + delay_[2] * b_[2];
+		return (delay_[0] * b_[0]) + (delay_[1] * b_[1]) + (delay_[2] * b_[2]);
 	}
 
 	/**
@@ -172,9 +176,9 @@ private:
 	std::array<Coef, 2> a_;
 	std::array<T, 3> delay_;
 
-	enum class coeff
+	enum class coeff : uint8_t
 	{
-		b0, b1, b2, a1, a2
+		b0, b1, b2, a1, a2,
 	};
 
 	/**
@@ -188,13 +192,13 @@ private:
 	template<coeff K>
 	constexpr Coef make(const Coef& sampling, const Coef& cut, filter_type type, Coef q)
 	{
-		// std::numbers::pi_v is constexpr by spec on every conforming standard
-		// library; std::acos is only constexpr on libstdc++ as a GCC extension.
+		// std::numbers::pi_v is a constant on every conforming standard library;
+		// std::acos is constexpr only from C++26 (P1383), not yet everywhere.
 		constexpr Coef pi = std::numbers::pi_v<Coef>;
 		constexpr Coef two = static_cast<Coef>(2);
 
 		auto k = std::tan(pi * cut / sampling);
-		[[maybe_unused]] auto norm = one / (one + k / q + k * k);
+		[[maybe_unused]] auto norm = one / (one + (k / q) + (k * k));
 
 		switch (K)
 		{
@@ -206,7 +210,7 @@ private:
 			case filter_type::low_pass:    return k * k * norm;
 			case filter_type::high_pass:   return norm;
 			case filter_type::band_pass:   return k / q * norm;
-			case filter_type::notch:       return (one + k * k) * norm;
+			case filter_type::notch:       return (one + (k * k)) * norm;
 			}
 		}
 		case coeff::b1:
@@ -217,16 +221,16 @@ private:
 			case filter_type::low_pass:    return two * b_[0];
 			case filter_type::high_pass:   return -two * b_[0];
 			case filter_type::band_pass:   return zero;
-			case filter_type::notch:       return two * (k * k - one) * norm;
+			case filter_type::notch:       return two * ((k * k) - one) * norm;
 			}
 		}
 		case coeff::b2:
 		{
 			switch (type)
 			{
-			default:                       [[fallthrough]];
-			case filter_type::low_pass:    [[fallthrough]];
-			case filter_type::high_pass:   [[fallthrough]];
+			default:
+			case filter_type::low_pass:
+			case filter_type::high_pass:
 			case filter_type::notch:       return b_[0];
 			case filter_type::band_pass:   return -b_[0];
 			}
@@ -235,15 +239,15 @@ private:
 		{
 			switch (type)
 			{
-			default:                       [[fallthrough]];
-			case filter_type::low_pass:    [[fallthrough]];
-			case filter_type::high_pass:   [[fallthrough]];
-			case filter_type::band_pass:   return two * (k * k - one) * norm;
+			default:
+			case filter_type::low_pass:
+			case filter_type::high_pass:
+			case filter_type::band_pass:   return two * ((k * k) - one) * norm;
 			case filter_type::notch:       return b_[1];
 			}
 		}
 		case coeff::a2:
-			return (one - k / q + k * k) * norm;
+			return (one - (k / q) + (k * k)) * norm;
 
 		default:
 			return zero;

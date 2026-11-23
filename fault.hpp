@@ -173,7 +173,7 @@ template<fault_handler_t OnFault>
 constexpr auto fault_isrs = []<typename Table>(const Table& table) -> Table
 	requires fault_vector_table<Table, OnFault>
 {
-	using exception = typename Table::exception_type;
+	using exception = Table::exception_type;
 	return table.template with<exception::hard_fault, detail::fault_entry<OnFault>>()
 	            .template with<exception::mem_manage, detail::fault_entry<OnFault>>()
 	            .template with<exception::bus_fault, detail::fault_entry<OnFault>>()

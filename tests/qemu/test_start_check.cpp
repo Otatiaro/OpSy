@@ -54,7 +54,7 @@ void Default_Handler();
 void check_mem_manage_handler();
 void check_hard_fault_handler();
 void check_skip_store(uint32_t* frame);
-void check_hard_fault(uint32_t* frame, uint32_t exc_return);
+void check_hard_fault(const uint32_t* frame, uint32_t exc_return);
 }
 
 namespace
@@ -63,7 +63,7 @@ namespace
 using handler_t = void (*)();
 
 /** @brief The table start runs on: aligned for VTOR, and for one MPU region over its first 64 entries. */
-alignas(512) handler_t g_table[16 + 64];
+alignas(512) std::array<handler_t, 16 + 64> g_table;
 
 constexpr std::size_t protected_bytes = 64 * sizeof(handler_t);
 
@@ -77,8 +77,8 @@ volatile uint32_t& reg(uint32_t address)
 	return *reinterpret_cast<volatile uint32_t*>(address);
 }
 
-constexpr uint32_t cfsr = 0xE000ED28u;
-constexpr uint32_t vtor = 0xE000ED08u;
+constexpr uint32_t cfsr = 0xE000ED28U;
+constexpr uint32_t vtor = 0xE000ED08U;
 
 [[noreturn]] void fail(const char* why)
 {
@@ -96,7 +96,7 @@ constexpr uint32_t vtor = 0xE000ED08u;
 /** @brief The table, read-only to privileged code, no access otherwise. */
 void protect_table()
 {
-	qemu_test::mpu::make_read_only(reinterpret_cast<uint32_t>(&g_table[0]), protected_bytes);
+	qemu_test::mpu::make_read_only(reinterpret_cast<uint32_t>(g_table.data()), protected_bytes);
 }
 
 } // namespace
@@ -132,19 +132,19 @@ extern "C" [[gnu::used]] void check_skip_store(uint32_t* frame)
 {
 	frame[6] += qemu_test::thumb_instruction_length(frame[6]);
 
-	reg(cfsr) = reg(cfsr) & 0xFFu; // MMFSR, write-one-to-clear
+	reg(cfsr) = reg(cfsr) & 0xFFU; // MMFSR, write-one-to-clear
 	g_skipped_stores = g_skipped_stores + 1;
 }
 
-extern "C" [[gnu::used]] void check_hard_fault(uint32_t* frame, uint32_t exc_return)
+extern "C" [[gnu::used]] void check_hard_fault(const uint32_t* frame, uint32_t exc_return)
 {
 	const auto opcode = *reinterpret_cast<const volatile uint16_t*>(frame[6]);
-	const bool trap = (opcode & 0xFF00u) == 0xDE00u   // udf: __builtin_trap
-	               || (opcode & 0xFF00u) == 0xBE00u;  // bkpt: a trap() that halts a debugger
+	const bool trap = (opcode & 0xFF00U) == 0xDE00U   // udf: __builtin_trap
+	               || (opcode & 0xFF00U) == 0xBE00U;  // bkpt: a trap() that halts a debugger
 
 	if (!trap)
 		fail("a fault, not a trap");
-	if ((exc_return & 4u) != 0)
+	if ((exc_return & 4U) != 0)
 		fail("a trap after start switched to the process stack: not the vector table check");
 	if (g_skipped_stores == 0)
 		fail("no store to the table was refused, so the table was never read-only");
@@ -170,7 +170,7 @@ int opsy_test_main()
 	g_table[15] = &SysTick_Handler;
 	// g_table[11] stays unexpected_exception: SVC_Handler is what start cannot install.
 
-	reg(vtor) = reinterpret_cast<uint32_t>(&g_table[0]);
+	reg(vtor) = reinterpret_cast<uint32_t>(g_table.data());
 	asm volatile("dsb\n\tisb" ::: "memory");
 
 	protect_table();

@@ -32,12 +32,12 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <new>
 #include <optional>
@@ -45,6 +45,8 @@
 #include <utility>
 
 #include "opsy_assert.hpp"
+#include "config.hpp"
+#include "cortex_m.hpp" // IWYU pragma: keep (only the debug checks use it)
 #include "scheduler.hpp"
 #include "isr_lock.hpp"
 #include "condition_variable.hpp"
@@ -56,7 +58,7 @@ namespace opsy
  * @brief What a non-blocking queue operation did, as the proposed
  *        @c std::conqueue_status (P0260)
  */
-enum class conqueue_status
+enum class conqueue_status // NOLINT(performance-enum-size): the underlying type of P0260's std::conqueue_status
 {
 	success,    ///< done
 	empty,      ///< nothing to pop
@@ -116,6 +118,8 @@ public:
 
 	queue(const queue&) = delete("a queue is waited on by address: it stays where it is");
 	queue& operator=(const queue&) = delete("a queue is waited on by address: it stays where it is");
+	queue(queue&&) = delete("a queue is waited on by address: it stays where it is");
+	queue& operator=(queue&&) = delete("a queue is waited on by address: it stays where it is");
 
 	~queue()
 	{
@@ -278,7 +282,7 @@ public:
 	void close() noexcept
 	{
 		closed_.store(true, std::memory_order_relaxed);
-		std::lock_guard<isr_lock> _(lock_);
+		const std::scoped_lock _(lock_);
 		not_empty_.notify_all();
 		not_full_.notify_all();
 	}
@@ -350,7 +354,7 @@ private:
 		if (size_.load(std::memory_order_acquire) < Capacity)
 			return true;
 
-		std::lock_guard<isr_lock> _(lock_);
+		const std::scoped_lock _(lock_);
 		while (size_.load(std::memory_order_acquire) == Capacity && !closed_.load(std::memory_order_relaxed))
 			if (!wait(not_full_, deadline))
 				break;
@@ -366,7 +370,7 @@ private:
 		if (size_.load(std::memory_order_acquire) > 0)
 			return true;
 
-		std::lock_guard<isr_lock> _(lock_);
+		const std::scoped_lock _(lock_);
 		while (size_.load(std::memory_order_acquire) == 0 && !closed_.load(std::memory_order_relaxed))
 			if (!wait(not_empty_, deadline))
 				break;
@@ -395,7 +399,7 @@ private:
 		// that needs it, and size() is read rather than empty() because the
 		// tick may be half-way through removing a waiter; see
 		// counting_semaphore::release().
-		if (condition.waiting_list_.size() != 0)
+		if (condition.waiting_list_.size() != 0) // NOLINT(readability-container-size-empty): see above
 			condition.notify_one();
 	}
 
@@ -433,10 +437,11 @@ private:
 	 */
 	static std::uintptr_t context() noexcept
 	{
+		constexpr std::uintptr_t exception_tag = 1U << 31U; // sets an exception number apart from a task's address
 		if (const auto exception = cortex_m::ipsr(); exception != 0)
-			return 0x80000000u | exception;
+			return exception_tag | exception;
 		if (const auto* task = scheduler::current_task(); task != nullptr)
-			return reinterpret_cast<std::uintptr_t>(task);
+			return reinterpret_cast<std::uintptr_t>(task); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): a task is told apart by its address
 		return 1;
 	}
 
@@ -451,7 +456,7 @@ private:
 	std::atomic<std::uintptr_t> producer_{ 0 };
 	std::atomic<std::uintptr_t> consumer_{ 0 };
 #else
-	static void check_side(int) noexcept {}
+	static void check_side(int /*side*/) noexcept {}
 	static constexpr int producer_ = 0;
 	static constexpr int consumer_ = 0;
 #endif
@@ -459,7 +464,7 @@ private:
 	// Zero-initialized so that a queue is constant-initialized: one declared
 	// at namespace scope is ready before any constructor runs, for an
 	// interrupt handler that fires that early.
-	alignas(T) std::byte storage_[Capacity * sizeof(T)]{};
+	alignas(T) std::array<std::byte, Capacity * sizeof(T)> storage_{};
 	std::size_t head_ = 0;   // the producer's end, written by it alone
 	std::size_t tail_ = 0;   // the consumer's end, written by it alone
 	std::atomic<std::uint32_t> size_{ 0 };

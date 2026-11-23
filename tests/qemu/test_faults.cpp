@@ -69,17 +69,17 @@ struct alignas(512) vector_table
 	}
 
 	template<exception Exception, handler_t Handler>
-	constexpr auto with() const -> vector_table
+	[[nodiscard]] constexpr auto with() const -> vector_table
 	{
 		auto copy = *this;
 		copy.handlers[static_cast<std::size_t>(Exception) - 1] = Handler;
 		return copy;
 	}
 
-	constexpr auto with(auto&& install) const { return install(*this); }
+	[[nodiscard]] constexpr auto with(auto&& install) const { return install(*this); }
 
 	uint32_t* initial_sp;
-	handler_t handlers[15 + 64];
+	std::array<handler_t, 15 + 64> handlers{};
 };
 
 static_assert(offsetof(vector_table, handlers) == sizeof(uint32_t*), "slot 1, the reset handler, follows the initial stack pointer");
@@ -96,15 +96,15 @@ record g_last;
 volatile uint32_t g_faults = 0;
 
 /** @brief 256 bytes the MPU will make read-only; aligned to its size, as PMSAv7 needs. */
-alignas(256) volatile uint32_t g_guarded[64];
+alignas(256) std::array<volatile uint32_t, 64> g_guarded;
 
 opsy::task<1024> g_task;
 opsy::idle_task<256> g_idle;
 
-constexpr uint32_t vtor = 0xE000ED08u;
+constexpr uint32_t vtor = 0xE000ED08U;
 
 /** @brief Device space nothing answers on the boards this runs on; a load from it is a precise BusFault. */
-constexpr uint32_t unmapped = 0xF0000000u;
+constexpr uint32_t unmapped = 0xF0000000U;
 
 [[noreturn]] void fail(const char* why)
 {
@@ -151,7 +151,7 @@ void on_fault(const opsy::fault_status& status, opsy::exception_frame& frame, ui
 	if (status.stack_overflow())
 		pass();
 
-	g_last = {status, frame.pc, exc_return};
+	g_last = {.status = status, .pc = frame.pc, .exc_return = exc_return};
 	g_faults = g_faults + 1;
 
 	frame.pc += qemu_test::thumb_instruction_length(frame.pc);
@@ -198,7 +198,7 @@ void load_from_unmapped()
 	(void) *reinterpret_cast<volatile uint32_t*>(unmapped);
 }
 
-#if defined(__ARM_ARCH_8M_MAIN__)
+#ifdef __ARM_ARCH_8M_MAIN__
 /** @brief Takes PSP below PSPLIM. The fault's own frame has room above the limit; what follows never runs. */
 [[noreturn]] void overflow_the_stack()
 {
@@ -236,7 +236,7 @@ void run_cases()
 	expect(g_last.status.divide_by_zero(), "UFSR.DIVBYZERO is not set");
 	expect(!g_last.status.undefined_instruction(), "UFSR.UNDEFINSTR is still set: the status was not cleared");
 
-	qemu_test::mpu::make_read_only(reinterpret_cast<uint32_t>(&g_guarded[0]), sizeof(g_guarded));
+	qemu_test::mpu::make_read_only(reinterpret_cast<uint32_t>(g_guarded.data()), sizeof(g_guarded));
 	one_fault(store_to_read_only, "store to memory the MPU protects");
 	expect(g_last.status.data_access_violation(), "MMFSR.DACCVIOL is not set");
 	expect(g_last.status.memory_fault_address() == reinterpret_cast<uint32_t>(&g_guarded[3]), "MMFAR is not the address stored to");
@@ -248,7 +248,7 @@ void run_cases()
 	expect(g_last.status.bus_fault_address() == unmapped, "BFAR is not the address loaded from");
 	expect(!g_last.status.memory_fault_address().has_value(), "MMARVALID is set on a BusFault");
 
-#if defined(__ARM_ARCH_8M_MAIN__)
+#ifdef __ARM_ARCH_8M_MAIN__
 	qemu::write("  stack limit: taking PSP below PSPLIM, the handler ends the run\n");
 	overflow_the_stack();
 #else

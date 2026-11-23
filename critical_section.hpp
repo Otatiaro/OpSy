@@ -78,7 +78,7 @@ public:
 	 * @param other The @c critical_section to move data from
 	 * @warning This @c critical_section should not be active before it is assigned to
 	 */
-	constexpr critical_section& operator=(critical_section&& other)
+	constexpr critical_section& operator=(critical_section&& other) noexcept
 	{
 		assert(!valid_);
 		valid_ = other.valid_;
@@ -90,7 +90,7 @@ public:
 	 * @brief Constructs a @c critical_section by moving data from another @c critical_section
 	 * @param other The @c critical_section to move data from
 	 */
-	constexpr critical_section(critical_section&& other) :
+	constexpr critical_section(critical_section&& other) noexcept :
 			valid_(other.valid_)
 	{
 		other.valid_ = false;
@@ -134,4 +134,4 @@ private:
 // The destructor is defined in scheduler.hpp, after the scheduler it calls
 // into; the scheduler needs this class complete first, hence the include here
 // rather than at the top.
-#include "scheduler.hpp"
+#include "scheduler.hpp" // NOLINT(misc-header-include-cycle): see above

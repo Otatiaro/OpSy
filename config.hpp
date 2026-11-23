@@ -67,6 +67,7 @@
 // one in opsy_config.hpp) rather than redeclared after it.
 #include "opsy_assert.hpp"
 
+#include <cstddef> // IWYU pragma: keep (the defaults below use it; opsy_config.hpp replaces them)
 #include <cstdint>
 #include <chrono>
 #include <ratio>
@@ -76,7 +77,7 @@ namespace opsy
 {
 
 #if __has_include(<opsy_config.hpp>)
-#include <opsy_config.hpp>
+#include <opsy_config.hpp> // IWYU pragma: export
 #else
 
 
@@ -233,5 +234,5 @@ static_assert(opsy::opsy_preemption + 1 < (1<<opsy::preemption_bits), "OpSy must
 // the trap-based macro, and no OpSy header includes <cassert> directly -- they
 // all include opsy_assert.hpp instead, so nothing re-clobbers it later in the
 // chain.
-#include "opsy_assert.hpp"
+#include "opsy_assert.hpp" // NOLINT(readability-duplicate-include): see above
 

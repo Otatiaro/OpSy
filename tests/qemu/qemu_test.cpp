@@ -13,7 +13,6 @@
 
 #include <opsy.hpp>
 
-#include <atomic>
 
 namespace qemu_test
 {
@@ -54,7 +53,7 @@ void report_failure(const char* file, int line, const char* expression)
 
 [[noreturn]] void run_all_and_exit()
 {
-	for (auto* current = registry(); current != nullptr; current = current->next)
+	for (const auto* current = registry(); current != nullptr; current = current->next)
 	{
 		g_current_test = current->name;
 		const int before = g_failures;

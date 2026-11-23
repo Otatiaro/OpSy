@@ -800,7 +800,7 @@ opsy::utility::routine send(opsy::utility::routine_storage<128>&, const uint8_t*
 	{
 		g_data = bytes[i];
 
-		if ((co_await opsy::utility::suspended<uint32_t>{ &g_status }) & 1u)
+		if ((co_await opsy::utility::suspended<uint32_t>{ &g_status }) & 1U)
 			co_return;                       // the peripheral said no
 	}
 

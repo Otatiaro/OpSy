@@ -126,7 +126,7 @@ public:
 			rotation_vector.x() * s,
 			rotation_vector.y() * s,
 			rotation_vector.z() * s,
-			std::cos(half)
+			std::cos(half),
 		};
 	}
 
@@ -149,8 +149,9 @@ public:
 	 */
 	constexpr quaternion(const vector<3, T>& from, const vector<3, T>& to)
 	{
+		constexpr T antiparallel = static_cast<T>(1e-6);
 		const T r = dot_product(from, to) + T{1};
-		if (r < static_cast<T>(1e-6))  // antiparallel: pick any axis perpendicular to from
+		if (r < antiparallel)  // pick any axis perpendicular to from
 		{
 			vector<3, T> perp = (std::abs(from.x()) > std::abs(from.z()))
 				? vector<3, T>{ -from.y(),  from.x(), T{0}     }
@@ -262,7 +263,7 @@ constexpr quaternion<T> hamilton_product(const quaternion<T>& q1, const quaterni
 		q1.w() * q2.x() + q1.x() * q2.w() + q1.y() * q2.z() - q1.z() * q2.y(),
 		q1.w() * q2.y() - q1.x() * q2.z() + q1.y() * q2.w() + q1.z() * q2.x(),
 		q1.w() * q2.z() + q1.x() * q2.y() - q1.y() * q2.x() + q1.z() * q2.w(),
-		q1.w() * q2.w() - q1.x() * q2.x() - q1.y() * q2.y() - q1.z() * q2.z()
+		q1.w() * q2.w() - q1.x() * q2.x() - q1.y() * q2.y() - q1.z() * q2.z(),
 	};
 }
 
@@ -366,7 +367,8 @@ constexpr quaternion<T> slerp(const quaternion<T>& q1, const quaternion<T>& q2, 
 		cos_theta = -cos_theta;
 	}
 
-	if (cos_theta > static_cast<T>(0.9995))     // nearly aligned — fall back to normalised lerp
+	constexpr T nearly_aligned = static_cast<T>(0.9995);
+	if (cos_theta > nearly_aligned)     // fall back to normalised lerp
 	{
 		auto result = q1 * (T{1} - t) + q2_adj * t;
 		result.normalize();

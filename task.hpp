@@ -418,29 +418,43 @@ public:
 
 	/**
 	 * @brief The priority this task was given
-	 * @return The requested priority, not the effective one
+	 * @return The base priority, set through @ref base_priority(task_priority)
 	 *
-	 * @remark Returns @ref base_priority_ : what a caller set through
-	 *         @ref priority(task_priority) , which is the only value they can
-	 *         reason about. The effective priority may be temporarily higher
-	 *         through inheritance, and reporting that would make
-	 *         @c t.priority(p); @c t.priority() @c == @c p fail unpredictably.
+	 * @remark What the task runs at while it owes nothing: a donation through
+	 *         a mutex it holds can raise it above this, which
+	 *         @ref current_priority reports.
 	 */
-	[[nodiscard]] constexpr task_priority priority() const
+	[[nodiscard]] constexpr task_priority base_priority() const
 	{
 		return base_priority_;
 	}
 
 	/**
-	 * @brief Dynamically change the @c task_priority of the @c task_control_block
+	 * @brief Dynamically change the base @c task_priority of the @c task_control_block
 	 * @param new_priority the new @c task_priority
 	 * @remark This may trigger a @c task_control_block switch from the system to make sure the most important @c task_control_block is always executed
+	 * @remark The current priority follows unless a donation outranks it.
 	 *
 	 * @warning The task must be started, and this must not be called from an
 	 *          interrupt handler more urgent than OpSy. Both are asserted in
 	 *          debug; see the definition for what each one prevents.
 	 */
-	void priority(task_priority new_priority);
+	void base_priority(task_priority new_priority);
+
+	/**
+	 * @brief The priority this task is scheduled by right now
+	 * @return The base priority, or higher while a task waiting on a mutex
+	 *         this one holds donates its own
+	 *
+	 * @remark The scheduler writes it under its lock: read it from a hook,
+	 *         which runs under that lock, or before the scheduler starts.
+	 *         Read anywhere else, it races with the write.
+	 *         @c hook::task_priority_changed is called each time it moves.
+	 */
+	[[nodiscard]] constexpr task_priority current_priority() const
+	{
+		return priority_;
+	}
 
 	/**
 	 * @brief Orders two tasks by which one should run first
@@ -448,8 +462,8 @@ public:
 	 * @param right The right operand
 	 * @return @c true if @p left is more important than @p right
 	 *
-	 * @remark Compares @ref priority_ , the effective priority, and not what
-	 *         @ref priority() reports, which is the priority the caller asked
+	 * @remark Compares @ref current_priority , the effective priority, and not
+	 *         @ref base_priority() , which is the priority the caller asked
 	 *         for. The two differ exactly while priority inheritance has
 	 *         raised a task that holds a mutex a more important one is waiting
 	 *         for -- which is the case this ordering exists to handle.

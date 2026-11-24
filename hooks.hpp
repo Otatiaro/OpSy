@@ -320,8 +320,14 @@ namespace opsy
 		}
 
 		/**
-		 * @brief A task's priority changed
-		 * @param task The task
+		 * @brief A task's effective priority changed: the one it is scheduled
+		 *        by, raised by a waiter's donation, lowered when the donation
+		 *        ends, or set through @c task::base_priority
+		 * @param task The task; @c task.current_priority() is the priority it
+		 *        moved to
+		 * @remark Called only when the effective priority moves: a base
+		 *         priority that a donation still outranks changes nothing the
+		 *         scheduler sees.
 		 */
 		template<class Hooks = hooks>
 		static constexpr void task_priority_changed(task_control_block& task)

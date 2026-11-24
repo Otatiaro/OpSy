@@ -136,7 +136,7 @@ OPSY_QEMU_TEST(pop_waits_for_the_producer)
 {
 	g_got = 0;
 	CHECK(g_consumer.start([] { g_values[0] = *g_pop_queue.pop(); g_got = 1; }));
-	g_consumer.priority(opsy::task_priority::highest);
+	g_consumer.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_got == 0);                 // nothing to take: waiting
@@ -159,7 +159,7 @@ OPSY_QEMU_TEST(push_waits_for_a_free_place)
 			g_push_queue.push(i);    // the fifth waits
 		g_state = 1;
 	}));
-	g_producer.priority(opsy::task_priority::highest);
+	g_producer.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_state == 0);
@@ -216,7 +216,7 @@ OPSY_QEMU_TEST(an_interrupt_handler_feeds_a_waiting_task)
 			g_got = i + 1;
 		}
 	}));
-	g_consumer.priority(opsy::task_priority::highest);
+	g_consumer.base_priority(opsy::task_priority::highest);
 
 	for (int i = 0; i < 6; ++i)
 		fire();
@@ -337,7 +337,7 @@ OPSY_QEMU_TEST(work_posted_by_an_interrupt_handler_runs_in_a_task)
 		for (int i = 0; i < 3; ++i)
 			(*g_work.pop())();
 	}));
-	g_consumer.priority(opsy::task_priority::highest);
+	g_consumer.base_priority(opsy::task_priority::highest);
 
 	fire();
 	fire();
@@ -380,7 +380,7 @@ OPSY_QEMU_TEST(closing_wakes_a_consumer_waiting_on_an_empty_queue)
 {
 	g_state = 0;
 	CHECK(g_consumer.start([] { g_state = g_close_wakes_consumer.pop().has_value() ? 1 : 2; }));
-	g_consumer.priority(opsy::task_priority::highest);
+	g_consumer.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_state == 0);                  // waiting
@@ -402,7 +402,7 @@ OPSY_QEMU_TEST(closing_wakes_a_producer_waiting_on_a_full_queue)
 		(void) g_close_wakes_producer.push(2U);
 		g_state = g_close_wakes_producer.push(3U) ? 1 : 2;   // waits for a place
 	}));
-	g_producer.priority(opsy::task_priority::highest);
+	g_producer.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_state == 0);

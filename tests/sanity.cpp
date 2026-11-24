@@ -41,8 +41,9 @@ constinit opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 
 [[gnu::used]] void use_task()
 {
 	(void) g_task.start([]{ while (true) opsy::sleep_for(1ms); });
-	(void) g_task.priority();
-	g_task.priority(opsy::task_priority::normal);
+	(void) g_task.base_priority();
+	(void) g_task.current_priority();
+	g_task.base_priority(opsy::task_priority::normal);
 	(void) g_task.is_started();
 	(void) g_task.kill();
 }

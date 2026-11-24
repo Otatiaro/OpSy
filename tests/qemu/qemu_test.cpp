@@ -121,7 +121,7 @@ int opsy_test_main()
 	// raised to highest explicitly.
 	if (!g_runner.start([]
 	{
-		g_runner.priority(opsy::task_priority::high);
+		g_runner.base_priority(opsy::task_priority::high);
 		qemu_test::run_all_and_exit();
 	}))
 	{

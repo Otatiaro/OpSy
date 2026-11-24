@@ -56,7 +56,7 @@ OPSY_QEMU_TEST(a_higher_priority_task_preempts_the_runner)
 	g_helper_ran = 0;
 
 	CHECK(g_helper.start([] { g_helper_ran = 1; }));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	// The helper outranks the runner, so it must have run to completion
 	// before start() even returns control here.
@@ -70,7 +70,7 @@ OPSY_QEMU_TEST(a_lower_priority_task_runs_only_when_we_yield)
 	g_helper_ran = 0;
 
 	CHECK(g_helper.start([] { g_helper_ran = 1; }));
-	g_helper.priority(opsy::task_priority::lowest);
+	g_helper.base_priority(opsy::task_priority::lowest);
 	CHECK(g_helper_ran == 0);   // still waiting behind us
 
 	opsy::sleep_for(5ms);       // yield
@@ -148,7 +148,7 @@ OPSY_QEMU_TEST(notify_one_wakes_a_waiter_before_its_timeout)
 		g_helper_ran = 1;
 		g_condition.notify_one();
 	}));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	const auto status = g_condition.wait_for(500ms);
 
@@ -170,7 +170,7 @@ OPSY_QEMU_TEST(stopping_a_runnable_task_removes_it_from_the_ready_list)
 
 	// Lower priority than the runner, so it sits in ready_ without running.
 	CHECK(g_helper.start([] { g_helper_ran = 1; while (true) opsy::sleep_for(1ms); }));
-	g_helper.priority(opsy::task_priority::lowest);
+	g_helper.base_priority(opsy::task_priority::lowest);
 	CHECK(g_helper_ran == 0);
 
 	CHECK(g_helper.kill());       // terminate it while it is in ready_
@@ -192,10 +192,10 @@ OPSY_QEMU_TEST(stopping_a_ready_task_leaves_other_tasks_runnable)
 	g_second_ran = 0;
 
 	CHECK(g_helper.start([] { while (true) { g_helper_ran = 1; opsy::sleep_for(1ms); } }));
-	g_helper.priority(opsy::task_priority::lowest);
+	g_helper.base_priority(opsy::task_priority::lowest);
 
 	CHECK(g_second_helper.start([] { while (true) { g_second_ran = 1; opsy::sleep_for(1ms); } }));
-	g_second_helper.priority(opsy::task_priority::lowest);
+	g_second_helper.base_priority(opsy::task_priority::lowest);
 
 	CHECK(g_second_helper.kill());   // drop the second while both are in ready_
 	opsy::sleep_for(20ms);
@@ -227,7 +227,7 @@ OPSY_QEMU_TEST(stopping_a_task_that_timed_out_waiting_leaves_the_lists_intact)
 		while (true)
 			opsy::sleep_for(1ms);
 	}));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	opsy::sleep_for(20ms);
 	CHECK(g_helper_ran == 1);        // the timeout fired and it resumed
@@ -257,13 +257,13 @@ OPSY_QEMU_TEST(a_priority_change_after_a_wait_timeout_is_harmless)
 		while (true)
 			opsy::sleep_for(1ms);
 	}));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	opsy::sleep_for(20ms);
 	CHECK(g_helper_ran == 1);
 
-	g_helper.priority(opsy::task_priority::low);
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::low);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	opsy::sleep_for(10ms);
 	CHECK(g_helper.is_started());
@@ -285,7 +285,7 @@ OPSY_QEMU_TEST(a_mutex_serialises_two_tasks)
 		g_helper_ran = 1;
 		g_mutex.unlock();
 	}));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 
 	// The helper outranks us but must be stuck on the mutex.
 	CHECK(g_helper_ran == 0);
@@ -318,7 +318,7 @@ OPSY_QEMU_TEST(a_task_that_returns_terminates_itself)
 	g_helper_ran = 0;
 
 	CHECK(g_helper.start([] { g_helper_ran = 1; }));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 	CHECK(g_helper_ran == 1);
 
 	// Returning from the entry callback must unwind through terminate_task.
@@ -329,7 +329,7 @@ OPSY_QEMU_TEST(a_task_that_returns_terminates_itself)
 	// And the slot must be reusable.
 	g_helper_ran = 0;
 	CHECK(g_helper.start([] { g_helper_ran = 1; }));
-	g_helper.priority(opsy::task_priority::high);
+	g_helper.base_priority(opsy::task_priority::high);
 	CHECK(g_helper_ran == 1);
 	ensure_stopped(g_helper);
 }
@@ -352,7 +352,7 @@ OPSY_QEMU_TEST(all_tasks_enumerates_through_the_const_interface)
 OPSY_QEMU_TEST(starting_an_already_started_task_is_refused)
 {
 	CHECK(g_helper.start([] { while (true) opsy::sleep_for(1ms); }));
-	g_helper.priority(opsy::task_priority::lowest);
+	g_helper.base_priority(opsy::task_priority::lowest);
 
 	CHECK(!g_helper.start([] {}));   // must not restart it
 

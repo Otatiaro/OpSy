@@ -144,6 +144,8 @@ constexpr uint64_t join_words(uint32_t low, uint32_t high)
  *         branch pair for a byte read. The same operations through
  *         @c std::atomic_ref on a plain byte are what the standard offers
  *         instead; same single-byte flag a debugger watches by address.
+ *         The members are @c always_inline for the same reason: GCC takes
+ *         them out of line too, @c store among them.
  */
 template<typename T>
 class inline_atomic
@@ -157,9 +159,9 @@ public:
 	inline_atomic& operator=(inline_atomic&&) = delete("an inline_atomic is a flag read by address, by the scheduler and by a debugger: it stays where it is");
 	~inline_atomic() = default;
 
-	T load(std::memory_order order) const { return std::atomic_ref<T>(value_).load(order); }
-	void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }
-	T exchange(T value, std::memory_order order) { return std::atomic_ref<T>(value_).exchange(value, order); }
+	[[gnu::always_inline]] T load(std::memory_order order) const { return std::atomic_ref<T>(value_).load(order); }
+	[[gnu::always_inline]] void store(T value, std::memory_order order) { std::atomic_ref<T>(value_).store(value, order); }
+	[[gnu::always_inline]] T exchange(T value, std::memory_order order) { return std::atomic_ref<T>(value_).exchange(value, order); }
 
 private:
 	// mutable: a load is a const operation, and libc++ 19 has no atomic_ref<const T>::load.

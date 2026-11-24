@@ -1,12 +1,12 @@
 {
-  "switch_ping_pong": 765,
-  "semaphore_from_isr": 407,
-  "condition_variable_from_isr": 414,
-  "queue_from_isr": 419,
-  "mutex_free": 101,
-  "mutex_contended": 527,
-  "sleep_one_tick": 193,
-  "isr_lock_round_trip": 71,
-  "release_no_switch": 234,
-  "release_past_eight": 291
+  "switch_ping_pong": 733,
+  "semaphore_from_isr": 396,
+  "condition_variable_from_isr": 407,
+  "queue_from_isr": 406,
+  "mutex_free": 102,
+  "mutex_contended": 513,
+  "sleep_one_tick": 191,
+  "isr_lock_round_trip": 66,
+  "release_no_switch": 222,
+  "release_past_eight": 278
 }

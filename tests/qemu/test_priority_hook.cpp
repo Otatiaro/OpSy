@@ -21,7 +21,6 @@
 
 #include <opsy.hpp>
 
-#include <algorithm>
 #include <atomic>
 #include <initializer_list>
 
@@ -55,7 +54,7 @@ bool changes_of(const opsy::task_control_block& task, std::initializer_list<task
 	if (count > opsy::priority_seen::capacity)
 		return false;
 
-	auto wanted = expected.begin();
+	const auto* wanted = expected.begin();
 	for (std::size_t index = 0; index < count; ++index)
 	{
 		const auto& change = opsy::priority_seen::changes[index];

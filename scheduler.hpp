@@ -650,6 +650,14 @@ private:
 	static void inherit_priority(task_control_block& owner, task_priority priority);
 
 	/**
+	 * @brief Sets the effective priority of @p task , and reports it through
+	 *        @c hook::task_priority_changed when it moves
+	 * @warning Does not move the task in the list it is queued in, as
+	 *          @ref recompute_priority .
+	 */
+	static void set_effective_priority(task_control_block& task, task_priority priority);
+
+	/**
 	 * @brief Releases every mutex held by @p task, waking the waiters
 	 * @return @c true if at least one task was made runnable
 	 */

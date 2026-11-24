@@ -73,6 +73,7 @@ class condition_variable;
 class mutex;
 class isr_lock;
 struct exception_frame;
+enum class task_priority : uint8_t;
 
 /**
  * @brief What made a task ready: the one fact about a wake-up that cannot be
@@ -320,14 +321,26 @@ namespace opsy
 		}
 
 		/**
-		 * @brief A task's priority changed
+		 * @brief A task's effective priority changed: the one it is scheduled
+		 *        by, raised by a waiter's donation, lowered when the donation
+		 *        ends, or set by @c task::priority
 		 * @param task The task
+		 * @param priority Its effective priority from now on, which
+		 *        @c task::priority does not report: that one is the requested
+		 *        priority
+		 * @remark Also accepted: @c task_priority_changed(task) . Called only
+		 *         when the effective priority moves: a requested priority that
+		 *         a donation still outranks changes nothing the scheduler sees.
+		 * @return What the hook returns, which is nothing; it tells a test
+		 *         which form was taken.
 		 */
 		template<class Hooks = hooks>
-		static constexpr void task_priority_changed(task_control_block& task)
+		static constexpr auto task_priority_changed(task_control_block& task, task_priority priority)
 		{
-			if constexpr(requires { Hooks::task_priority_changed(task); })
-				Hooks::task_priority_changed(task);
+			if constexpr(requires { Hooks::task_priority_changed(task, priority); })
+				return Hooks::task_priority_changed(task, priority);
+			else if constexpr(requires { Hooks::task_priority_changed(task); })
+				return Hooks::task_priority_changed(task);
 		}
 
 		/** @brief A task enters the scheduler's critical section: no task switch until it leaves */

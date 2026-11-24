@@ -195,6 +195,21 @@ opsy_qemu_image(opsy_qemu_faults)
 # Its opsy_hooks.hpp records hook::fault, for the handler to check.
 target_include_directories(opsy_qemu_faults PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/faults)
 
+# hook::task_priority_changed against the effective priorities the scheduler
+# goes through. A separate image: its opsy_hooks.hpp records the hook, and the
+# main suite's image takes the hooks of whoever builds it. See
+# test_priority_hook.cpp.
+add_executable(opsy_qemu_priority
+    ${OPSY_ROOT}/scheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/qemu_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/qemu_irq.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_priority_hook.cpp
+)
+
+opsy_qemu_image(opsy_qemu_priority)
+target_include_directories(opsy_qemu_priority PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/priority)
+
 # The paths through OpSy that cost, each between two markers: see bench.cpp.
 # A separate image with its own include directory, so that its opsy_hooks.hpp
 # is the one scheduler.cpp sees in this target and in no other. Under QEMU,
@@ -275,6 +290,14 @@ add_test(
 )
 
 add_test(
+    NAME opsy_qemu_priority_${OPSY_TARGET}
+    COMMAND ${CMAKE_COMMAND}
+            -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
+            -DIMAGE=$<TARGET_FILE:opsy_qemu_priority>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_qemu.cmake
+)
+
+add_test(
     NAME opsy_qemu_bench_${OPSY_TARGET}
     COMMAND ${CMAKE_COMMAND}
             -DQEMU_MACHINE=${OPSY_QEMU_MACHINE}
@@ -288,6 +311,7 @@ set_tests_properties(
     opsy_qemu_start_check_${OPSY_TARGET}
     opsy_qemu_notify_check_${OPSY_TARGET}
     opsy_qemu_faults_${OPSY_TARGET}
+    opsy_qemu_priority_${OPSY_TARGET}
     opsy_qemu_bench_${OPSY_TARGET}
     PROPERTIES TIMEOUT 120)
 

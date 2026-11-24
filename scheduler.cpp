@@ -445,7 +445,16 @@ void scheduler::recompute_priority(task_control_block& task)
 		if (const auto* waiter = highest_waiter(held); waiter != nullptr && waiter->priority_ < effective)
 			effective = waiter->priority_;
 
-	task.priority_ = effective;
+	set_effective_priority(task, effective);
+}
+
+void scheduler::set_effective_priority(task_control_block& task, task_priority priority)
+{
+	if (task.priority_ == priority)
+		return;
+
+	task.priority_ = priority;
+	hook::task_priority_changed(task, priority);
 }
 
 void scheduler::requeue(task_control_block& task)
@@ -485,8 +494,7 @@ void scheduler::inherit_priority(task_control_block& owner, task_priority priori
 		if (!(priority < current->priority_))
 			break; // already at least this important, and so is the rest of the chain
 
-		current->priority_ = priority;
-		hook::task_priority_changed(*current);
+		set_effective_priority(*current, priority);
 
 		requeue(*current);
 
@@ -571,7 +579,6 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	if (may_preempt && is_started())
 		do_switch();
 
-	hook::task_priority_changed(task);
 	cortex_m::exchange_basepri(previous);
 }
 

@@ -115,7 +115,7 @@ OPSY_QEMU_TEST(acquire_blocks_until_another_task_releases)
 	reset();
 
 	CHECK(g_first.start([] { g_semaphore.acquire(); g_acquired = 1; }));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_acquired == 0);         // nothing to take: blocked
@@ -133,7 +133,7 @@ OPSY_QEMU_TEST(an_interrupt_handler_releasing_wakes_a_waiting_task)
 	CHECK(install_irq());
 
 	CHECK(g_first.start([] { g_semaphore.acquire(); g_acquired = 1; }));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_acquired == 0);
@@ -173,7 +173,7 @@ OPSY_QEMU_TEST(try_acquire_for_takes_a_release_that_comes_in_time)
 	reset();
 
 	CHECK(g_first.start([] { g_acquired = g_semaphore.try_acquire_for(200ms) ? 1 : 2; }));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_acquired == 0);
@@ -190,9 +190,9 @@ OPSY_QEMU_TEST(waiters_are_released_most_important_first)
 	// Both below the runner, so neither runs until it sleeps: what decides
 	// which one goes first is the semaphore's order, not who woke first.
 	CHECK(g_first.start([] { g_semaphore.acquire(); record(1); }));
-	g_first.priority(opsy::task_priority::low);
+	g_first.base_priority(opsy::task_priority::low);
 	CHECK(g_second.start([] { g_semaphore.acquire(); record(2); }));
-	g_second.priority(opsy::task_priority::normal);
+	g_second.base_priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_order_index == 0);
@@ -215,11 +215,11 @@ OPSY_QEMU_TEST(a_release_of_several_lets_as_many_waiters_through)
 	reset();
 
 	CHECK(g_first.start([] { g_semaphore.acquire(); record(1); }));
-	g_first.priority(opsy::task_priority::low);
+	g_first.base_priority(opsy::task_priority::low);
 	CHECK(g_second.start([] { g_semaphore.acquire(); record(2); }));
-	g_second.priority(opsy::task_priority::low);
+	g_second.base_priority(opsy::task_priority::low);
 	CHECK(g_third.start([] { g_semaphore.acquire(); record(3); }));
-	g_third.priority(opsy::task_priority::low);
+	g_third.base_priority(opsy::task_priority::low);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_order_index == 0);
@@ -245,7 +245,7 @@ OPSY_QEMU_TEST(a_killed_waiter_does_not_consume_a_release)
 	reset();
 
 	CHECK(g_first.start([] { g_semaphore.acquire(); g_acquired = 1; }));
-	g_first.priority(opsy::task_priority::normal);
+	g_first.base_priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(5ms);
 	CHECK(g_first.kill());
@@ -263,12 +263,12 @@ OPSY_QEMU_TEST(a_waiter_raised_while_waiting_is_released_first)
 	reset();
 
 	CHECK(g_first.start([] { g_semaphore.acquire(); record(1); }));
-	g_first.priority(opsy::task_priority::lowest);
+	g_first.base_priority(opsy::task_priority::lowest);
 	CHECK(g_second.start([] { g_semaphore.acquire(); record(2); }));
-	g_second.priority(opsy::task_priority::low);
+	g_second.base_priority(opsy::task_priority::low);
 
 	opsy::sleep_for(5ms);
-	g_first.priority(opsy::task_priority::normal);   // now ahead of the other
+	g_first.base_priority(opsy::task_priority::normal);   // now ahead of the other
 
 	g_semaphore.release();
 	opsy::sleep_for(5ms);

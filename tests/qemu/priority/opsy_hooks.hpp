@@ -16,9 +16,12 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 
 namespace opsy
 {
+
+enum class task_priority : std::uint8_t;
 
 /** @brief The priority changes reported so far, oldest first */
 struct priority_seen
@@ -40,12 +43,13 @@ struct priority_seen
 class hooks
 {
 public:
-	// Called under the scheduler's lock, so one report at a time.
-	static void task_priority_changed(task_control_block& task, task_priority priority)
+	// Called under the scheduler's lock, so one report at a time. auto&: the
+	// task's class is not complete where this header is read.
+	static void task_priority_changed(auto& task)
 	{
 		const auto index = priority_seen::count.load(std::memory_order_relaxed);
 		if (index < priority_seen::capacity)
-			priority_seen::changes[index] = {&task, priority};
+			priority_seen::changes[index] = {&task, task.current_priority()};
 		priority_seen::count.store(index + 1, std::memory_order_relaxed);
 	}
 };

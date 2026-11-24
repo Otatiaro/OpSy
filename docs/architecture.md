@@ -121,7 +121,7 @@ to do anything while a critical section is held, recording
 ## Life of a task
 
 ```
-              start()                      priority() raises it
+              start()                 base_priority() raises it
                  │                          above the running one
                  ▼                                   │
         ┌──────────────┐   do_switch picks it   ┌─────▼──────┐

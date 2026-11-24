@@ -41,8 +41,9 @@ constinit opsy::condition_variable g_cv_with_priority{ opsy::isr_priority{ 0x80 
 [[gnu::used]] void use_task()
 {
 	(void) g_task.start([]{ while (true) opsy::sleep_for(1ms); });
-	(void) g_task.priority();
-	g_task.priority(opsy::task_priority::normal);
+	(void) g_task.base_priority();
+	(void) g_task.current_priority();
+	g_task.base_priority(opsy::task_priority::normal);
 	(void) g_task.is_started();
 	(void) g_task.kill();
 }
@@ -327,7 +328,6 @@ struct short_form_hooks
 {
 	static short_form task_ready(opsy::task_control_block&);
 	static short_form task_sleep(opsy::task_control_block&);
-	static short_form task_priority_changed(opsy::task_control_block&);
 };
 
 struct both_forms_hooks
@@ -336,8 +336,6 @@ struct both_forms_hooks
 	static short_form task_ready(opsy::task_control_block&);
 	static full_form task_sleep(opsy::task_control_block&, opsy::time_point);
 	static short_form task_sleep(opsy::task_control_block&);
-	static full_form task_priority_changed(opsy::task_control_block&, opsy::task_priority);
-	static short_form task_priority_changed(opsy::task_control_block&);
 };
 
 template<class Hooks>
@@ -352,13 +350,6 @@ static_assert(std::same_as<task_ready_result<no_hooks>, void>);
 static_assert(std::same_as<task_sleep_result<both_forms_hooks>, full_form>);
 static_assert(std::same_as<task_sleep_result<short_form_hooks>, short_form>);
 static_assert(std::same_as<task_sleep_result<no_hooks>, void>);
-
-template<class Hooks>
-using task_priority_changed_result = decltype(opsy::hook::task_priority_changed<Hooks>(std::declval<opsy::task_control_block&>(), opsy::task_priority::normal));
-
-static_assert(std::same_as<task_priority_changed_result<both_forms_hooks>, full_form>);
-static_assert(std::same_as<task_priority_changed_result<short_form_hooks>, short_form>);
-static_assert(std::same_as<task_priority_changed_result<no_hooks>, void>);
 
 // A table that cannot name one of the three exceptions is not one OpSy can
 // start on, and says so before a line of it is built.

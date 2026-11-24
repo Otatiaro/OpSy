@@ -58,7 +58,7 @@ int opsy_test_main()
 	{
 		if (g_turn++ != 1)
 			fail("the task left at the default priority ran first");
-		if (g_first.priority() != opsy::task_priority::normal)
+		if (g_first.base_priority() != opsy::task_priority::normal)
 			fail("the first task does not report the default priority");
 		qemu::write("RESULT: PASS\n");
 		qemu::exit(0);
@@ -68,15 +68,15 @@ int opsy_test_main()
 	{
 		if (g_turn++ != 0)
 			fail("the task raised before start did not run first");
-		if (g_second.priority() != opsy::task_priority::high)
+		if (g_second.base_priority() != opsy::task_priority::high)
 			fail("the raised task does not report its priority");
 		while (true)
 			opsy::sleep_for(std::chrono::milliseconds(1));
 	});
 
-	g_second.priority(opsy::task_priority::high);
-	g_first.priority(opsy::task_priority::low);
-	g_first.priority(opsy::task_priority::normal);
+	g_second.base_priority(opsy::task_priority::high);
+	g_first.base_priority(opsy::task_priority::low);
+	g_first.base_priority(opsy::task_priority::normal);
 
 	opsy::scheduler::start(g_idle);
 }

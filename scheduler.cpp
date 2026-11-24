@@ -454,7 +454,7 @@ void scheduler::set_effective_priority(task_control_block& task, task_priority p
 		return;
 
 	task.priority_ = priority;
-	hook::task_priority_changed(task, priority);
+	hook::task_priority_changed(task);
 }
 
 void scheduler::requeue(task_control_block& task)
@@ -1002,7 +1002,7 @@ bool task_control_block::kill()
  *         @c scheduler::update_priority which may re-order ready/waiting lists
  *         and request a context switch.
  */
-void task_control_block::priority(task_priority new_priority)
+void task_control_block::base_priority(task_priority new_priority)
 {
 	// Setting a priority on a task that has not been started is lost: start
 	// puts every task at task_priority::lowest, so the value written here

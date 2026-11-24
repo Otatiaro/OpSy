@@ -253,8 +253,8 @@ void driver()
 	// From a running task, not before scheduler::start(): a priority change
 	// asks for a switch, and PendSV before start has no process stack to
 	// save to.
-	g_driver.priority(opsy::task_priority::high);
-	g_other.priority(opsy::task_priority::low);
+	g_driver.base_priority(opsy::task_priority::high);
+	g_other.base_priority(opsy::task_priority::low);
 
 	run<scenario::switch_ping_pong>([] {
 		begin<scenario::switch_ping_pong>();
@@ -329,7 +329,7 @@ void driver()
 	// Above other, below us: the woken other is inserted behind all eight, and
 	// none of them runs before we block.
 	for (auto& filler : g_fillers)
-		filler.priority(opsy::task_priority::normal);
+		filler.base_priority(opsy::task_priority::normal);
 
 	run<scenario::release_past_eight>([] {
 		g_filler_go.release(fillers); // eight ready tasks, none above us

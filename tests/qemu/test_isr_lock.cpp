@@ -88,7 +88,7 @@ OPSY_QEMU_TEST(an_isr_lock_blocks_a_higher_priority_task_until_released)
 		g_first_ran = 1;
 		g_plain.unlock();
 	}));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 
 	// It outranks the runner, so the only thing keeping it out is the mutex.
 	CHECK(g_first_ran == 0);
@@ -111,7 +111,7 @@ OPSY_QEMU_TEST(an_isr_lock_can_be_relocked_after_release)
 	// Still usable by somebody else afterwards.
 	g_first_ran = 0;
 	CHECK(g_first.start([] { g_plain.lock(); g_first_ran = 1; g_plain.unlock(); }));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 	CHECK(g_first_ran == 1);
 
 	stop_all();
@@ -126,8 +126,8 @@ OPSY_QEMU_TEST(an_isr_lock_actually_excludes_two_contending_tasks)
 
 	CHECK(g_first.start([] { contend_on_isr_lock(); }));
 	CHECK(g_second.start([] { contend_on_isr_lock(); }));
-	g_first.priority(opsy::task_priority::normal);
-	g_second.priority(opsy::task_priority::normal);
+	g_first.base_priority(opsy::task_priority::normal);
+	g_second.base_priority(opsy::task_priority::normal);
 
 	opsy::sleep_for(60ms);
 	g_stage = 1;
@@ -168,7 +168,7 @@ OPSY_QEMU_TEST(a_priority_carrying_isr_lock_locks_and_unlocks)
 		g_first_ran = 1;
 		g_with_priority.unlock();
 	}));
-	g_first.priority(opsy::task_priority::highest);
+	g_first.base_priority(opsy::task_priority::highest);
 	CHECK(g_first_ran == 1);
 
 	stop_all();
@@ -193,7 +193,7 @@ OPSY_QEMU_TEST(a_held_isr_lock_suspends_task_switching)
 			opsy::sleep_for(1ms);
 		}
 	}));
-	g_second.priority(opsy::task_priority::highest);   // above the runner
+	g_second.base_priority(opsy::task_priority::highest);   // above the runner
 
 	// It outranks us, so it has already run at least once.
 	opsy::sleep_for(5ms);

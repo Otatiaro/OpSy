@@ -74,7 +74,7 @@ CASES = {
         void probe(opsy::task<64>& t)
         {
             (void) t.start([] {});
-            t.priority(opsy::task_priority::high);
+            t.base_priority(opsy::task_priority::high);
             t.request_stop();
             (void) t.kill();
         }

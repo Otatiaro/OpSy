@@ -2,14 +2,13 @@
  ******************************************************************************
  * @file    test_priority_hook.cpp
  * @brief   A separate image: hook::task_priority_changed reports every move of
- *          a task's effective priority, with the priority it moves to.
+ *          a task's effective priority, which current_priority() then reads.
  *
- *          A tracer reads a task's priority from this hook alone: the
- *          effective priority is not readable through the API, which reports
- *          the requested one. So the hook has to fire when a donation raises
- *          a holder, when the donation ends -- the waiter got the mutex, or
- *          was killed -- and when a requested priority moves the effective
- *          one; and not when a donation still outranks what was requested.
+ *          A tracer follows a task's priority through this hook: it has to
+ *          fire when a donation raises a holder, when the donation ends --
+ *          the waiter got the mutex, or was killed -- and when a base
+ *          priority moves the effective one; and not when a donation still
+ *          outranks the base priority asked for.
  *
  *          Its own image because its opsy_hooks.hpp records the hook, and the
  *          main suite's image takes the hooks of whoever builds it.
@@ -108,7 +107,7 @@ bool start_holder(task_priority priority)
 {
 	if (!g_holder.start(hold_both))
 		return false;
-	g_holder.priority(priority);
+	g_holder.base_priority(priority);
 	for (int guard = 0; guard < 200 && g_holder_state != 1; ++guard)
 		opsy::sleep_for(1ms);
 	return g_holder_state == 1;
@@ -119,7 +118,7 @@ bool start_waiter(opsy::task<1024>& waiter, void (*body)(), task_priority priori
 {
 	if (!waiter.start(body))
 		return false;
-	waiter.priority(priority);
+	waiter.base_priority(priority);
 	opsy::sleep_for(5ms);
 	return true;
 }
@@ -187,7 +186,7 @@ OPSY_QEMU_TEST(a_requested_priority_a_donation_outranks_is_not_reported)
 
 	// Effective stays normal: nothing to report. Then the donation ends, and
 	// the holder drops to what it asked for meanwhile.
-	g_holder.priority(task_priority::low);
+	g_holder.base_priority(task_priority::low);
 	CHECK(changes_of(g_holder, {task_priority::normal}));
 
 	g_step = 1;
@@ -202,8 +201,8 @@ OPSY_QEMU_TEST(a_requested_priority_that_moves_the_effective_one_is_reported)
 	CHECK(start_holder(task_priority::lowest));
 	forget_changes();
 
-	g_holder.priority(task_priority::low);
-	g_holder.priority(task_priority::low);
+	g_holder.base_priority(task_priority::low);
+	g_holder.base_priority(task_priority::low);
 	CHECK(changes_of(g_holder, {task_priority::low}));
 
 	stop_all();

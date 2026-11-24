@@ -88,7 +88,7 @@ OPSY_QEMU_TEST(now_stays_monotonic_while_another_task_reads_it)
 	// runner leaves: at -O0 on a slow core, the runner and the tick can use
 	// most of a millisecond, and a reader below them barely runs. It sleeps
 	// after each burst, so the runner still gets its turn.
-	g_reader.priority(opsy::task_priority::highest);
+	g_reader.base_priority(opsy::task_priority::highest);
 
 	// At least 30 ms of ticks, and for as long as the reader needs to get its
 	// reads in: how many it manages per tick depends on the core's speed, and

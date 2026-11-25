@@ -398,6 +398,21 @@ public:
 	}
 
 	/**
+	 * @brief The lowest address of this task's stack
+	 *
+	 *        The stack grows down towards it from @ref stack_base plus
+	 *        @ref stack_size, where it starts. A fault handler reading the
+	 *        stack of the task that faulted, from its stack pointer up, reads
+	 *        no further than that end.
+	 *
+	 * @return @c nullptr for a task that was never started
+	 */
+	[[nodiscard]] const stack_item* stack_base() const noexcept
+	{
+		return stack_base_;
+	}
+
+	/**
 	 * @brief The most of its stack this task has used since it was started, in bytes
 	 *
 	 *        The stack is filled with a pattern when the task starts; this is

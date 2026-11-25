@@ -333,6 +333,30 @@ OPSY_QEMU_TEST(a_task_that_has_not_run_far_reports_a_small_high_water)
 		opsy::sleep_for(1ms);
 }
 
+std::atomic<uintptr_t> g_local_address = 0;
+
+OPSY_QEMU_TEST(a_task_runs_on_the_stack_it_reports)
+{
+	g_local_address = 0;
+	CHECK(g_alpha.start([]
+	{
+		volatile uint32_t local = 0;
+		g_local_address = reinterpret_cast<uintptr_t>(&local);
+		while (true) opsy::sleep_for(1ms);
+	}));
+	g_alpha.base_priority(opsy::task_priority::highest);
+
+	const auto begin = reinterpret_cast<uintptr_t>(g_alpha.stack_base());
+	const auto end = begin + g_alpha.stack_size();
+	CHECK(g_local_address >= begin);
+	CHECK(g_local_address < end);
+	CHECK(end - g_local_address < 256);   // near the end: the stack grows down from it
+
+	(void) g_alpha.kill();
+	for (int guard = 0; guard < 50 && g_alpha.is_started(); ++guard)
+		opsy::sleep_for(1ms);
+}
+
 OPSY_QEMU_TEST(the_high_water_is_the_deepest_the_task_went_and_stays_there)
 {
 	g_alpha_ran = 0;

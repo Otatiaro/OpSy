@@ -204,9 +204,10 @@ which a task may spin on.
 caller holds as it suspends it.** `condition_variable::wait` is the case:
 the caller holds an `isr_lock` or a `mutex`, and the lock must be released
 in the same step as the task joins the waiting list, or a notification
-falls in between and is lost. An `isr_lock` taken by a task also holds the
-scheduler's critical section, under which `do_switch()` declines: only a
-handler can drop both and switch. How a wait ended (`cv_status`, decided
+falls in between and is lost. An `isr_lock` with a level masks `PendSV`,
+and a task-only one holds the scheduler's critical section, under which
+`do_switch()` declines: either way, only a handler can drop the lock and
+switch. How a wait ended (`cv_status`, decided
 by whoever notifies or by the timeout) is not a reason: it is written in
 the task's control block, which the task reads when it runs again.
 
@@ -251,15 +252,16 @@ Since `PendSV` sits at 255, *any* non-zero `BASEPRI` masks it too, and
 task switching stops for the duration. No owner, no blocking, no
 waiting: exclusion comes from nothing else running.
 
-**The scheduler's critical section** (`critical_section_`) — internal.
-It masks nothing. It makes `do_switch()` decline to mutate the lists,
-recording that a switch is due. It matters when `SysTick` is *not*
-masked: with an `isr_lock` at `0x80`, `SysTick` at 127 still runs and
-would otherwise reorder `ready_` under the holder's feet.
+**The scheduler's critical section** (`critical_section_`) — what a
+task-only `isr_lock` and `try_critical_section()` hold. It masks nothing.
+It makes `do_switch()` decline, recording that a switch is due, which
+is replayed on release. An `isr_lock` with a level does not take it: the
+level masks `PendSV` already. `SysTick`, when the level leaves it
+unmasked, still elects and pends; the switch happens at the unlock, as
+the replay would have done it.
 
-So `BASEPRI` stops the switch, the critical section freezes the
-scheduler's own state, and `mutex` is the only one of the three that
-actually makes a task wait.
+So `BASEPRI` or the critical section stops the switch, and `mutex` is
+the only one of the three that actually makes a task wait.
 
 ## How the mutex stores what it knows
 

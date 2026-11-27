@@ -151,9 +151,8 @@ OPSY_QEMU_TEST(a_priority_carrying_isr_lock_locks_and_unlocks)
 {
 	// Locking one raises BASEPRI to the mutex's priority for the guarded
 	// region, so this exercises the ISR-masking path rather than just the
-	// task-switch one. No sleeping under it: a mutex with a non-zero priority
-	// takes the scheduler's critical section too (isr_lock::lock), and
-	// the sleep service call asserts it is not held.
+	// task-switch one. No sleeping under it: the level masks PendSV, and the
+	// sleep service call asserts that BASEPRI is clear.
 	for (int round = 0; round < 4; ++round)
 	{
 		g_with_priority.lock();
@@ -217,26 +216,59 @@ OPSY_QEMU_TEST(a_held_isr_lock_suspends_task_switching)
 	stop_all();
 }
 
-// A task and a handler sharing one isr_lock. The task's critical section is
-// the task's: the handler's lock and unlock must leave it alone, wherever the
-// handler lands in the task's lock or unlock.
+// A level is enough on its own: it masks PendSV, so a task holding one is not
+// switched away, and the scheduler's critical section is left to others.
+
+OPSY_QEMU_TEST(a_held_priority_isr_lock_suspends_task_switching)
+{
+	g_second_ran = 0;
+	g_stage      = 0;
+
+	CHECK(g_second.start([]
+	{
+		while (g_stage == 0)
+		{
+			++g_second_ran;
+			opsy::sleep_for(1ms);
+		}
+	}));
+	g_second.base_priority(opsy::task_priority::highest);   // above the runner
+
+	opsy::sleep_for(5ms);
+	CHECK(g_second_ran > 0);
+
+	g_with_priority.lock();
+	const int under_lock = g_second_ran;
+	busy_wait(20000);                 // long enough for several SysTicks
+	const int still = g_second_ran;
+	const bool section_free = static_cast<bool>(opsy::scheduler::try_critical_section());
+	g_with_priority.unlock();
+
+	CHECK(still == under_lock);
+	CHECK(section_free);
+
+	opsy::sleep_for(5ms);
+	CHECK(g_second_ran > still);
+
+	g_stage = 1;
+	stop_all();
+}
+
+// A task and a handler sharing one isr_lock: the handler is held off while
+// the task holds it, and runs once the task's unlock lowers the level.
 
 opsy::isr_lock   g_shared{ opsy::scheduler::os_callable_priority };
 unsigned         g_shared_irq = qemu_test::no_irq;
 std::atomic<int> g_handler_ran = 0;
-std::atomic<bool> g_handler_opened_section = false;
 
 void shared_lock_irq_handler()
 {
 	g_shared.lock();
 	g_shared.unlock();
-	// The task is still inside its unlock: its critical section is held.
-	const auto section = opsy::scheduler::try_critical_section();
-	g_handler_opened_section = static_cast<bool>(section);
 	++g_handler_ran;
 }
 
-OPSY_QEMU_TEST(an_isr_sharing_an_isr_lock_leaves_the_task_critical_section_alone)
+OPSY_QEMU_TEST(an_isr_sharing_an_isr_lock_waits_for_the_task_unlock)
 {
 	if (g_shared_irq == qemu_test::no_irq)
 		g_shared_irq = qemu_test::find_usable_irq();
@@ -245,10 +277,7 @@ OPSY_QEMU_TEST(an_isr_sharing_an_isr_lock_leaves_the_task_critical_section_alone
 	opsy::cortex_m::set_isr_handler(g_shared_irq, &shared_lock_irq_handler);
 	opsy::cortex_m::enable_interrupt(g_shared_irq);
 	g_handler_ran = 0;
-	g_handler_opened_section = false;
 
-	// Raised under the lock, the handler is masked until the task's unlock
-	// lowers the level, and runs right there, inside it.
 	g_shared.lock();
 	qemu_test::raise(g_shared_irq);
 	busy_wait(100);
@@ -256,11 +285,6 @@ OPSY_QEMU_TEST(an_isr_sharing_an_isr_lock_leaves_the_task_critical_section_alone
 	g_shared.unlock();
 
 	CHECK(g_handler_ran == 1);
-	CHECK(!g_handler_opened_section);
-
-	// The task's unlock closed its section: a task may take it again.
-	const auto section = opsy::scheduler::try_critical_section();
-	CHECK(static_cast<bool>(section));
 
 	opsy::cortex_m::disable_interrupt(g_shared_irq);
 }

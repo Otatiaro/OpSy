@@ -1059,6 +1059,17 @@ public:
 	}
 
 	/**
+	 * @brief Reads the @c BASEPRI register
+	 * @return The masking level, @c 0 when nothing is masked
+	 */
+	static isr_priority basepri() __attribute__((always_inline))
+	{
+		uint32_t value; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
+		asm volatile("mrs %[output], basepri" : [output] "=r" (value));
+		return isr_priority(static_cast<uint8_t>(value));
+	}
+
+	/**
 	 * @brief Enables the Floating Point Unit (FPU) on devices which have the FPU coprocessor
 	 * @remark Calling this on a target without an FPU (Cortex-M3 in this codebase) is a
 	 *         compile-time error: the @c CPACR register is reserved on those cores and

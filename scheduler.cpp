@@ -637,7 +637,8 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 		if (auto* const* held = std::get_if<isr_lock*>(&next->released_lock_))
 		{
 			result |= detail::join_words(0, (*held)->relock_from_pend_sv()); // the BASEPRI, in the high word
-			state_.critical_section_.store(true, std::memory_order_relaxed);
+			if ((*held)->critical_section_)
+				state_.critical_section_.store(true, std::memory_order_relaxed);
 			next->released_lock_ = std::monostate{};
 			hook::mutex_restored_for_task(*next);
 		}
@@ -672,12 +673,14 @@ void scheduler::service_call_handler(detail::stack_frame* frame,
 	case service_call_number::sleep:
 		assert(is_thread); // should not be called from non thread mode
 		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		assert(cortex_m::basepri().value() == 0); // nor under a level: PendSV would wait for its release, and the task run on as if it slept
 		task_switch = sleep_call(duration{static_cast<int64_t>(detail::join_words(frame->r0, frame->r1))});
 		break;
 
 	case service_call_number::context_switch:
 		assert(is_thread); // should not be called from non thread mode
 		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // should not be called in critical section
+		assert(cortex_m::basepri().value() == 0); // nor under a level: PendSV would wait for its release
 		task_switch = do_switch();
 		break;
 
@@ -852,10 +855,15 @@ bool scheduler::wait_call(condition_variable& condition, duration timeout)
 
 	if (auto* const* isr = std::get_if<isr_lock*>(&released))
 	{
-		assert(state_.critical_section_.load(std::memory_order_relaxed) == true); // should be in critical section
 		(*isr)->release_from_service_call();
-		(*isr)->critical_section_ = false;
-		state_.critical_section_.store(false, std::memory_order_relaxed);
+		// Only a task-only lock holds the critical section; a level holds off
+		// the switch by itself, and release_from_service_call lowered it.
+		if (std::exchange((*isr)->critical_section_, false))
+		{
+			assert(state_.critical_section_.load(std::memory_order_relaxed) == true);
+			state_.critical_section_.store(false, std::memory_order_relaxed);
+		}
+		assert(!state_.critical_section_.load(std::memory_order_relaxed)); // anything else held would keep the task running as if it waited
 		hook::mutex_stored_for_task(*current);
 	}
 	else if (auto* const* held = std::get_if<mutex*>(&released))

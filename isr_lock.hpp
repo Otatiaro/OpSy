@@ -133,25 +133,26 @@ public:
 	 */
 	/**
 	 * @warning NOT recursive, and unlike @c std::mutex the failure is silent.
-	 *          A second @c lock() from the task that already holds it receives
-	 *          an invalid @c critical_section handle and assigns it over the
-	 *          valid one, clearing that handle while the scheduler's
-	 *          @c critical_section_ flag stays set. Every later context switch
-	 *          is then refused and the system freezes on the current task, with
-	 *          no trap and no fault. A typical @c std::mutex deadlocks instead,
+	 *          A second @c lock() from the task that already holds it records
+	 *          the state the first one set up as the one to restore: the
+	 *          scheduler's critical section stays open, or @c BASEPRI stays
+	 *          raised, after both unlocks. Every later context switch is then
+	 *          refused and the system freezes on the current task, with no
+	 *          trap and no fault. A typical @c std::mutex deadlocks instead,
 	 *          which at least points at the culprit. There is no
 	 *          @c recursive_mutex here.
 	 *
-	 * @warning Releases must be strictly LIFO across mutexes. Exclusion is a
-	 *          single global critical section rather than a per-object lock, so
-	 *          with @c a.lock(); @c b.lock(); the handle @c b holds is already
-	 *          invalid, and @c a.unlock() releases the section while @c b still
-	 *          believes it holds one — preemption resumes and @c b protects
-	 *          nothing. @c std::mutex allows any release order.
+	 * @warning Releases must be strictly LIFO across locks. Exclusion is the
+	 *          scheduler's single critical section, or the single @c BASEPRI
+	 *          level, rather than a per-object lock: with @c a.lock();
+	 *          @c b.lock(); @c a.unlock() restores what was there before @c a ,
+	 *          while @c b still believes it holds its lock — preemption resumes
+	 *          and @c b protects nothing. @c std::mutex allows any release order.
 	 *
 	 * @warning Do not sleep or wait while holding one: @ref opsy::sleep_for and
-	 *          the sleep service call assert that no critical section is held.
-	 *          Use @c condition_variable::wait(mutex&) , which releases it
+	 *          the sleep service call assert that neither the critical section
+	 *          nor a @c BASEPRI level is held. Use
+	 *          @c condition_variable::wait(isr_lock&) , which releases it
 	 *          atomically with the wait.
 	 */
 	void lock();
@@ -164,7 +165,7 @@ public:
 private:
 
 	/**
-	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed, the critical section with it
+	 * @brief Re-acquire the lock from @c PendSV when the owning task is resumed, with the critical section for a task-only lock
 	 * @return The preemption priority requested by the mutex (used by @c PendSV to set @c BASEPRI)
 	 */
 	uint32_t relock_from_pend_sv();
@@ -184,7 +185,8 @@ private:
 	bool locked_ = false;
 	isr_priority previous_lock_ = isr_priority(0);
 	// Whether lock() opened the scheduler's critical section, which unlock()
-	// then closes. A flag rather than a critical_section object: that object's
+	// then closes; a task-only lock's alone, the others hold off the switch by
+	// their level. A flag rather than a critical_section object: that object's
 	// destructor makes it return through memory and be moved to be destroyed,
 	// on every lock and unlock.
 	bool critical_section_ = false;
@@ -198,7 +200,7 @@ private:
  *   - @c std::nullopt : task-only exclusion via a @c critical_section.
  *   - value 0         : full lock (@c PRIMASK = 1, all maskable interrupts off).
  *   - value > 0       : interrupt masking via @c BASEPRI up to that priority,
- *                       plus a @c critical_section if called from a task.
+ *                       which masks PendSV too: no task switch under it.
  */
 // All accesses below use the unchecked dereference (operator* / operator->) on
 // std::optional<isr_priority>, NOT optional::value(). value() throws
@@ -223,19 +225,15 @@ inline void isr_lock::lock()
 		}
 		else
 		{
-			bool section = false;
-			if (cortex_m::ipsr() == 0) // ask for critical section only when in task
-				section = scheduler::critical_section_begin();
-			else
-				// current_priority() returns nullopt only when ipsr() == 0; we are in the else
-				// branch where ipsr() != 0, so the optional is necessarily engaged here too.
-				assert(cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // NOLINT(bugprone-unchecked-optional-access): see above. In interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
+			// Any level masks PendSV, the least urgent exception: no task
+			// switch happens under it, and the scheduler's critical section
+			// would add nothing. A level of 0 would mask nothing at all.
+			assert(priority_->masked_value<preemption_bits>() != 0); // a sub-priority alone is not a masking level
+			// current_priority() returns nullopt only when ipsr() == 0, where the assert does not look at it.
+			assert(cortex_m::ipsr() == 0 || cortex_m::current_priority()->masked_value<preemption_bits>() >= priority_->masked_value<preemption_bits>()); // NOLINT(bugprone-unchecked-optional-access): see above. In interrupt, check that current priority level is lower than what is needed to lock, because if an interrupt with higher priority participate in the lock, synchronization cannot be guaranteed
 
 			hook::enter_priority_lock(*priority_);
 			previous_lock_ = cortex_m::exchange_basepri(isr_priority(priority_->masked_value<preemption_bits>()));
-			// Written once the level masks the ISRs sharing this lock: their
-			// unlock would otherwise close the task's critical section.
-			critical_section_ = section;
 			assert(previous_lock_.masked_value<preemption_bits>() <= priority_->masked_value<preemption_bits>()); // a new mutex lock cannot LOWER the priority mutex (basepri)
 		}
 	}
@@ -272,9 +270,6 @@ inline void isr_lock::unlock()
 		}
 		else
 		{
-			// Taken while the level still masks the ISRs sharing this lock:
-			// their unlock would otherwise close the task's critical section.
-			const bool section = std::exchange(critical_section_, false);
 #ifndef NDEBUG
 			const auto was = cortex_m::exchange_basepri(previous_lock_);
 			assert(was.masked_value<preemption_bits>() == priority_->masked_value<preemption_bits>());
@@ -282,8 +277,6 @@ inline void isr_lock::unlock()
 			cortex_m::exchange_basepri(previous_lock_);
 #endif
 			hook::exit_priority_lock();
-			if (section)
-				scheduler::critical_section_end();
 		}
 	}
 	else
@@ -307,12 +300,12 @@ inline void isr_lock::leave_critical_section()
  * @return The preemption priority requested by the mutex
  * @remark Called from @c scheduler::pend_sv_handler when restoring a task that
  *         was put to sleep while holding a mutex (see @c condition_variable::wait
- *         with mutex). The scheduler opens the critical section the task held
- *         and hands it back to the mutex.
+ *         with mutex). For a task-only lock, the scheduler opens the critical
+ *         section the task held and hands it back to the lock.
  */
 inline uint32_t isr_lock::relock_from_pend_sv()
 {
-	critical_section_ = true; // it is a task, so critical section is mandatory
+	critical_section_ = !priority_.has_value(); // a level holds off the switch by itself
 
 	if (priority_.has_value())
 	{

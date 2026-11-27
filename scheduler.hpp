@@ -567,8 +567,7 @@ private:
 	static inline bool suspend_waiting(task_control_block& task, condition_variable& condition);
 
 	/**
-	 * @brief Suspends the calling task on @p condition , until a notification or @p deadline
-	 * @return @c false , without waiting, if @p deadline has already passed
+	 * @brief Suspends the calling task on @p condition , until a notification
 	 *
 	 *         A wait without a service call, as @c mutex::lock blocks: called
 	 *         from a task masked to @c service_call_priority , with nothing
@@ -577,7 +576,34 @@ private:
 	 *         switches away from it; it resumes there once woken, and reads
 	 *         how the wait ended from @c task_control_block::wait_timed_out .
 	 */
-	static bool wait_masked(condition_variable& condition, std::optional<time_point> deadline);
+	static void wait_masked(condition_variable& condition);
+
+	/**
+	 * @brief Suspends the calling task on @p condition , until a notification or @p deadline
+	 * @return @c false , without waiting, if @p deadline has already passed
+	 * @remark As the overload without a deadline otherwise.
+	 */
+	static bool wait_masked(condition_variable& condition, time_point deadline);
+
+	/**
+	 * @brief Either overload, by whether there is a deadline
+	 * @return @c false , without waiting, if @p deadline has already passed
+	 * @remark Inline, so that the optional never crosses a call: passed by
+	 *         value, an empty one is cleared in memory and copied, about
+	 *         thirty instructions on every wait without a deadline.
+	 */
+	static bool wait_masked(condition_variable& condition, std::optional<time_point> deadline)
+	{
+		if (deadline.has_value())
+			return wait_masked(condition, *deadline);
+		wait_masked(condition);
+		return true;
+	}
+
+	/**
+	 * @brief The running task, checked fit to wait by masking
+	 */
+	static inline task_control_block& masked_waiter();
 	/**
 	 * @brief Records @p task as the owner of @p target
 	 * @remark The two sides of taking a mutex, in one place so they cannot

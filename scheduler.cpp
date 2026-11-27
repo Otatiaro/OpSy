@@ -798,23 +798,35 @@ bool scheduler::suspend_waiting(task_control_block& task, condition_variable& co
 	return do_switch();
 }
 
-bool scheduler::wait_masked(condition_variable& condition, std::optional<time_point> deadline)
+inline task_control_block& scheduler::masked_waiter()
 {
 	assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
 	assert(!state_.critical_section_.load(std::memory_order_relaxed)); // do_switch would decline, and the task run on as if it waited
 
-	// As a duration, as wait_for(deadline - now()) decides it: a deadline
-	// already behind ends the wait at once, one at this very tick waits for
-	// the next.
-	if (deadline.has_value() && (*deadline - ticks_).count() < 0)
-		return false;
-
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
 	assert(current != nullptr);
 	assert(std::holds_alternative<std::monostate>(current->released_lock_));
+	return *current;
+}
 
-	start_waiting(*current, condition, deadline);
-	suspend_waiting(*current, condition);
+void scheduler::wait_masked(condition_variable& condition)
+{
+	auto& current = masked_waiter();
+	start_waiting(current, condition, std::nullopt);
+	suspend_waiting(current, condition);
+}
+
+bool scheduler::wait_masked(condition_variable& condition, time_point deadline)
+{
+	// As a duration, as wait_for(deadline - now()) decides it: a deadline
+	// already behind ends the wait at once, one at this very tick waits for
+	// the next.
+	if ((deadline - ticks_).count() < 0)
+		return false;
+
+	auto& current = masked_waiter();
+	start_waiting(current, condition, deadline);
+	suspend_waiting(current, condition);
 	return true;
 }
 

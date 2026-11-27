@@ -171,8 +171,8 @@ issuing the call rather than passing them through.
 
 Not every scheduler operation needs an `SVC`. Four of them do not —
 `wake_one`, `update_priority`, `trigger_soft_switch`, `add_task` — and
-neither do `mutex::lock` / `unlock` or the semaphore's `acquire` /
-`release`. They all follow the same shape:
+neither do `mutex::lock` / `unlock`, the semaphore's `acquire` /
+`release` or the queue's waits and wake-ups. They all follow the same shape:
 
 ```
 const auto previous = cortex_m::exchange_basepri(service_call_priority);
@@ -187,7 +187,8 @@ only guarantees a lowered mask to be visible after an `isb`, an exception
 entry or an exception return, while nothing in that shape waits for the
 switch. `set_basepri` ends on an `isb`. Where the next instruction must
 see the pending interrupt served, the mask is lowered with `set_basepri`: `mutex::lock` blocking on a held mutex, which resumes
-owning it, a semaphore's `acquire` blocking on a zero count, and `now()`,
+owning it, a semaphore's `acquire` blocking on a zero count, a queue's
+side blocking on a full or empty queue, and `now()`,
 which a task may spin on.
 
 **A service call is needed when the operation has to release a lock the
@@ -210,8 +211,8 @@ Everything else can mask instead:
   code makes no difference.
 - **Suspending the caller** — no handler required either: `do_switch()`
   leaves the current task out of `ready_` if `current_task_` is already
-  cleared. Clearing it yourself is all "suspend me" means. `mutex::lock`
-  and the semaphore block that way.
+  cleared. Clearing it yourself is all "suspend me" means. `mutex::lock`,
+  the semaphore and the queue block that way.
 
 The saving is not academic. An `SVC` costs exception entry, dispatch and
 exit — tens of cycles — on an operation whose useful work is a handful

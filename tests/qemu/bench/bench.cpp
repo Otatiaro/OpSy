@@ -46,6 +46,7 @@ extern "C"
 {
 extern uint32_t _estack;
 /// What a vendor's system header declares; this image has none
+// NOLINTNEXTLINE(readability-redundant-declaration): the object config.hpp declares, whose name there is opsy's; application code names the global one
 extern uint32_t SystemCoreClock;
 
 void Reset_Handler();

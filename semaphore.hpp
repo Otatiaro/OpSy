@@ -35,13 +35,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <mutex>
+#include <optional>
 
 #include "opsy_assert.hpp"
 #include "config.hpp"
-#include "cortex_m.hpp" // IWYU pragma: keep (only the asserts use it)
+#include "cortex_m.hpp"
+#include "hooks.hpp"
 #include "scheduler.hpp"
-#include "isr_lock.hpp"
 #include "condition_variable.hpp"
 
 namespace opsy
@@ -56,10 +56,11 @@ namespace opsy
  *
  *        Lock-free when it can be: taking a count that is there, or releasing
  *        with nobody waiting, is a single compare-and-swap on the count, with
- *        no service call and nothing masked. Only a task that has to wait, and
- *        a release that has someone to wake, go through the scheduler, under
- *        a mask at @c scheduler::os_callable_priority : nothing has to be
- *        configured for an interrupt handler to release it.
+ *        nothing masked. Only a task that has to wait, and a release that has
+ *        someone to wake, go through the scheduler, masked to
+ *        @c scheduler::service_call_priority and without a service call, as
+ *        @c mutex::lock blocks: nothing has to be configured for an interrupt
+ *        handler to release it.
  *
  *        Waiters are released in priority order, the most important first,
  *        and keep that order when their priority changes while they wait.
@@ -122,21 +123,22 @@ public:
 		[[maybe_unused]] const auto previous = count_.fetch_add(static_cast<int32_t>(update), std::memory_order_release);
 		assert(previous <= max() - update); // released past max()
 
-		// Read without the lock: a waiter only queues itself while holding it,
-		// and holding it masks every handler that may call OpSy and every task
-		// switch, so nothing that could run this. So either it queued before
-		// the count was raised, and is seen here, or it will see the count when
-		// it looks. notify_one() takes its own lock, at the same level as lock_,
-		// around the one step that needs it: taking lock_ here as well would
-		// only add a second BASEPRI round trip to every release.
+		// Read unmasked: a waiter looks at the count and queues itself in one
+		// step, masked to OpSy's own level, so nothing that could run this runs
+		// in between. So either it queued before the count was raised, and is
+		// seen here, or it will see the count when it looks. wake_one masks
+		// around the one step that needs it.
 		//
-		// size() rather than empty(): SysTick, which the lock does not mask
-		// either, takes a waiter whose deadline passed off the list, and can do
-		// so in the middle of this read. empty() checks the list's two fields
-		// against each other and would see them disagree; size() is one word,
-		// read whole, and a hint only -- wake_one looks again under the mask.
+		// size() rather than empty(): SysTick takes a waiter whose deadline
+		// passed off the list, and can do so in the middle of this read.
+		// empty() checks the list's two fields against each other and would
+		// see them disagree; size() is one word, read whole, and a hint only --
+		// wake_one looks again under the mask.
 		for (std::ptrdiff_t i = 0; i < update && available_.waiting_list_.size() != 0; ++i) // NOLINT(readability-container-size-empty): see above
-			available_.notify_one();
+		{
+			hook::condition_variable_notify_one(available_);
+			scheduler::wake_one(available_);
+		}
 	}
 
 	/**
@@ -145,14 +147,8 @@ public:
 	 */
 	void acquire()
 	{
-		if (try_acquire())
-			return;
-
-		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
-
-		const std::scoped_lock _(lock_);
-		while (!try_acquire())
-			available_.wait(lock_);
+		if (!try_acquire())
+			(void) wait_for_count(std::nullopt);
 	}
 
 	/**
@@ -187,23 +183,48 @@ public:
 	 */
 	[[nodiscard]] bool try_acquire_until(time_point deadline)
 	{
-		if (try_acquire())
-			return true;
-
-		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
-
-		const std::scoped_lock _(lock_);
-		while (!try_acquire())
-			if (available_.wait_until(lock_, deadline) == cv_status::timeout)
-				return try_acquire(); // released at the last moment still counts
-		return true;
+		return try_acquire() || wait_for_count(deadline);
 	}
 
 private:
 
+	/**
+	 * @brief Blocks until a count can be taken, or @p deadline passes
+	 * @return @c true once it took one
+	 */
+	bool wait_for_count(std::optional<time_point> deadline)
+	{
+		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
+
+		while (true)
+		{
+			const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
+			assert(previous.value() == 0); // under a mask PendSV could not switch away, and the task would run on as if it waited
+
+			if (try_acquire())
+			{
+				cortex_m::exchange_basepri(previous);
+				return true;
+			}
+
+			if (!scheduler::wait_masked(available_, deadline))
+			{
+				cortex_m::exchange_basepri(previous);
+				return false;
+			}
+
+			cortex_m::set_basepri(previous); // with its barrier: PendSV runs here, and
+			                                 // this task resumes below once woken
+
+			if (scheduler::current_task()->wait_timed_out())
+				return try_acquire(); // released at the last moment still counts
+		}
+	}
+
 	std::atomic<int32_t> count_;
-	isr_lock lock_{ scheduler::os_callable_priority };
-	condition_variable available_{ scheduler::os_callable_priority };
+	// The scheduler's wait queue: only its waiting list is used, under the
+	// scheduler's own mask, never its notify or wait.
+	condition_variable available_;
 };
 
 /**

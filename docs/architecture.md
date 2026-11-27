@@ -171,7 +171,8 @@ issuing the call rather than passing them through.
 
 Not every scheduler operation needs an `SVC`. Four of them do not —
 `wake_one`, `update_priority`, `trigger_soft_switch`, `add_task` — and
-neither do `mutex::lock` / `unlock`. They all follow the same shape:
+neither do `mutex::lock` / `unlock` or the semaphore's `acquire` /
+`release`. They all follow the same shape:
 
 ```
 const auto previous = cortex_m::exchange_basepri(service_call_priority);
@@ -186,13 +187,18 @@ only guarantees a lowered mask to be visible after an `isb`, an exception
 entry or an exception return, while nothing in that shape waits for the
 switch. `set_basepri` ends on an `isb`. Where the next instruction must
 see the pending interrupt served, the mask is lowered with `set_basepri`: `mutex::lock` blocking on a held mutex, which resumes
-owning it, and `now()`, which a task may spin on.
+owning it, a semaphore's `acquire` blocking on a zero count, and `now()`,
+which a task may spin on.
 
-**A service call is needed for exactly one reason: the operation has to
-touch the calling task's `stack_frame`.** In practice that means
-returning a value the task cannot compute itself — `cv_status` from a
-wait, decided by whoever notifies or by the timeout. Only the handler
-can reach the frame to write it.
+**A service call is needed when the operation has to release a lock the
+caller holds as it suspends it.** `condition_variable::wait` is the case:
+the caller holds an `isr_lock` or a `mutex`, and the lock must be released
+in the same step as the task joins the waiting list, or a notification
+falls in between and is lost. An `isr_lock` taken by a task also holds the
+scheduler's critical section, under which `do_switch()` declines: only a
+handler can drop both and switch. How a wait ended (`cv_status`, decided
+by whoever notifies or by the timeout) is not a reason: it is written in
+the task's control block, which the task reads when it runs again.
 
 Everything else can mask instead:
 
@@ -205,7 +211,7 @@ Everything else can mask instead:
 - **Suspending the caller** — no handler required either: `do_switch()`
   leaves the current task out of `ready_` if `current_task_` is already
   cleared. Clearing it yourself is all "suspend me" means. `mutex::lock`
-  blocks that way.
+  and the semaphore block that way.
 
 The saving is not academic. An `SVC` costs exception entry, dispatch and
 exit — tens of cycles — on an operation whose useful work is a handful

@@ -162,7 +162,7 @@ inline void scheduler::systick_handler()
 		{
 			task.waiting_->remove_waiting(task);
 			task.waiting_ = nullptr; // the task no longer waits on it -- see wake, which does the same
-			task.set_return_value(static_cast<uint32_t>(cv_status::timeout)); // notify timeout to thread (write value to its R0 frame)
+			task.wait_timed_out_ = true;
 			resume_waiter(task, wake_reason::timed_out);
 		}
 		else
@@ -321,7 +321,7 @@ void scheduler::wake(task_control_block& task, [[maybe_unused]] condition_variab
 	assert(task.waiting_ == &condition); // check the condition is the one the task was waiting for
 
 	task.waiting_ = nullptr;
-	task.set_return_value(static_cast<uint32_t>(cv_status::no_timeout)); // set the return value to no timeout
+	task.wait_timed_out_ = false;
 
 	if(task.wait_until_.has_value()) // task was also waiting for a timeout
 	{
@@ -648,7 +648,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 }
 
 void scheduler::service_call_handler(detail::stack_frame* frame,
-		service_call_number parameter, [[maybe_unused]] bool is_thread, uint32_t exc_return)
+		service_call_number parameter, [[maybe_unused]] bool is_thread)
 {
 	hook::enter_service_call();
 	bool task_switch = false;
@@ -680,7 +680,7 @@ void scheduler::service_call_handler(detail::stack_frame* frame,
 		assert(is_thread); // should not be called from non thread mode
 		assert(frame->r0 != 0); // cannot be called with undefined condition variable
 		task_switch = wait_call(argument<condition_variable>(frame->r0),
-				duration{static_cast<int64_t>(detail::join_words(frame->r1, frame->r2))}, frame, exc_return);
+				duration{static_cast<int64_t>(detail::join_words(frame->r1, frame->r2))});
 		break;
 	}
 
@@ -774,7 +774,51 @@ bool scheduler::sleep_call(duration delay)
 	return do_switch();
 }
 
-bool scheduler::wait_call(condition_variable& condition, duration timeout, detail::stack_frame* frame, uint32_t exc_return)
+void scheduler::start_waiting(task_control_block& task, condition_variable& condition, std::optional<time_point> deadline)
+{
+	if (deadline.has_value())
+	{
+		task.wait_until_ = deadline;
+		timeouts_.insert_when(wakeup_after{}, task);
+		hook::task_wait_timeout(task, condition, *deadline);
+		hook::condition_variable_start_waiting(condition, task, *deadline - ticks_);
+	}
+	else
+	{
+		hook::task_wait(task, condition);
+		hook::condition_variable_start_waiting(condition, task);
+	}
+}
+
+bool scheduler::suspend_waiting(task_control_block& task, condition_variable& condition)
+{
+	condition.add_waiting(task);
+	task.waiting_ = &condition;
+	clear_current_task();
+	return do_switch();
+}
+
+bool scheduler::wait_masked(condition_variable& condition, std::optional<time_point> deadline)
+{
+	assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
+	assert(!state_.critical_section_.load(std::memory_order_relaxed)); // do_switch would decline, and the task run on as if it waited
+
+	// As a duration, as wait_for(deadline - now()) decides it: a deadline
+	// already behind ends the wait at once, one at this very tick waits for
+	// the next.
+	if (deadline.has_value() && (*deadline - ticks_).count() < 0)
+		return false;
+
+	auto* current = state_.current_task_.load(std::memory_order_relaxed);
+	assert(current != nullptr);
+	assert(std::holds_alternative<std::monostate>(current->released_lock_));
+
+	start_waiting(*current, condition, deadline);
+	suspend_waiting(*current, condition);
+	return true;
+}
+
+bool scheduler::wait_call(condition_variable& condition, duration timeout)
 {
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
 	assert(current != nullptr); // cannot be called if there is no current task running
@@ -784,20 +828,7 @@ bool scheduler::wait_call(condition_variable& condition, duration timeout, detai
 	// and there is no register left to carry a discriminant.
 	auto& released = current->released_lock_;
 
-	if(timeout.count() >= 0)
-	{
-		current->wait_until_ = ticks_ + timeout;
-		timeouts_.insert_when(wakeup_after{}, *current);
-		// Just engaged on the previous line; use * not .value() to avoid
-		// the bad_optional_access -> abort path under -fno-exceptions.
-		hook::task_wait_timeout(*current, condition, *current->wait_until_);
-		hook::condition_variable_start_waiting(condition, *current, timeout);
-	}
-	else
-	{
-		hook::task_wait(*current, condition);
-		hook::condition_variable_start_waiting(condition, *current);
-	}
+	start_waiting(*current, condition, timeout.count() >= 0 ? std::optional(ticks_ + timeout) : std::nullopt);
 
 	if (auto* const* isr = std::get_if<isr_lock*>(&released))
 	{
@@ -816,25 +847,7 @@ bool scheduler::wait_call(condition_variable& condition, duration timeout, detai
 		hook::mutex_stored_for_task(*current);
 	}
 
-	condition.add_waiting(*current);
-	current->waiting_ = &condition;
-
-	// Pre-set stack_pointer_ so set_return_value() is safe if an ISR tail-chains
-	// before PendSV saves the context. PendSV will save context (and fp_context
-	// when the FPU was active) below 'frame'; computing that address here lets
-	// wake() → set_return_value() navigate to stack_frame::r0 correctly regardless
-	// of whether PendSV has already run.
-	auto* stack_pointer = reinterpret_cast<task_control_block::stack_item*>(frame); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the frame the core stacked is where PendSV saves below
-	if constexpr (cortex_m::has_fpu)
-	{
-		if ((exc_return & cortex_m::exc_return_fp_flag) == 0) // the FPU was active
-			detail::push<detail::fp_context>(stack_pointer);
-	}
-	detail::push<detail::context>(stack_pointer)->lr = exc_return; // pre-populate lr for set_return_value's FPU check
-	current->stack_pointer_ = stack_pointer;
-
-	state_.current_task_.store(nullptr, std::memory_order_relaxed);
-	return do_switch();
+	return suspend_waiting(*current, condition);
 }
 
 namespace
@@ -1120,7 +1133,6 @@ void __attribute__((naked)) SVC_Handler()
 			// that assumption. R4 is callee-saved and restored right after, so
 			// the choice of register is inert.
 			"push {R4, LR} \n\t"
-			"mov R3, LR \n\t"        // pass EXC_RETURN as 4th argument
 			"bl %[handler] \n\t"
 			"dsb \n\t"
 			"isb \n\t"

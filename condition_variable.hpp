@@ -226,7 +226,7 @@ private:
 	/**
 	 * @brief Issues the wait service call, whatever lock was recorded
 	 * @param timeout The time limit, negative meaning none
-	 * @return What the scheduler wrote back as the wake reason
+	 * @return How the wait ended, as the scheduler recorded it on the task
 	 *
 	 * @remark One place doing the service call, six public overloads deciding
 	 *         what to release beforehand. Which lock — if any — is recorded on
@@ -308,24 +308,21 @@ static inline void record_lock(std::variant<std::monostate, mutex*, isr_lock*> l
 inline cv_status condition_variable::do_wait(duration timeout)
 {
 	const auto count = detail::split_words(static_cast<uint64_t>(timeout.count()));
-	uint32_t result; // NOLINT(cppcoreguidelines-init-variables): the asm statement writes it
 
 	// "memory" clobber: see scheduler::trigger_hard_switch.
 	asm volatile(
 			"mov r0, %[this_ptr] \n\t"
 			"mov r1, %[count_lo] \n\t"
 			"mov r2, %[count_hi] \n\t"
-			"svc %[immediate] \n\t"
-			"mov %[result], r0"
-			: [result] "=r" (result)
+			"svc %[immediate]"
+			:
 			: [immediate] "I" (scheduler::service_call_number::wait),
 			  [this_ptr] "r" (this),
 			  [count_lo] "r" (count.low),
 			  [count_hi] "r" (count.high)
 			: "r0", "r1", "r2", "memory");
 
-	assert(result == 0 || result == 1);
-	return static_cast<cv_status>(result);
+	return scheduler::current_task()->wait_timed_out() ? cv_status::timeout : cv_status::no_timeout;
 }
 
 inline void condition_variable::wait()

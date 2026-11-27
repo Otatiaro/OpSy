@@ -31,9 +31,9 @@
 # at release is that release, from the runner.
 #
 # The semaphore is release's this, in r0 on entry. Its waiting list sits at
-# the offsets semaphore.hpp's layout gives: the count, the semaphore's own
-# lock, then the condition variable, which holds its notification lock and
-# then the list, head word then count word. They are read through casts at
+# the offsets semaphore.hpp's layout gives: the count, then the condition
+# variable, which holds its notification lock and then the list, head word
+# then count word. They are read through casts at
 # those offsets, not by type: the scenario states the layout it relies on.
 #
 # rwatch stops the CPU after a read of the head. Where that read happens is
@@ -69,8 +69,8 @@ continue
 delete
 
 set $semaphore = $r0
-set $first_addr = $semaphore + 20
-set $size_addr = $semaphore + 24
+set $first_addr = $semaphore + 12
+set $size_addr = $semaphore + 16
 printf "INFO stopped at release; the list holds %d waiter(s)\n", *(unsigned int *)$size_addr
 
 if *(unsigned int *)$size_addr != 1

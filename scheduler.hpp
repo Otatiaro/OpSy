@@ -56,6 +56,7 @@
 #include "opsy_assert.hpp"
 #include <atomic>
 #include <concepts>
+#include <optional>
 #include <type_traits>
 
 #include "config.hpp"
@@ -186,6 +187,8 @@ class scheduler
 	friend class critical_section;
 	friend class isr_lock;
 	friend class condition_variable;
+	template<std::ptrdiff_t LeastMaxValue>
+	friend class counting_semaphore;
 
 public:
 
@@ -321,8 +324,10 @@ public:
 	/**
 	 * @brief The task currently running, or @c nullptr between tasks
 	 * @remark Exposed for @c mutex , which needs to know who is acquiring.
+	 *         @c always_inline : one load, smaller than the call GCC emits at
+	 *         @c -Os once enough callers use it.
 	 */
-	[[nodiscard]] static task_control_block* current_task()
+	[[nodiscard, gnu::always_inline]] static task_control_block* current_task()
 	{
 		return state_.current_task_.load(std::memory_order_relaxed);
 	}
@@ -536,7 +541,7 @@ private:
 	static void __attribute__((always_inline)) systick_handler();
 
 	static uint64_t pend_sv_handler(uint32_t* psp);
-	static void service_call_handler(detail::stack_frame* frame, service_call_number parameter, bool is_thread, uint32_t exc_return);
+	static void service_call_handler(detail::stack_frame* frame, service_call_number parameter, bool is_thread);
 
 	// The service calls that take arguments, one each, decoded from the
 	// registers by service_call_handler. Each returns whether it pended a switch.
@@ -544,7 +549,33 @@ private:
 	// rather than call them on the way to a switch.
 	static inline bool terminate_call(task_control_block& task);
 	static inline bool sleep_call(duration delay);
-	static inline bool wait_call(condition_variable& condition, duration timeout, detail::stack_frame* frame, uint32_t exc_return);
+	static inline bool wait_call(condition_variable& condition, duration timeout);
+
+	/**
+	 * @brief Records @p task as waiting, from now until @p deadline if there is one, and fires the hooks
+	 * @remark The first half of a wait, shared by @ref wait_call and @ref wait_masked .
+	 */
+	static inline void start_waiting(task_control_block& task, condition_variable& condition, std::optional<time_point> deadline);
+
+	/**
+	 * @brief Queues the running @p task on @p condition and switches away from it
+	 * @return Whether a switch was pended
+	 * @remark The second half of a wait, once the lock it released, if any, is released.
+	 */
+	static inline bool suspend_waiting(task_control_block& task, condition_variable& condition);
+
+	/**
+	 * @brief Suspends the calling task on @p condition , until a notification or @p deadline
+	 * @return @c false , without waiting, if @p deadline has already passed
+	 *
+	 *         A wait without a service call, as @c mutex::lock blocks: called
+	 *         from a task masked to @c service_call_priority , with nothing
+	 *         recorded to release. The task leaves @c ready_ here and keeps
+	 *         running until its caller lowers the mask, which is where PendSV
+	 *         switches away from it; it resumes there once woken, and reads
+	 *         how the wait ended from @c task_control_block::wait_timed_out .
+	 */
+	static bool wait_masked(condition_variable& condition, std::optional<time_point> deadline);
 	/**
 	 * @brief Records @p task as the owner of @p target
 	 * @remark The two sides of taking a mutex, in one place so they cannot

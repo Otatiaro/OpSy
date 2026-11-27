@@ -357,6 +357,15 @@ public:
 	}
 
 	/**
+	 * @brief Whether this task's last wait on a condition variable ended on its deadline
+	 * @remark Read by the task itself once it runs again, after the wait.
+	 */
+	[[nodiscard]] bool wait_timed_out() const
+	{
+		return wait_timed_out_;
+	}
+
+	/**
 	 * @brief Whether a cooperative stop has been requested
 	 * @return @c true once @ref request_stop has been called and the task has
 	 *         not been restarted since
@@ -558,23 +567,17 @@ private:
 	// ownership back when the task is woken — and the type system should be
 	// the thing that keeps them apart.
 	std::variant<std::monostate, mutex*, isr_lock*> released_lock_;
+	// How the last condition variable wait ended, written by whoever ends it
+	// (a notification or SysTick) and read by the task when it runs again. In
+	// the task rather than in the frame stacked on its service call: a task
+	// that blocks by masking and pending PendSV has no such frame.
+	bool wait_timed_out_ = false;
 
 	/**
 	 * @brief Trampoline used as the initial PC of every task
 	 * @param thisPtr Pointer to the @c task_control_block being started
 	 */
 	static void task_starter(task_control_block* thisPtr);
-
-	void set_return_value(uint32_t value)
-	{
-		auto* stack_pointer = stack_pointer_;
-		const auto* const ctx = detail::pop<detail::context>(stack_pointer);
-
-		if ((ctx->lr & cortex_m::exc_return_fp_flag) == 0) // there is a floating point context
-			detail::pop<detail::fp_context>(stack_pointer);
-
-		detail::pop<detail::stack_frame>(stack_pointer)->r0 = value; // the frame the core stacked on exception entry
-	}
 };
 
 /**

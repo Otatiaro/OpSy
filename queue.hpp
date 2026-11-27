@@ -37,8 +37,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <initializer_list>
 #include <limits>
-#include <mutex>
 #include <new>
 #include <optional>
 #include <type_traits>
@@ -48,8 +48,8 @@
 #include "config.hpp"
 #include "cortex_m.hpp" // IWYU pragma: keep (only the debug checks use it)
 #include "scheduler.hpp"
-#include "isr_lock.hpp"
 #include "condition_variable.hpp"
+#include "hooks.hpp"
 
 namespace opsy
 {
@@ -281,10 +281,16 @@ public:
 	 */
 	void close() noexcept
 	{
+		assert(scheduler::is_os_callable());
+		// Stored before the waiting lists are read: a side that saw the queue
+		// open had queued itself already, and is woken; any later one sees it
+		// closed.
 		closed_.store(true, std::memory_order_relaxed);
-		const std::scoped_lock _(lock_);
-		not_empty_.notify_all();
-		not_full_.notify_all();
+		for (auto* condition : { &not_empty_, &not_full_ })
+		{
+			hook::condition_variable_notify_all(*condition);
+			scheduler::wake_all(*condition);
+		}
 	}
 
 	[[nodiscard]] bool is_closed() const noexcept
@@ -343,9 +349,6 @@ private:
 	/**
 	 * @brief Waits for room, or for the queue to close
 	 * @return @c true if there is room, @c false if closed or the deadline passed
-	 * @remark The check and the wait are under the lock, which holds off every
-	 *         handler that may call OpSy and every task switch: a pop cannot
-	 *         free a place between the two, so none is missed.
 	 */
 	bool wait_while_full(std::optional<time_point> deadline)
 	{
@@ -354,10 +357,7 @@ private:
 		if (size_.load(std::memory_order_acquire) < Capacity)
 			return true;
 
-		const std::scoped_lock _(lock_);
-		while (size_.load(std::memory_order_acquire) == Capacity && !closed_.load(std::memory_order_relaxed))
-			if (!wait(not_full_, deadline))
-				break;
+		block_until(not_full_, deadline, [this] { return size_.load(std::memory_order_acquire) < Capacity || closed_.load(std::memory_order_relaxed); });
 		return !closed_.load(std::memory_order_relaxed) && size_.load(std::memory_order_acquire) < Capacity;
 	}
 
@@ -370,37 +370,54 @@ private:
 		if (size_.load(std::memory_order_acquire) > 0)
 			return true;
 
-		const std::scoped_lock _(lock_);
-		while (size_.load(std::memory_order_acquire) == 0 && !closed_.load(std::memory_order_relaxed))
-			if (!wait(not_empty_, deadline))
-				break;
+		block_until(not_empty_, deadline, [this] { return size_.load(std::memory_order_acquire) > 0 || closed_.load(std::memory_order_relaxed); });
 		return size_.load(std::memory_order_acquire) > 0;
 	}
 
-	/** @return @c false if @p deadline passed */
-	bool wait(condition_variable& condition, std::optional<time_point> deadline)
+	/**
+	 * @brief Blocks on @p condition until @p done holds, or @p deadline passes
+	 * @remark Checks @p done and queues itself in one step, masked to OpSy's
+	 *         own level: nothing that changes the count, closes the queue or
+	 *         wakes a waiter runs in between, so no wake-up is missed.
+	 */
+	template<typename Done>
+	static void block_until(condition_variable& condition, std::optional<time_point> deadline, Done done)
 	{
-		if (!deadline.has_value())
+		assert(cortex_m::ipsr() == 0); // an interrupt handler cannot block
+
+		while (true)
 		{
-			condition.wait(lock_);
-			return true;
+			const auto previous = cortex_m::exchange_basepri(scheduler::service_call_priority);
+			assert(previous.value() == 0); // under a mask PendSV could not switch away, and the task would run on as if it waited
+
+			if (done() || !scheduler::wait_masked(condition, deadline))
+			{
+				cortex_m::exchange_basepri(previous);
+				return;
+			}
+
+			cortex_m::set_basepri(previous); // with its barrier: PendSV runs here, and
+			                                 // this task resumes below once woken
+
+			if (scheduler::current_task()->wait_timed_out())
+				return;
 		}
-		return condition.wait_until(lock_, *deadline) == cv_status::no_timeout;
 	}
 
 	/** @brief Wakes whoever waits on @p condition, and does nothing when nobody does */
-	void wake(condition_variable& condition)
+	static void wake(condition_variable& condition)
 	{
-		// Read without the lock: a side only queues itself while holding it,
-		// and holding it masks every handler that may call OpSy and every
-		// task switch. So either it queued before the count changed, and is
-		// seen here, or it will see the count when it looks. notify_one()
-		// takes its own lock, at the same level as lock_, around the one step
-		// that needs it, and size() is read rather than empty() because the
-		// tick may be half-way through removing a waiter; see
-		// counting_semaphore::release().
+		// Read unmasked: a side looks at the count and queues itself in one
+		// step, masked to OpSy's own level, so nothing that could run this runs
+		// in between. So either it queued before the count changed, and is
+		// seen here, or it will see the count when it looks. size() rather
+		// than empty(), because the tick may be half-way through removing a
+		// waiter; see counting_semaphore::release().
 		if (condition.waiting_list_.size() != 0) // NOLINT(readability-container-size-empty): see above
-			condition.notify_one();
+		{
+			hook::condition_variable_notify_one(condition);
+			scheduler::wake_one(condition);
+		}
 	}
 
 	template<typename... Arguments>
@@ -471,9 +488,10 @@ private:
 	std::atomic<std::uint32_t> high_water_{ 0 };
 	std::atomic<std::uint32_t> dropped_{ 0 };
 	std::atomic<bool> closed_{ false };
-	isr_lock lock_{ scheduler::os_callable_priority };
-	condition_variable not_empty_{ scheduler::os_callable_priority };
-	condition_variable not_full_{ scheduler::os_callable_priority };
+	// The scheduler's wait queues: only their waiting lists are used, under
+	// the scheduler's own mask, never their notify or wait.
+	condition_variable not_empty_;
+	condition_variable not_full_;
 };
 
 }

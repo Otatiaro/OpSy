@@ -189,6 +189,8 @@ class scheduler
 	friend class condition_variable;
 	template<std::ptrdiff_t LeastMaxValue>
 	friend class counting_semaphore;
+	template<typename T, std::size_t Capacity>
+	friend class queue;
 
 public:
 

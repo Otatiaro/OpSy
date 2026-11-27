@@ -45,6 +45,8 @@
 extern "C"
 {
 extern uint32_t _estack;
+/// What a vendor's system header declares; this image has none
+extern uint32_t SystemCoreClock;
 
 void Reset_Handler();
 }

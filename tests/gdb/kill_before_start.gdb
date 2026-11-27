@@ -39,7 +39,7 @@ break opsy::scheduler::start_impl
 continue
 
 set $return_site = (unsigned long)$pc
-set $started = *(unsigned char *)((unsigned long)&'opsy::scheduler::state_' + 16)
+set $started = *(unsigned char *)((unsigned long)&'opsy::scheduler::state_' + 12)
 printf "CHECK scheduler not started on entry to start_impl: %d (expected 0)\n", $started
 
 # The call main could have made: g_runner.kill(), with the task started.

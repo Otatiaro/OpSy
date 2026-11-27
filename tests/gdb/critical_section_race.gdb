@@ -74,7 +74,7 @@ frame 0
 
 # The scheduler keeps what a switch touches in one object, scheduler::state_;
 # the offsets below follow its layout, listed in scheduler.hpp next to it.
-set $flag_addr = ((unsigned long)&'opsy::scheduler::state_' + 19)
+set $flag_addr = ((unsigned long)&'opsy::scheduler::state_' + 15)
 
 if *(unsigned char *)$flag_addr != 0
   printf "INFO the section was already held on entry, nothing to race against\n"

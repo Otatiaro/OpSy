@@ -179,11 +179,22 @@ inline void scheduler::systick_handler()
 		hook::exit_systick(false);
 }
 
+bool scheduler::stay()
+{
+	// A switch elected earlier may still be pending: an interrupt that woke
+	// the task blocking, say, before PendSV took it away. Clearing the pend
+	// is not enough, because PendSV may already be running, preempted before
+	// it raised its mask: the election is the running context, so that PendSV
+	// restores what it saves. Null when that context is idle.
+	state_.next_task_.store(state_.current_task_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+	cortex_m::clear_pend_sv();
+	return false;
+}
+
 bool scheduler::do_switch()
 {
 	assert(is_started());
 	auto* current = state_.current_task_.load(std::memory_order_relaxed);
-	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
 	assert((current != nullptr) || (state_.critical_section_.load(std::memory_order_relaxed) == false)); // can't have no current task in critical section
 
 	if(state_.critical_section_.load(std::memory_order_relaxed))
@@ -192,44 +203,34 @@ bool scheduler::do_switch()
 		return false;
 	}
 
-	if (next != nullptr)
-	{
-		assert(current != next);
-
-		ready_.insert_when(task_control_block::priority_is_lower{}, *next);
-		state_.next_task_.store(nullptr, std::memory_order_relaxed);
-		next = nullptr;
-	}
-
-	if (current != nullptr)
-	{
-		// Outranking everything ready, the running task keeps running: no
-		// need to queue it to pop it again. An equal at the head takes its
-		// turn, as below.
-		if (ready_.empty() || task_control_block::priority_is_lower{}(*current, ready_.front()))
-			return false;
-
-		ready_.insert_when(task_control_block::priority_is_lower{}, *current);
-		state_.current_task_.store(nullptr, std::memory_order_relaxed);
-	}
+	// Every runnable task is in ready_, the running one and the one elected
+	// included: the election is its front, and nothing is moved to make it.
+	task_control_block* elected = nullptr;
 
 	if (ready_.empty())
 	{
-		cortex_m::trigger_pend_sv();
-		return true;
+		if (current == nullptr && state_.idling_.load(std::memory_order_relaxed))
+			return stay();
 	}
-
-	auto& front = ready_.front();
-	ready_.pop_front();
-
-	if (&front == current)
+	else
 	{
-		state_.current_task_.store(&front, std::memory_order_relaxed);
-		state_.next_task_.store(nullptr, std::memory_order_relaxed);
-		return false;
+		elected = &ready_.front();
+
+		if (elected == current)
+		{
+			// First, the running task keeps running, unless an equal is right
+			// behind it: that one takes its turn.
+			const auto second = ++ready_.begin();
+			if (second == ready_.end() || task_control_block::priority_is_lower{}(*current, *second))
+				return stay();
+
+			ready_.erase(*current);
+			ready_.insert_when(task_control_block::priority_is_lower{}, *current);
+			elected = &ready_.front();
+		}
 	}
 
-	state_.next_task_.store(&front, std::memory_order_relaxed);
+	state_.next_task_.store(elected, std::memory_order_relaxed);
 	cortex_m::trigger_pend_sv();
 	return true;
 }
@@ -384,8 +385,12 @@ void scheduler::release_mutex(mutex& target, task_control_block& owner)
 	hand_over(target);
 
 	// Releasing may drop an inherited priority — though not necessarily to the
-	// base one, if another held mutex still has waiters of its own.
+	// base one, if another held mutex still has waiters of its own. The owner
+	// runs, so it is in ready_, where its place follows its priority.
+	const auto inherited = owner.priority_;
 	recompute_priority(owner);
+	if (owner.priority_ != inherited)
+		requeue(owner);
 }
 
 bool scheduler::hand_over(mutex& released)
@@ -545,12 +550,7 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 	bool may_preempt = false;
 	if(task.is_started()) // check task is started
 	{
-		if(&task == state_.current_task_.load(std::memory_order_relaxed)
-			|| &task == state_.next_task_.load(std::memory_order_relaxed)) // task is current or next to switch to
-		{
-			may_preempt = true; // compare its priority again with the other ready tasks
-		}
-		else if(task.waiting_ != nullptr) // task is waiting a condition variable
+		if(task.waiting_ != nullptr) // task is waiting a condition variable
 		{
 			requeue(task);
 		}
@@ -564,12 +564,18 @@ void scheduler::update_priority(task_control_block& task, task_priority new_prio
 		}
 		else if(task.is_ready())
 		{
-			// is_ready() rather than a hand-rolled condition: it is the one
-			// predicate that knows every state a task can be in, state_.next_task_
-			// and blocked_on_ included.
+			// The running and the elected task are in ready_ as well: lowered,
+			// either may now be outranked.
 			ready_.erase(task); // remove the task from ready list
-			ready_.insert_when(task_control_block::priority_is_lower{}, task); // then re insert it, this will update its order
-			may_preempt = &ready_.front() == &task; // brought to the first place: it may outrank the current / next task
+			auto position = ready_.insert_when(task_control_block::priority_is_lower{}, task); // then re insert it, this will update its order
+
+			// It may preempt if it is the running or the elected task, or
+			// first behind them: an equal there takes its turn.
+			const auto* current = state_.current_task_.load(std::memory_order_relaxed);
+			const auto* next = state_.next_task_.load(std::memory_order_relaxed);
+			const auto* ahead = position == ready_.begin() ? nullptr : &*(--position);
+			may_preempt = &task == current || &task == next
+				|| ahead == nullptr || ahead == current || ahead == next;
 		}
 	}
 
@@ -593,16 +599,16 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	// through memory.
 	uint64_t result = 0;
 	[[maybe_unused]] uint32_t* stack_base = nullptr;
-	auto* previous = state_.previous_task_.load(std::memory_order_relaxed);
-	auto* next     = state_.next_task_.load(std::memory_order_relaxed);
-	auto* idle     = state_.idle_.load(std::memory_order_relaxed);
+	auto* current = state_.current_task_.load(std::memory_order_relaxed);
+	auto* next    = state_.next_task_.load(std::memory_order_relaxed);
+	auto* idle    = state_.idle_.load(std::memory_order_relaxed);
 
-	if (previous != nullptr)
+	if (current != nullptr)
 	{
-		assert(psp >= previous->stack_base_); // Process stack pointer below the task stack base, stack overflow !
-		assert(*previous->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
-		previous->stack_pointer_ = psp;
-		hook::task_stopped(*previous);
+		assert(psp >= current->stack_base_); // Process stack pointer below the task stack base, stack overflow !
+		assert(*current->stack_base_ == task_control_block::dummy_pattern); // The lowest slot of the task stack has been modified, this shows a stack overflow
+		current->stack_pointer_ = psp;
+		hook::task_stopped(*current);
 	}
 
 	if (state_.idling_.load(std::memory_order_relaxed))
@@ -611,7 +617,7 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	if (next == nullptr)
 	{
 		state_.idling_.store(true, std::memory_order_relaxed);
-		state_.previous_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed);
 		result = address_of(idle->stack_pointer_);
 		stack_base = idle->stack_base_;
 		hook::enter_idle();
@@ -619,7 +625,6 @@ uint64_t scheduler::pend_sv_handler(uint32_t* psp)
 	else
 	{
 		state_.idling_.store(false, std::memory_order_relaxed);
-		state_.previous_task_.store(next, std::memory_order_relaxed);
 		state_.current_task_.store(next, std::memory_order_relaxed);
 		result = address_of(next->stack_pointer_);
 		stack_base = next->stack_base_;
@@ -735,7 +740,7 @@ bool scheduler::terminate_call(task_control_block& task)
 		}
 	}
 
-	// A runnable-but-not-running task is linked into ready_, and nothing
+	// A runnable task, running or not, is linked into ready_, and nothing
 	// above unlinks it. Done after the waiting_ branch on purpose: both
 	// lists share the task_lists::waiting node pair, so the task must have
 	// left the condition variable's list before this touches ready_.
@@ -744,9 +749,12 @@ bool scheduler::terminate_call(task_control_block& task)
 	if (&task == state_.current_task_.load(std::memory_order_relaxed))
 	{
 		assert(!state_.critical_section_.load(std::memory_order_relaxed));
-		state_.previous_task_.store(nullptr, std::memory_order_relaxed);
-		state_.current_task_.store(nullptr, std::memory_order_relaxed);
+		state_.current_task_.store(nullptr, std::memory_order_relaxed); // nothing to save it to: it never resumes
 		task_switch = do_switch();
+	}
+	else if (&task == state_.next_task_.load(std::memory_order_relaxed))
+	{
+		task_switch = do_switch(); // elected but gone: elect again
 	}
 	// A waiter handed a mutex may outrank whoever called kill(), and a
 	// holder that lost the dying task's donation may now be outranked --
@@ -770,7 +778,7 @@ bool scheduler::sleep_call(duration delay)
 	current->wait_until_ = ticks_ + delta;
 	timeouts_.insert_when(wakeup_after{}, *current);
 	hook::task_sleep(*current, *current->wait_until_); // engaged two lines up: * not .value(), see the wait below
-	state_.current_task_.store(nullptr, std::memory_order_relaxed);
+	leave_ready(*current);
 	return do_switch();
 }
 
@@ -792,9 +800,9 @@ void scheduler::start_waiting(task_control_block& task, condition_variable& cond
 
 bool scheduler::suspend_waiting(task_control_block& task, condition_variable& condition)
 {
+	leave_ready(task);
 	condition.add_waiting(task);
 	task.waiting_ = &condition;
-	clear_current_task();
 	return do_switch();
 }
 
@@ -916,13 +924,10 @@ std::size_t idle_task_control_block::stack_high_water() const
  */
 bool task_control_block::is_ready() const
 {
-	// state_.next_task_ matters as much as state_.current_task_: a task do_switch() has
-	// elected is popped out of ready_ and sits in no list at all until PendSV
-	// runs. Treating it as ready makes ready_.erase() a silent no-op and the
-	// following insert link it a second time.
+	// By state, not by identity: the running task and the elected one are in
+	// ready_ too, and a task that just blocked is still the current one until
+	// PendSV switches away from it.
 	return is_started()
-		&& this != scheduler::current_task()
-		&& this != scheduler::next_task()
 		&& blocked_on_ == nullptr
 		&& waiting_ == nullptr
 		&& !wait_until_.has_value();

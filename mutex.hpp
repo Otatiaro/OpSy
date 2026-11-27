@@ -181,11 +181,10 @@ inline void mutex::lock()
 		return;
 	}
 
-	// Held: block on it. do_switch() only leaves the caller out of ready_ if
-	// current_task_ is already cleared, which is how a task suspends itself
-	// without a handler.
+	// Held: block on it, out of ready_ first, since the waiters share its
+	// node. do_switch() then elects someone else.
+	scheduler::leave_ready(*self);
 	scheduler::block_on(*this, *self);
-	scheduler::clear_current_task();
 	scheduler::do_switch();
 
 	cortex_m::set_basepri(previous);          // with its barrier: PendSV runs here, and

@@ -1,33 +1,27 @@
-# The task elected for a switch must be in no list until PendSV installs it.
+# PendSV installs the task do_switch elected.
 #
 # WHY THIS EXISTS
 #
 # OpSy switches tasks in two steps. First scheduler::do_switch picks who runs
-# next: it puts the outgoing task back into ready_, clears current_task_,
-# takes the winner out of ready_, stores it in next_task_ and raises PendSV.
+# next: the front of ready_, which holds every runnable task, the running one
+# included. It stores the winner in next_task_ and raises PendSV, leaving
+# current_task_ on the outgoing task, whose context is still on the core.
 # Then PendSV -- the lowest-priority exception, so it runs only once nothing
 # else is pending -- saves the outgoing context, restores the elected one and
 # makes it current.
 #
-# Between those two steps the elected task is in no list at all: not in
-# ready_, not current_task_, only next_task_. Anything that reasons about
-# where a task lives has to account for that window, and two invariants keep
-# it safe to reason about:
+# Interrupts between the two steps may elect again. An election that lands
+# on the running task cancels the pending switch (scheduler::stay) and
+# leaves that task in next_task_: a PendSV that had already started, before
+# its mask, then restores the context it saves rather than going idle. The
+# scenario counts those switches to self; it does not fail on them.
 #
-#   at PendSV entry     current_task_ is null -- do_switch has already handed
-#                       the outgoing task back to ready_, so no task is
-#                       claimed to be running while none is
-#   when PendSV clears  current_task_ holds what next_task_ held at entry --
-#   next_task_          the elected task is accounted for again, and the
-#                       window is closed
-#
-# A task that ended up in neither next_task_ nor a list would simply never run
-# again, and nothing in a running system would report it: the scheduler would
-# keep working with one task silently lost. That is what this checks for.
+# What it checks: when PendSV clears next_task_, current_task_ holds what
+# next_task_ held at entry -- the elected task is the one that runs.
 #
 # The elected task being null at entry is not a defect: do_switch also raises
 # PendSV when ready_ has emptied, to switch to the idle task, and stores no
-# next_task_ for it. There is no window to close in that case, and the
+# next_task_ for it. There is no installation to check in that case, and the
 # scenario counts those switches separately rather than checking them.
 #
 # WHAT YOU NEED TO KNOW TO READ IT
@@ -72,12 +66,12 @@ delete
 
 # The scheduler keeps what a switch touches in one object, scheduler::state_;
 # the offsets below follow its layout, listed in scheduler.hpp next to it.
-set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 4
-set $next_addr = (unsigned long)&'opsy::scheduler::state_' + 8
+set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 0
+set $next_addr = (unsigned long)&'opsy::scheduler::state_' + 4
 
 set $switches = 0
 set $to_idle = 0
-set $running_at_entry = 0
+set $switch_to_self = 0
 set $window_left_open = 0
 set $wrong_task_installed = 0
 
@@ -88,12 +82,11 @@ while $switches < 6
   continue
   set $switches = $switches + 1
 
-  if *(unsigned long *)$current_addr != 0
-    set $running_at_entry = $running_at_entry + 1
-    printf "CHECK PendSV entered with current_task_=0x%x -- a task is still claimed to be running\n", *(unsigned long *)$current_addr
-  end
-
   set $elected = *(unsigned long *)$next_addr
+
+  if $elected != 0 && $elected == *(unsigned long *)$current_addr
+    set $switch_to_self = $switch_to_self + 1
+  end
 
   if $elected == 0
     # Switching to the idle task: no election to close out.
@@ -103,8 +96,8 @@ while $switches < 6
     #
     # The breakpoint on the handler is disabled first. Left armed, the
     # continue below can stop on the *next* switch instead of on the
-    # watchpoint -- and there next_task_ holds a freshly elected task and
-    # current_task_ is null, which reads exactly like the failure this
+    # watchpoint -- and there next_task_ holds a freshly elected task that
+    # current_task_ does not, which reads exactly like the failure this
     # scenario looks for. What it would be reporting is its own confusion
     # about which stop it got.
     disable $handler_bp
@@ -128,14 +121,14 @@ delete
 
 printf "CHECK context switches observed: %d (expected 6)\n", $switches
 printf "INFO of those, switches to the idle task: %d\n", $to_idle
-printf "CHECK switches entered with a task still running: %d (expected 0)\n", $running_at_entry
+printf "INFO of those, switches of a task to itself: %d\n", $switch_to_self
 printf "CHECK switches that left next_task_ set: %d (expected 0)\n", $window_left_open
 printf "CHECK switches that installed a task other than the elected one: %d (expected 0)\n", $wrong_task_installed
 
 # A run made entirely of idle switches would check nothing about the window,
 # so it is a failure too: a silent pass would hide that the scenario never
 # observed what it exists to observe.
-if $running_at_entry == 0 && $window_left_open == 0 && $wrong_task_installed == 0 && $switches == 6 && $to_idle < 6
+if $window_left_open == 0 && $wrong_task_installed == 0 && $switches == 6 && $to_idle < 6
   printf "SCENARIO: PASS\n"
 else
   printf "SCENARIO: FAIL\n"

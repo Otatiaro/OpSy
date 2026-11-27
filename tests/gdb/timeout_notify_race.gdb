@@ -36,8 +36,9 @@
 # The verdict is the number of tasks in ready_, read from the list's size
 # field once wake_one is done with the lists: on entry to PendSV, which the
 # wake pends for the waiter and which runs as soon as wake_one lowers its
-# mask, or when wake_one returns if nothing was pended. The waiter belongs
-# there exactly once. The field is read through a cast at its offset, not by
+# mask, or when wake_one returns if nothing was pended. ready_ holds every
+# runnable task, so the runner is there, and the waiter belongs there exactly
+# once: two tasks. The field is read through a cast at its offset, not by
 # type: the size follows the head pointer.
 #
 # The image is killed rather than resumed: a list with a node linked twice is
@@ -84,9 +85,9 @@ if $_isvoid($_exitcode) == 0
   printf "SCENARIO: FAIL\n"
 else
   set $ready_size = *(unsigned int *)((unsigned long)&'opsy::scheduler::ready_' + 4)
-  printf "CHECK tasks in ready_ after the tick and the notification: %d (expected 1)\n", $ready_size
+  printf "CHECK tasks in ready_ after the tick and the notification: %d (expected 2)\n", $ready_size
 
-  if $ready_size == 1
+  if $ready_size == 2
     printf "SCENARIO: PASS\n"
   else
     printf "SCENARIO: FAIL\n"

@@ -29,8 +29,9 @@
 #   - every element's back-link points at the element before it, and the
 #     first element's back-link is null -- so the list is walkable in both
 #     directions, which removal depends on
-#   - the running task is not in ready_, which would make it eligible to be
-#     switched to while it is already running
+#   - the running task is in ready_, which holds every runnable task, unless
+#     it is blocking and PendSV is pending to switch away from it: a running
+#     task missing from ready_ would be lost at its next preemption
 #
 # WHAT YOU NEED TO KNOW TO READ IT
 #
@@ -187,7 +188,9 @@ set $ready_addr = (unsigned long)&'opsy::scheduler::ready_'
 set $all_addr = (unsigned long)&'opsy::scheduler::all_tasks_'
 # The scheduler keeps what a switch touches in one object, scheduler::state_;
 # the offsets below follow its layout, listed in scheduler.hpp next to it.
-set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 4
+set $current_addr = (unsigned long)&'opsy::scheduler::state_' + 0
+# ICSR.PENDSVSET, bit 28 of the SCB's interrupt control and state register.
+set $icsr_addr = 0xE000ED04
 
 # Run until the image has started the scheduler, so the lists observed below
 # are those of a running system rather than of the startup code.
@@ -239,6 +242,7 @@ set $count_mismatch = 0
 set $one_way = 0
 set $unterminated = 0
 set $running_task_queued = 0
+set $running_task_lost = 0
 set $mutex_waiters_seen = 0
 
 break SysTick_Handler
@@ -274,14 +278,17 @@ while $stops < 150
     printf "CHECK all_tasks_ chain did not end at null: a cycle, or a link that is not a task\n"
   end
 
-  # ready_ holds the tasks waiting for their turn, so the running task does
-  # not belong in it.
+  # ready_ holds every runnable task, the running one included; only a task
+  # that has just blocked is out of it, with PendSV pending to leave it.
   set $running = *(unsigned long *)$current_addr
   if $running != 0
     chain_contains $ready_addr $running $ready_links
+    if $present == 0 && (*(unsigned int *)$icsr_addr & 0x10000000) == 0
+      set $running_task_lost = $running_task_lost + 1
+      printf "CHECK the running task 0x%x is out of ready_ with no switch pending\n", $running
+    end
     if $present == 1
       set $running_task_queued = $running_task_queued + 1
-      printf "CHECK the running task 0x%x is also queued in ready_\n", $running
     end
   end
 end
@@ -327,12 +334,13 @@ printf "CHECK ticks inspected: %d (expected 150)\n", $stops
 printf "CHECK ticks where a list's count disagreed with its chain: %d (expected 0)\n", $count_mismatch
 printf "CHECK ticks where a back-link disagreed with the chain: %d (expected 0)\n", $one_way
 printf "CHECK ticks where a chain did not end at null: %d (expected 0)\n", $unterminated
-printf "CHECK ticks where the running task was also queued: %d (expected 0)\n", $running_task_queued
-# Zero would mean the mutex chains were never exercised, and their checks
-# above proved nothing.
+printf "CHECK ticks where the running task was out of ready_ with no switch pending: %d (expected 0)\n", $running_task_lost
+# Zero would mean the membership check never saw the running task queued,
+# and proved nothing; the same goes for the mutex chains below.
+printf "CHECK ticks where the running task was found in ready_: %d (expected at least 1)\n", $running_task_queued
 printf "CHECK hand-overs at which a mutex had waiters: %d (expected at least 1)\n", $mutex_waiters_seen
 
-if $stops == 150 && $count_mismatch == 0 && $one_way == 0 && $unterminated == 0 && $running_task_queued == 0 && $mutex_waiters_seen > 0
+if $stops == 150 && $count_mismatch == 0 && $one_way == 0 && $unterminated == 0 && $running_task_lost == 0 && $running_task_queued > 0 && $mutex_waiters_seen > 0
   printf "SCENARIO: PASS\n"
 else
   printf "SCENARIO: FAIL\n"

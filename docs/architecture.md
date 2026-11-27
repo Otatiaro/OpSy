@@ -97,25 +97,34 @@ to the mutex: the two ends of one link, changed together.
 
 A task that sleeps with a timeout is in `all_tasks_` **and** `timeouts_`.
 A task waiting on a condition variable with a timeout is in `all_tasks_`,
-`timeouts_`, and the condition variable's list. A running task is in
-`all_tasks_` only — it is *not* in `ready_`, which holds the ones waiting
-their turn.
+`timeouts_`, and the condition variable's list. `ready_` holds every
+runnable task, the running one and the one elected to run next included:
+a task leaves it only to block (`scheduler::leave_ready`, before it joins
+a waiting list, since they share its node) or to terminate.
 
-## Who is running: three pointers
+## Who is running: two pointers
 
-- `current_task_` — the task that owns the CPU. `nullptr` while the
-  scheduler is between tasks, or when idle.
-- `next_task_` — chosen by `do_switch()`, consumed by `PendSV`.
-- `previous_task_` — the one whose context `PendSV` must save.
+- `current_task_` — the task whose context is on the core. `nullptr` when
+  idle or before the start. A task that blocks stays the current one until
+  `PendSV` saves its context and switches away from it.
+- `next_task_` — chosen by `do_switch()`, consumed by `PendSV`. `nullptr`
+  with `PendSV` pended means the switch goes to idle.
 
 They are members of `scheduler::state_`, with `idle_` and the four flags of
 the switch (`is_started_`, `idling_`, `may_need_switch_`,
 `critical_section_`): one object, so `PendSV` and `do_switch()` load one
 base address and work from offsets.
 
-`do_switch()` is the one function that picks a task. It pops the head of
-`ready_`, puts the outgoing task back in, and pends `PendSV`. It refuses
-to do anything while a critical section is held, recording
+`do_switch()` is the one function that picks a task: the head of `ready_`,
+or idle if it is empty. When the head is the running task and an equal
+follows, the running task moves behind its equals, which is their turn.
+When the choice is the running context, `scheduler::stay()` cancels any
+switch still pending: an interrupt may have woken the task that was
+blocking before `PendSV` ran. It also elects the running context itself,
+because clearing the pend does not stop a `PendSV` already entered but
+preempted before raising its mask: that one then restores the context it
+saved. Neither touches the list otherwise. It
+refuses to do anything while a critical section is held, recording
 `may_need_switch_` instead so the switch is replayed on release.
 
 ## Life of a task

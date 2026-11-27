@@ -324,8 +324,9 @@ public:
 	}
 
 	/**
-	 * @brief The task currently running, or @c nullptr between tasks
-	 * @remark Exposed for @c mutex , which needs to know who is acquiring.
+	 * @brief The task whose context is on the core, or @c nullptr when idle or before the start
+	 * @remark A task that blocks stays the current one until PendSV switches
+	 *         away from it. Exposed for @c mutex , which needs to know who is acquiring.
 	 *         @c always_inline : one load, smaller than the call GCC emits at
 	 *         @c -Os once enough callers use it.
 	 */
@@ -336,9 +337,10 @@ public:
 
 	/**
 	 * @brief The task elected by @c do_switch but not yet switched to
-	 * @remark Between election and @c PendSV running, a task is in no list at
-	 *         all — neither @c ready_ nor running. Anything reasoning about
-	 *         where a task lives has to account for that window.
+	 * @remark @c nullptr with PendSV pended means the switch goes to idle. The
+	 *         elected task stays in @c ready_ , as the running one does. It may
+	 *         be the running task itself, when an election kept it: a PendSV
+	 *         already entered then restores the context it saves.
 	 */
 	[[nodiscard]] static task_control_block* next_task()
 	{
@@ -468,13 +470,12 @@ private:
 	 * @brief What a switch reads and writes, one object so that PendSV and
 	 *        do_switch address all of it from one base register
 	 * @remark Layout the GDB scenarios read by address (tests/gdb):
-	 *         previous_task_ +0, current_task_ +4, next_task_ +8, idle_ +12,
-	 *         is_started_ +16, idling_ +17, may_need_switch_ +18,
-	 *         critical_section_ +19.
+	 *         current_task_ +0, next_task_ +4, idle_ +8,
+	 *         is_started_ +12, idling_ +13, may_need_switch_ +14,
+	 *         critical_section_ +15.
 	 */
 	struct state
 	{
-		std::atomic<task_control_block*> previous_task_{nullptr};
 		std::atomic<task_control_block*> current_task_{nullptr};
 		std::atomic<task_control_block*> next_task_{nullptr};
 		std::atomic<idle_task_control_block*> idle_{nullptr};
@@ -538,6 +539,9 @@ private:
 	};
 
 	static bool do_switch();
+
+	/** @brief The running context keeps the core: cancels a switch still pending, returns @c false */
+	static bool stay();
 
 	/** @remark Defined in scheduler.cpp, the only caller: it needs condition_variable complete. */
 	static void __attribute__((always_inline)) systick_handler();
@@ -620,10 +624,14 @@ private:
 	 */
 	static void block_on(mutex& target, task_control_block& task);
 
-	/** @brief Clears @c state_.current_task_ so @c do_switch leaves the caller out of @c ready_ */
-	static void clear_current_task()
+	/**
+	 * @brief Takes the running @p task out of @c ready_ as it blocks
+	 * @remark Before it joins the list it blocks on: a condition variable's or
+	 *         a mutex's waiters share the node @c ready_ uses.
+	 */
+	static void leave_ready(task_control_block& task)
 	{
-		state_.current_task_.store(nullptr, std::memory_order_relaxed);
+		ready_.erase(task);
 	}
 
 	/**

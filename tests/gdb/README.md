@@ -46,9 +46,9 @@ ctest --test-dir build-qemu -R tick_wrap --output-on-failure
 | `take_mutex_masking.gdb` | `scheduler::take_mutex` is never entered with `SysTick` unmasked. Both a task and the tick handler can reach it, and if the two overlapped the mutex would end up with two owners. Reads `BASEPRI` inside the function and forces a tick to confirm it is held off. |
 | `add_task_atomicity.gdb` | Starting a task links it into two lists, and `SysTick` must not run while they disagree — it would walk a half-stitched list. Single-steps through `add_task` and checks at every instruction that the two lists agree, or `SysTick` is masked. |
 | `critical_section_race.gdb` | Two tasks never both hold the scheduler's critical section. Stops the CPU at the instant the flag is read and writes it as a competing task would, which is the only interleaving that tells an atomic claim apart from a read followed by a write. |
-| `pendsv_window.gdb` | The task elected for a switch is accounted for at every point: no task is claimed to be running when `PendSV` is entered, and the handler installs the elected task and closes the election window. A task lost in that window would simply never run again, silently. |
+| `pendsv_window.gdb` | `PendSV` installs the task `do_switch` elected and closes the election window. An election that lands back on the running task leaves it elected, so a `PendSV` already entered restores it; those switches are counted, not failed. |
 | `start_window.gdb` | The scheduler counts as started only once nothing that may call into OpSy can interleave with its first switch. From then on starting a task asks for a context switch, which before the process stack is set up would save a context through a PSP pointing at nothing. Single-steps `start_impl` and checks at every instruction that the flag is clear, or the handlers allowed to call OpSy are masked. |
-| `list_integrity.gdb` | The scheduler's task lists, a mutex's waiters included, stay coherent tick after tick: counts match the chains, back-links agree with forward links, no chain is a cycle, and the running task is not also queued as waiting. Intrusive lists do not fail loudly when mis-stitched, so this looks for the damage directly. |
+| `list_integrity.gdb` | The scheduler's task lists, a mutex's waiters included, stay coherent tick after tick: counts match the chains, back-links agree with forward links, no chain is a cycle, and the running task is in `ready_` unless a switch away from it is pending. Intrusive lists do not fail loudly when mis-stitched, so this looks for the damage directly. |
 | `release_hint_race.gdb` | A semaphore release reads the waiting list without the lock, as a hint; the tick can remove a timed-out waiter in the middle of that read. Stops the release on its read of the list's head and lands the tick there: the hint has to be one word, read whole, or an asserting build dies on two words that disagree. |
 | `kill_before_start.gdb` | `kill()` refuses to run before `scheduler::start`: its service call has no handler of OpSy's to land in yet, and a program killing a task from `main` on some condition would die there in release with nothing to say why. No case can make the call from a task, so the scenario makes it itself: stopped on the way into `start_impl`, it redirects the CPU into `kill` as `main` would have called it, and the stop that follows has to be `opsy::trap`, called from `kill`. |
 
@@ -85,15 +85,7 @@ defect in the source, rebuilding and confirming the scenario turns red:
 | `start_window.gdb` | `start_impl` sets `is_started_` on entry, unmasked (the code before this check) | yes |
 | `pendsv_window.gdb` | `PendSV` installs a task other than the elected one | yes |
 
-Two things are deliberately not in that table.
-
-`pendsv_window.gdb` also checks that no task is claimed to be running
-when `PendSV` is entered. No local edit was found that violates it while
-still producing a switch to observe — the ordering that guarantees it is
-structural. It is kept as a guard against a future reworking of the
-switch, not as a regression test for a defect anyone has written.
-
-`tick_wrap.gdb` has no such entry either. Its value is not that it
+`tick_wrap.gdb` is deliberately not in that table. Its value is not that it
 detects an edit; it is that it reaches a point in time no test run will
 otherwise reach, and shows the counter behaves there.
 

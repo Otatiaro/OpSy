@@ -216,6 +216,36 @@ jobs:
           --machine ${{ matrix.machine }}
           --baseline tests/qemu/bench/baseline-${{ matrix.target }}.json
 
+  # The same image built for a NUCLEO-H563ZI: its board code (clock, cycle
+  # counter) is compiled only there, so the job keeps it building. It needs
+  # the board to run; tests/README.md says how.
+  bench-board:
+    name: Bench, board build (stm32h563zi)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the arm-none-eabi toolchain
+        uses: Otatiaro/arm-none-eabi-toolchain@bdf7759e264645bbcf02cfb66596869ff8684821
+        with:
+          version: ${{ env.TOOLCHAIN_VERSION }}
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: >
+          cmake -S tests/qemu -B build-bench-board
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/tests/cortex-m-toolchain.cmake
+          -DOPSY_COMPILER=gcc
+          -DOPSY_TARGET=m33
+          "-DOPSY_OPTIMISATION=-Os;-DNDEBUG"
+          -DOPSY_BENCH_BOARD=stm32h563zi
+
+      - name: Build
+        run: cmake --build build-bench-board --target opsy_qemu_bench
+
   # clang-tidy with the .clang-tidy files, over every source as the Arm
   # toolchain compiles it in the three suites (tests/tidy.py), and over each
   # header on its own. Per target: the architecture and FPU macros select
